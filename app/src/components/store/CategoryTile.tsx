@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     maxHeight: 132,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF5F0',
+    backgroundColor: colors.surface,
   },
   image: {
     width: '100%',

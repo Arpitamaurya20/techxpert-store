@@ -1,11 +1,16 @@
 import { Platform, type TextStyle } from 'react-native';
 
 export const colors = {
-  primary: '#102A43',
-  primaryLight: '#243B53',
-  accent: '#27834B',
-  accentPressed: '#1F6B3D',
-  accentSoft: '#E8F5EC',
+  /** Navy: headers, headings and structure. */
+  primary: '#0B2A5B',
+  primaryLight: '#1F4FA3',
+  /** Orange: buttons, links and other actions. Dark enough for white bold text. */
+  accent: '#D9480F',
+  accentPressed: '#B93C0B',
+  accentSoft: '#FFF1E8',
+  /** Green for positive states only (in stock, delivered, added). */
+  success: '#1E7B45',
+  successSoft: '#E8F5EC',
   background: '#FFFFFF',
   surface: '#F5F7FA',
   screen: '#F5F7FA',
@@ -23,17 +28,22 @@ export const colors = {
   warning: '#8A5A00',
   warningSoft: '#FFF6E0',
   disabled: '#A7B6C5',
-  /** Home header inspired by common grocery-store apps (coral, dark ink). */
-  homePink: '#F0B4B0',
-  homeInk: '#1C1412',
-  homeInkMuted: '#6B4E4A',
-  homeCream: '#F4EBDD',
-  homeArch: '#C4A574',
+  /** Store headings and their secondary text. */
+  homeInk: '#0B2A5B',
+  homeInkMuted: '#5B6B82',
   /** Sampled from the Techxpert logo; the logo needs a light backdrop to read well. */
   logoBlue: '#0A84E0',
   logoRed: '#E8202A',
   logoBackdrop: '#EEF6FD',
   logoBackdropDeep: '#DCEBFA',
+  /** Store design system: navy for structure, orange only for actions and promotions. */
+  navy: '#0B2A5B',
+  navyDeep: '#071C3D',
+  navySoft: '#EEF3FB',
+  /** Dark enough for white bold text and for orange text on white. */
+  orange: '#D9480F',
+  orangePressed: '#B93C0B',
+  orangeSoft: '#FFF1E8',
 } as const;
 
 export const spacing = {

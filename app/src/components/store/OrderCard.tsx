@@ -16,7 +16,7 @@ const STATUS_STYLE: Record<OrderStatus, { label: string; color: string; backgrou
   packed: { label: 'Packed', color: colors.warning, background: colors.warningSoft },
   shipped: { label: 'Shipped', color: colors.warning, background: colors.warningSoft },
   out_for_delivery: { label: 'Out for delivery', color: colors.warning, background: colors.warningSoft },
-  delivered: { label: 'Delivered', color: colors.accent, background: colors.accentSoft },
+  delivered: { label: 'Delivered', color: colors.success, background: colors.successSoft },
   cancelled: { label: 'Cancelled', color: colors.error, background: colors.errorSoft },
   returned: { label: 'Returned', color: colors.textMuted, background: colors.surface },
 };

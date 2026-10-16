@@ -31,7 +31,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
   },
   in: {
-    color: colors.accent,
+    color: colors.success,
   },
   low: {
     color: colors.warning,

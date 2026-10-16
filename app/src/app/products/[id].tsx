@@ -34,6 +34,7 @@ import {
   spacing,
   typography,
 } from '@/constants/theme';
+import { getDemoProductArt } from '@/data/demoProductArt';
 import { useAddToCart } from '@/hooks/useAddToCart';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { getErrorMessage } from '@/services/apiClient';
@@ -269,7 +270,7 @@ export default function ProductDetailsScreen() {
         )}
         {quantityInCart > 0 ? (
           <View style={styles.inCartRow}>
-            <Ionicons name="checkmark-circle" size={16} color={colors.accent} />
+            <Ionicons name="checkmark-circle" size={16} color={colors.success} />
             <Text style={styles.inCartText}>{quantityInCart} in your cart</Text>
           </View>
         ) : null}
@@ -298,6 +299,7 @@ export default function ProductDetailsScreen() {
                 <ProductImageGallery
                   images={gallery}
                   productName={product.name}
+                  localSource={getDemoProductArt(product.id)}
                   fallbackIcon={getCategoryIcon(product.categoryId)}
                 />
               </View>
@@ -480,7 +482,7 @@ const styles = StyleSheet.create({
   inCartText: {
     ...typography.caption,
     fontFamily: fonts.semiBold,
-    color: colors.accent,
+    color: colors.success,
   },
   sectionTitle: {
     ...typography.label,

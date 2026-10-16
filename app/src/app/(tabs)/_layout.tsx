@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
 import type { ComponentProps } from 'react';
-import { StyleSheet, View, type ColorValue } from 'react-native';
+import type { ColorValue } from 'react-native';
 
 import { colors, fonts } from '@/constants/theme';
 
@@ -17,7 +17,7 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.accent,
+        tabBarActiveTintColor: colors.navy,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.cardBorder, height: 64 },
         tabBarLabelStyle: { fontSize: 11, fontFamily: fonts.medium, marginBottom: 6 },
@@ -53,11 +53,8 @@ export default function TabsLayout() {
         name="help"
         options={{
           title: 'Need help?',
-          tabBarIcon: () => (
-            <View style={styles.helpIcon}>
-              <Ionicons name="chatbubble-ellipses" size={18} color={colors.white} />
-            </View>
-          ),
+          tabBarLabel: 'Help',
+          tabBarIcon: tabIcon('chatbubble-ellipses', 'chatbubble-ellipses-outline'),
         }}
       />
       <Tabs.Screen
@@ -70,14 +67,3 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  helpIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.accent,
-  },
-});

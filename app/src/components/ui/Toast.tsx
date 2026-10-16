@@ -151,6 +151,6 @@ const styles = StyleSheet.create({
   },
   actionLabel: {
     ...typography.label,
-    color: '#7BD49A',
+    color: '#FFB38A',
   },
 });

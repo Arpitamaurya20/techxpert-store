@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, fonts, radius, spacing, typography } from '@/constants/theme';
+import { getDemoProductArt } from '@/data/demoProductArt';
 import {
   getCartQuantityFloor,
   removeFromCart,
@@ -50,6 +51,7 @@ export function CartItemCard({ item }: CartItemCardProps) {
       >
         <ProductImage
           uri={item.imageUrl}
+          localSource={getDemoProductArt(item.productId)}
           fallbackIcon={getCategoryIcon(item.categoryId)}
           accessibilityLabel={item.name}
           iconSize={28}

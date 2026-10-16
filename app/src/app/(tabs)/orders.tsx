@@ -4,19 +4,15 @@ import { useCallback, useState } from 'react';
 import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
-import { HeaderFade } from '@/components/store/HeaderFade';
 import { HomeProductSection } from '@/components/store/HomeProductSection';
 import { OrderCard } from '@/components/store/OrderCard';
-import { ProductSearchBar } from '@/components/store/ProductSearchBar';
 import { StoreHeader } from '@/components/store/StoreHeader';
-import { StoreLogoBar } from '@/components/store/StoreLogoBar';
 import { Button } from '@/components/ui/Button';
 import { StateView } from '@/components/ui/StateView';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/theme';
 import type { HomeProductSectionConfig } from '@/data/homeSections';
 import { useAddToCart } from '@/hooks/useAddToCart';
 import { useAsyncData } from '@/hooks/useAsyncData';
-import { usePinnedSearch } from '@/hooks/usePinnedSearch';
 import { useReorder } from '@/hooks/useReorder';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
 import { useStoreLayout } from '@/hooks/useStoreLayout';
@@ -41,17 +37,6 @@ export default function OrdersScreen() {
   const session = useSession();
   const handleAddToCart = useAddToCart();
   const { reorder, reorderingId } = useReorder();
-  const [searchText, setSearchText] = useState('');
-  const pinnedSearch = usePinnedSearch();
-  const searchBar = (
-    <ProductSearchBar
-      value={searchText}
-      onChangeText={setSearchText}
-      onSubmit={(search) => router.push({ pathname: '/products', params: { search } })}
-      placeholder="What do you need today?"
-      shape="pill"
-    />
-  );
   const [refreshKey, setRefreshKey] = useState(0);
 
   const orders = useAsyncData(`orders-${session?.user.id ?? 'guest'}`, getOrders);
@@ -139,21 +124,17 @@ export default function OrdersScreen() {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       stickyHeaderIndices={[0]}
-      onScroll={pinnedSearch.onScroll}
-      scrollEventThrottle={16}
       refreshControl={
         <RefreshControl
           refreshing={orders.isRefreshing}
           onRefresh={refreshAll}
-          colors={[colors.accent]}
-          tintColor={colors.homeInk}
+          colors={[colors.orange]}
+          tintColor={colors.navy}
           progressBackgroundColor={colors.card}
         />
       }
     >
-      <StoreLogoBar search={searchBar} showSearch={pinnedSearch.isSearchPinned} />
-      <StoreHeader onSearchLayout={pinnedSearch.onSearchLayout}>{searchBar}</StoreHeader>
-      <HeaderFade style={styles.headerFade} />
+      <StoreHeader />
 
       <View style={styles.body}>
         <View style={styles.historySection}>
@@ -192,10 +173,6 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingBottom: spacing.xxl,
-  },
-  /** Overlaps the top padding of the body so the fade adds no extra space. */
-  headerFade: {
-    marginBottom: -32,
   },
   body: {
     width: '100%',

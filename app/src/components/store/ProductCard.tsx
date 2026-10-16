@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, fonts, radius, spacing, typography } from '@/constants/theme';
+import { getDemoProductArt } from '@/data/demoProductArt';
 import { getAddableRange, getMaxQuantity, useCartQuantity } from '@/state/cartStore';
 import type { Product } from '@/types/catalog';
 import { getCategoryIcon } from '@/utils/categoryIcon';
@@ -49,6 +50,7 @@ function ProductCardComponent({ product, width, onOpen, onAddToCart }: ProductCa
         >
           <ProductImage
             uri={product.imageUrl}
+            localSource={getDemoProductArt(product.id)}
             fallbackIcon={getCategoryIcon(product.categoryId)}
             accessibilityLabel={product.name}
             style={styles.image}
@@ -131,8 +133,6 @@ export function ProductCardSkeleton({ width }: { width: number }) {
   );
 }
 
-const ADD_GREEN = '#6E8B1E';
-
 const styles = StyleSheet.create({
   card: {
     gap: spacing.sm,
@@ -157,13 +157,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     borderWidth: 1.5,
-    borderColor: ADD_GREEN,
-    backgroundColor: colors.white,
+    borderColor: colors.accent,
+    backgroundColor: colors.accent,
   },
   addButtonPressed: {
-    backgroundColor: '#F1F6E4',
+    borderColor: colors.accentPressed,
+    backgroundColor: colors.accentPressed,
   },
   addButtonDisabled: {
     borderColor: colors.cardBorder,
@@ -174,7 +175,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontFamily: fonts.bold,
     letterSpacing: 0.5,
-    color: ADD_GREEN,
+    color: colors.white,
   },
   addLabelDisabled: {
     fontSize: 11,

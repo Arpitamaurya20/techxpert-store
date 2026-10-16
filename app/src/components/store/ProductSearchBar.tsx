@@ -1,8 +1,23 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { MIN_TOUCH_TARGET, colors, fonts, noInputOutline, radius, spacing } from '@/constants/theme';
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+};
+
+/** Browser speech recognition (Chrome, Edge, Safari); undefined on native and unsupported browsers. */
+function getSpeechRecognition(): (new () => SpeechRecognitionLike) | undefined {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return undefined;
+  const scope = window as unknown as Record<string, (new () => SpeechRecognitionLike) | undefined>;
+  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition;
+}
 
 type ProductSearchBarProps = {
   value: string;
@@ -10,8 +25,13 @@ type ProductSearchBarProps = {
   onSubmit: (query: string) => void;
   placeholder?: string;
   accessibilityLabel?: string;
-  /** Pill matches the Home header; default is the boxed listing field. */
-  shape?: 'box' | 'pill';
+  /** "soft" is a grey field; default is the boxed field. */
+  shape?: 'box' | 'pill' | 'soft';
+  /**
+   * Shows a mic. On web it uses browser speech recognition; elsewhere it opens
+   * the keyboard, whose own mic key handles voice typing.
+   */
+  voice?: boolean;
 };
 
 export function ProductSearchBar({
@@ -21,8 +41,10 @@ export function ProductSearchBar({
   placeholder = 'Search products, brands or materials',
   accessibilityLabel = 'Search products',
   shape = 'box',
+  voice = false,
 }: ProductSearchBarProps) {
   const inputRef = useRef<TextInput>(null);
+  const [listening, setListening] = useState(false);
 
   const submit = () => {
     const query = value.trim();
@@ -33,8 +55,34 @@ export function ProductSearchBar({
     }
   };
 
+  const startVoice = () => {
+    const Recognition = getSpeechRecognition();
+    if (!Recognition) {
+      inputRef.current?.focus();
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = 'en-IN';
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const text = event.results[0]?.[0]?.transcript.trim() ?? '';
+      if (!text) return;
+      onChangeText(text);
+      onSubmit(text);
+    };
+    recognition.onend = () => setListening(false);
+    try {
+      recognition.start();
+      setListening(true);
+    } catch {
+      inputRef.current?.focus();
+    }
+  };
+
   return (
-    <View style={[styles.container, shape === 'pill' && styles.containerPill]}>
+    <View
+      style={[styles.container, shape === 'pill' && styles.containerPill, shape === 'soft' && styles.containerSoft]}
+    >
       <Pressable
         onPress={submit}
         accessibilityRole="button"
@@ -70,6 +118,15 @@ export function ProductSearchBar({
         >
           <Ionicons name="close-circle" size={20} color={colors.placeholder} />
         </Pressable>
+      ) : voice ? (
+        <Pressable
+          onPress={startVoice}
+          accessibilityRole="button"
+          accessibilityLabel={listening ? 'Listening for your search' : 'Search by voice'}
+          style={styles.iconButton}
+        >
+          <Ionicons name={listening ? 'mic' : 'mic-outline'} size={20} color={listening ? colors.orange : colors.textMuted} />
+        </Pressable>
       ) : null}
     </View>
   );
@@ -100,6 +157,10 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  containerSoft: {
+    backgroundColor: colors.surface,
+    borderColor: colors.surface,
+  },
   iconButton: {
     width: 44,
     height: MIN_TOUCH_TARGET,
@@ -109,7 +170,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     alignSelf: 'stretch',
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: fonts.regular,
     color: colors.text,
     paddingVertical: spacing.sm,

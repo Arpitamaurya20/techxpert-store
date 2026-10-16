@@ -4,18 +4,19 @@ import { StyleSheet, Text, View } from 'react-native';
 import { BRAND, BRAND_LOGO, BRAND_LOGO_ASPECT_RATIO } from '@/constants/brand';
 import { colors, fonts, spacing } from '@/constants/theme';
 
-type BrandMarkSize = 'large' | 'medium' | 'small';
+type BrandMarkSize = 'large' | 'medium' | 'small' | 'compact';
 
 type BrandMarkProps = {
   /**
-   * "large" for the login hero, "medium" for the hero on short screens, "small" for store headers.
+   * "large" for the login hero, "medium" for the hero on short screens, "small" for store headers,
+   * "compact" for the one-row store header.
    * Place the logo on a light background; see `colors.logoBackdrop`.
    */
   size?: BrandMarkSize;
 };
 
 export function BrandMark({ size = 'large' }: BrandMarkProps) {
-  const isSmall = size === 'small';
+  const isSmall = size === 'small' || size === 'compact';
 
   if (BRAND_LOGO) {
     return (
@@ -52,12 +53,14 @@ const logoStyles = StyleSheet.create({
   large: { width: 260, height: Math.round(260 / BRAND_LOGO_ASPECT_RATIO) },
   medium: { width: 200, height: Math.round(200 / BRAND_LOGO_ASPECT_RATIO) },
   small: { width: 150, height: Math.round(150 / BRAND_LOGO_ASPECT_RATIO) },
+  compact: { width: 100, height: Math.round(100 / BRAND_LOGO_ASPECT_RATIO) },
 });
 
 const nameStyles = StyleSheet.create({
   large: { fontSize: 34, lineHeight: 40, letterSpacing: 4, paddingLeft: 4 },
   medium: { fontSize: 28, lineHeight: 34, letterSpacing: 4, paddingLeft: 4 },
   small: { fontSize: 18, lineHeight: 22, letterSpacing: 2, paddingLeft: 2 },
+  compact: { fontSize: 16, lineHeight: 20, letterSpacing: 2, paddingLeft: 2 },
 });
 
 const styles = StyleSheet.create({

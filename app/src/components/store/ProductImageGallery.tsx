@@ -5,6 +5,7 @@ import {
   Pressable,
   StyleSheet,
   View,
+  type ImageSourcePropType,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -18,6 +19,8 @@ import { ProductImage } from './ProductImage';
 type ProductImageGalleryProps = {
   images: string[];
   productName: string;
+  /** Bundled photo shown when the product has no images. */
+  localSource?: ImageSourcePropType;
   fallbackIcon: MaterialIconName;
 };
 
@@ -25,7 +28,7 @@ const ASPECT_RATIO = 4 / 3;
 const MAX_HEIGHT = 420;
 
 /** One photo shows on its own; carousel controls appear only when the product has several. */
-export function ProductImageGallery({ images, productName, fallbackIcon }: ProductImageGalleryProps) {
+export function ProductImageGallery({ images, productName, localSource, fallbackIcon }: ProductImageGalleryProps) {
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<string>>(null);
@@ -55,6 +58,8 @@ export function ProductImageGallery({ images, productName, fallbackIcon }: Produ
     return (
       <ProductImage
         uri={images[0]}
+        localSource={localSource}
+        localFit="contain"
         fallbackIcon={fallbackIcon}
         accessibilityLabel={productName}
         iconSize={88}

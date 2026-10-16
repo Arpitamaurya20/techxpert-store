@@ -1,19 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CategoryCard } from '@/components/store/CategoryCard';
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
-import { HeaderFade } from '@/components/store/HeaderFade';
-import { ProductSearchBar } from '@/components/store/ProductSearchBar';
 import { StoreHeader } from '@/components/store/StoreHeader';
-import { StoreLogoBar } from '@/components/store/StoreLogoBar';
 import { SubcategoryTile, SubcategoryTileSkeleton } from '@/components/store/SubcategoryTile';
 import { StateView } from '@/components/ui/StateView';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, spacing } from '@/constants/theme';
 import { useAsyncData } from '@/hooks/useAsyncData';
-import { usePinnedSearch } from '@/hooks/usePinnedSearch';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
 import { GRID_GAP, useStoreLayout } from '@/hooks/useStoreLayout';
 import { getErrorMessage } from '@/services/apiClient';
@@ -27,17 +23,6 @@ export default function CategoriesScreen() {
   useStatusBarStyle('dark');
   const router = useRouter();
   const layout = useStoreLayout();
-  const [searchText, setSearchText] = useState('');
-  const pinnedSearch = usePinnedSearch();
-  const searchBar = (
-    <ProductSearchBar
-      value={searchText}
-      onChangeText={setSearchText}
-      onSubmit={(search) => router.push({ pathname: '/products', params: { search } })}
-      placeholder="What do you need today?"
-      shape="pill"
-    />
-  );
 
   const categories = useAsyncData('categories-tab', getCategories);
   const subcategories = useAsyncData('categories-tab-subcategories', getSubcategories);
@@ -116,7 +101,7 @@ export default function CategoriesScreen() {
             </Text>
             <View style={styles.seeAll}>
               <Text style={styles.seeAllText}>See all</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.accent} />
+              <Ionicons name="arrow-forward" size={14} color={colors.primary} />
             </View>
           </Pressable>
           <View style={styles.grid}>
@@ -144,21 +129,17 @@ export default function CategoriesScreen() {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       stickyHeaderIndices={[0]}
-      onScroll={pinnedSearch.onScroll}
-      scrollEventThrottle={16}
       refreshControl={
         <RefreshControl
           refreshing={categories.isRefreshing || subcategories.isRefreshing}
           onRefresh={refreshAll}
-          colors={[colors.accent]}
-          tintColor={colors.homeInk}
+          colors={[colors.orange]}
+          tintColor={colors.navy}
           progressBackgroundColor={colors.card}
         />
       }
     >
-      <StoreLogoBar search={searchBar} showSearch={pinnedSearch.isSearchPinned} />
-      <StoreHeader onSearchLayout={pinnedSearch.onSearchLayout}>{searchBar}</StoreHeader>
-      <HeaderFade style={styles.headerFade} />
+      <StoreHeader />
 
       <View style={styles.body}>
         {renderSections()}
@@ -175,10 +156,6 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingBottom: spacing.xxl,
-  },
-  /** Overlaps the top padding of the body so the fade adds no extra space. */
-  headerFade: {
-    marginBottom: -32,
   },
   body: {
     width: '100%',
@@ -203,21 +180,21 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     flex: 1,
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 18,
+    lineHeight: 24,
     fontFamily: fonts.bold,
     color: colors.homeInk,
   },
   seeAll: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
   },
   seeAllText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
     fontFamily: fonts.semiBold,
-    color: colors.accent,
+    color: colors.primary,
   },
   grid: {
     flexDirection: 'row',

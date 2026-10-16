@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16,42,67,0.08)',
   },
   badgeFilled: {
-    backgroundColor: '#E85D4C',
+    backgroundColor: colors.accent,
     borderColor: colors.white,
     top: 2,
     right: 2,
