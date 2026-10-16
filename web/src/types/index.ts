@@ -54,13 +54,19 @@ export interface Product {
   id: string;
   name: string;
   categoryId: string;
+  categoryName?: string;
+  sku?: string;
+  imageUrl?: string;
+  brandName?: string;
   unit: string;
   price: number;
+  originalPrice?: number;
   stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock';
   stockQuantity: number;
   featured?: boolean;
   description: string;
 }
+
 
 export interface Category {
   id: string;

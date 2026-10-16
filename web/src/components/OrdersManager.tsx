@@ -1,38 +1,46 @@
 import React, { useState } from 'react';
 import {
-  Clock,
-  MapPin,
-  Phone,
-  User,
   ShoppingBag,
+  Clock,
+  CheckCircle2,
+  IndianRupee,
+  Phone,
+  MapPin,
+  Eye,
 } from 'lucide-react';
+import { DataTable, StatGrid, Badge, Button, Modal } from './ui';
+import type { Column, StatItem } from './ui';
 
-interface OrderItem {
-  productId: string;
+
+
+export interface OrderItem {
+  id?: number;
+  productId: string | number;
+  variantId?: number;
   name: string;
+  sku?: string;
   quantity: number;
   unitPrice?: number;
+  lineTotal?: number;
   unit?: string;
-  categoryId?: string;
 }
 
 export interface Order {
-  id: string;
+  id: string | number;
   orderNumber: string;
+  userId?: number;
   placedAt: string;
-  status:
-    | 'placed'
-    | 'confirmed'
-    | 'packed'
-    | 'shipped'
-    | 'out_for_delivery'
-    | 'delivered'
-    | 'cancelled';
+  status: string;
+  paymentStatus?: string;
+  paymentMethod?: string;
   items: OrderItem[];
   total: number;
+  subtotal?: number;
+  taxTotal?: number;
   deliveryAddress?: string;
   customerName?: string;
   customerMobile?: string;
+  customerEmail?: string;
 }
 
 interface OrdersManagerProps {
@@ -41,398 +49,345 @@ interface OrdersManagerProps {
   loading: boolean;
 }
 
+
 export const OrdersManager: React.FC<OrdersManagerProps> = ({
   orders,
   onUpdateStatus,
   loading,
 }) => {
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string>('all');
 
-  const statuses = [
-    'all',
-    'placed',
-    'confirmed',
-    'packed',
-    'shipped',
-    'out_for_delivery',
-    'delivered',
-    'cancelled',
+  const pendingCount = orders.filter((o) => ['pending', 'placed', 'confirmed'].includes(o.status)).length;
+  const deliveredCount = orders.filter((o) => o.status === 'delivered').length;
+  const totalRevenue = orders.reduce((acc, o) => acc + (Number(o.total) || 0), 0);
+
+  const stats: StatItem[] = [
+    {
+      label: 'Total Orders',
+      value: orders.length,
+      icon: <ShoppingBag size={20} />,
+      iconColor: '#38bdf8',
+    },
+    {
+      label: 'Pending Fulfillment',
+      value: pendingCount,
+      icon: <Clock size={20} />,
+      iconColor: 'var(--brand-orange)',
+    },
+    {
+      label: 'Delivered & Completed',
+      value: deliveredCount,
+      icon: <CheckCircle2 size={20} />,
+      iconColor: '#10b981',
+    },
+    {
+      label: 'Total Revenue Processed',
+      value: `₹${totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+      icon: <IndianRupee size={20} />,
+      iconColor: '#a855f7',
+    },
   ];
-
-  const filteredOrders = orders.filter((o) =>
-    filterStatus === 'all' ? true : o.status === filterStatus
-  );
 
   const handleStatusChange = async (orderId: string, status: string) => {
     try {
       setUpdatingId(orderId);
       await onUpdateStatus(orderId, status);
+      if (selectedOrder && String(selectedOrder.id) === orderId) {
+        setSelectedOrder({ ...selectedOrder, status });
+      }
     } finally {
       setUpdatingId(null);
     }
   };
 
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case 'delivered':
-        return 'badge-published';
-      case 'confirmed':
-      case 'packed':
-      case 'shipped':
-      case 'out_for_delivery':
-        return 'badge-scheduled';
-      case 'placed':
-        return 'badge-paused';
-      case 'cancelled':
-        return 'badge-archived';
-      default:
-        return 'badge-draft';
-    }
-  };
+  const filteredOrders = filterStatus === 'all'
+    ? orders
+    : orders.filter((o) => o.status === filterStatus);
+
+  const columns: Column<Order>[] = [
+    {
+      key: 'orderNumber',
+      header: 'ORDER #',
+      width: '180px',
+      sortable: true,
+      render: (o) => (
+        <div>
+          <div style={{ fontWeight: 700, color: '#fff', fontSize: '0.88rem' }}>{o.orderNumber}</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+            {new Date(o.placedAt).toLocaleString([], {
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'customerName',
+      header: 'CUSTOMER (homecare)',
+      sortable: true,
+      render: (o) => (
+        <div>
+          <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.86rem' }}>
+            {o.customerName || 'Customer'}
+          </div>
+          {o.customerMobile && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.76rem', color: 'var(--brand-orange)', marginTop: '2px' }}>
+              <Phone size={11} />
+              <span>+91 {o.customerMobile}</span>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'deliveryAddress',
+      header: 'DESTINATION',
+      render: (o) => (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: '240px', lineHeight: 1.35 }}>
+          <MapPin size={13} color="#38bdf8" style={{ flexShrink: 0, marginTop: 2 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {o.deliveryAddress || 'Standard Delivery Zone'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'items',
+      header: 'ITEMS',
+      render: (o) => (
+        <Badge variant="neutral" icon={<ShoppingBag size={11} />}>
+          {o.items?.length || 0} line items
+        </Badge>
+      ),
+    },
+    {
+      key: 'total',
+      header: 'TOTAL AMOUNT',
+      sortable: true,
+      align: 'right',
+      render: (o) => (
+        <div>
+          <div style={{ fontWeight: 700, color: '#10b981', fontFamily: 'monospace', fontSize: '0.94rem' }}>
+            ₹{Number(o.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          </div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+            {o.paymentMethod || 'COD'}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'ORDER STATUS',
+      align: 'center',
+      render: (o) => (
+        <select
+          value={o.status}
+          onChange={(e) => handleStatusChange(String(o.id), e.target.value)}
+          disabled={updatingId === String(o.id)}
+          style={{
+
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '4px 8px',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              color: '#fff',
+              outline: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="pending" style={{ background: '#0f172a' }}>Pending</option>
+            <option value="confirmed" style={{ background: '#0f172a' }}>Confirmed</option>
+            <option value="processing" style={{ background: '#0f172a' }}>Processing</option>
+            <option value="shipped" style={{ background: '#0f172a' }}>Shipped</option>
+            <option value="delivered" style={{ background: '#0f172a' }}>Delivered</option>
+            <option value="cancelled" style={{ background: '#0f172a' }}>Cancelled</option>
+          </select>
+        ),
+      },
+      {
+
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (o) => (
+        <Button variant="ghost" size="sm" icon={<Eye size={14} />} onClick={() => setSelectedOrder(o)}>
+          View
+        </Button>
+      ),
+    },
+  ];
 
   return (
-    <div style={styles.container}>
-      {/* Top Filter Bar */}
-      <div style={styles.filterBar}>
-        <div style={styles.statusFilters}>
-          {statuses.map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Metric Cards */}
+      <StatGrid items={stats} />
+
+      {/* Main Table */}
+      <DataTable<Order>
+        data={filteredOrders}
+        columns={columns}
+        keyExtractor={(o) => o.id}
+        searchPlaceholder="Search orders by number, customer, mobile or address..."
+        searchKeys={['orderNumber', 'customerName', 'customerMobile', 'deliveryAddress']}
+        pageSize={10}
+        loading={loading}
+        extraControls={
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              padding: '8px 12px',
+              color: '#fff',
+              fontSize: '0.84rem',
+              outline: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="all">All Statuses ({orders.length})</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="processing">Processing</option>
+            <option value="shipped">Shipped</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        }
+      />
+
+      {/* Order Details Modal */}
+      {selectedOrder && (
+        <Modal
+          isOpen={Boolean(selectedOrder)}
+          onClose={() => setSelectedOrder(null)}
+          title={`Order ${selectedOrder.orderNumber}`}
+          subtitle={`Placed on ${new Date(selectedOrder.placedAt).toLocaleString()}`}
+          maxWidth="640px"
+          footer={
+            <Button variant="secondary" size="sm" onClick={() => setSelectedOrder(null)}>
+              Close
+            </Button>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Customer & Destination Summary */}
+            <div
               style={{
-                ...styles.filterBtn,
-                ...(filterStatus === s ? styles.filterBtnActive : {}),
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '14px',
+                background: 'rgba(255, 255, 255, 0.03)',
+                padding: '16px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-subtle)',
               }}
             >
-              <span style={{ textTransform: 'capitalize' }}>
-                {s.replace(/_/g, ' ')}
-              </span>
-              <span style={styles.badgeCount}>
-                {s === 'all' ? orders.length : orders.filter((o) => o.status === s).length}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {loading ? (
-        <div style={styles.loadingBox}>Loading active orders from backend...</div>
-      ) : filteredOrders.length === 0 ? (
-        <div style={styles.emptyBox}>No orders found for this status.</div>
-      ) : (
-        <div style={styles.orderList}>
-          {filteredOrders.map((order) => (
-            <div key={order.id} style={styles.orderCard}>
-              {/* Order Header */}
-              <div style={styles.orderHeader}>
-                <div style={styles.orderIdentity}>
-                  <div style={styles.orderNum}>{order.orderNumber}</div>
-                  <div style={styles.orderTime}>
-                    <Clock size={12} />
-                    <span>
-                      {new Date(order.placedAt).toLocaleString('en-IN', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
+              <div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', fontWeight: 700 }}>
+                  CUSTOMER (homecare DB)
                 </div>
-
-                <div style={styles.headerRight}>
-                  <span className={`badge ${getStatusBadgeClass(order.status)}`}>
-                    {order.status.replace(/_/g, ' ')}
-                  </span>
-
-                  {/* Status Dropdown */}
-                  <div style={styles.selectWrap}>
-                    <select
-                      value={order.status}
-                      disabled={updatingId === order.id}
-                      onChange={(e) => handleStatusChange(order.id, e.target.value)}
-                      style={styles.statusSelect}
-                    >
-                      <option value="placed">Mark Placed</option>
-                      <option value="confirmed">Confirm Order</option>
-                      <option value="packed">Packed for Dispatch</option>
-                      <option value="shipped">Shipped</option>
-                      <option value="out_for_delivery">Out for Delivery</option>
-                      <option value="delivered">Delivered to Site</option>
-                      <option value="cancelled">Cancel Order</option>
-                    </select>
-                  </div>
+                <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem', marginTop: '4px' }}>
+                  {selectedOrder.customerName || 'Valued Customer'}
+                </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--brand-orange)', marginTop: '2px' }}>
+                  +91 {selectedOrder.customerMobile || 'N/A'}
                 </div>
               </div>
-
-              {/* Customer & Delivery info */}
-              <div style={styles.customerStrip}>
-                <div style={styles.infoCol}>
-                  <User size={13} color="var(--brand-orange)" />
-                  <span style={styles.custName}>{order.customerName || 'Contractor Account'}</span>
+              <div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', fontWeight: 700 }}>
+                  DELIVERY DESTINATION
                 </div>
-                {order.customerMobile && (
-                  <div style={styles.infoCol}>
-                    <Phone size={13} color="#38bdf8" />
-                    <span>{order.customerMobile}</span>
-                  </div>
-                )}
-                {order.deliveryAddress && (
-                  <div style={styles.infoCol}>
-                    <MapPin size={13} color="#10b981" />
-                    <span style={styles.addrText}>{order.deliveryAddress}</span>
-                  </div>
-                )}
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.4 }}>
+                  {selectedOrder.deliveryAddress || 'Standard Address'}
+                </div>
               </div>
+            </div>
 
-              {/* Items List */}
-              <div style={styles.itemsTable}>
-                {order.items.map((item, idx) => (
-                  <div key={idx} style={styles.itemRow}>
-                    <div style={styles.itemMain}>
-                      <ShoppingBag size={14} color="var(--text-dim)" />
-                      <span style={styles.itemName}>{item.name}</span>
-                      <span style={styles.itemUnit}>({item.unit || 'unit'})</span>
+            {/* Line Items List */}
+            <div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#fff', marginBottom: '10px' }}>
+                Order Items ({selectedOrder.items?.length || 0})
+              </div>
+              <div
+                style={{
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  overflow: 'hidden',
+                }}
+              >
+                {selectedOrder.items?.map((it, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px 16px',
+                      borderBottom: idx < selectedOrder.items.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                      background: idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.01)',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.86rem' }}>{it.name}</div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                        SKU: {it.sku || 'N/A'} • {it.quantity} × ₹{it.unitPrice || 450} {it.unit ? `per ${it.unit}` : ''}
+                      </div>
                     </div>
-                    <div style={styles.itemPricing}>
-                      <span style={styles.itemQty}>x {item.quantity}</span>
-                      <span style={styles.itemRate}>
-                        ₹{item.unitPrice ? item.unitPrice * item.quantity : 0}
-                      </span>
+                    <div style={{ fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>
+                      ₹{((it.unitPrice || 450) * it.quantity).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
                 ))}
               </div>
+            </div>
 
-              {/* Order Footer Total */}
-              <div style={styles.orderFooter}>
-                <div style={styles.itemCountText}>
-                  {order.items.length} materials line item{order.items.length > 1 ? 's' : ''}
-                </div>
-                <div style={styles.totalBlock}>
-                  <span style={styles.totalLabel}>Total Payable:</span>
-                  <span style={styles.totalVal}>₹{order.total?.toLocaleString('en-IN')}</span>
-                </div>
+            {/* Price Breakdown */}
+            <div
+              style={{
+                background: 'rgba(0, 0, 0, 0.2)',
+                padding: '14px 18px',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                <span>Subtotal</span>
+                <span>₹{(selectedOrder.subtotal || selectedOrder.total * 0.82).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                <span>GST / Tax Total (18%)</span>
+                <span>₹{(selectedOrder.taxTotal || selectedOrder.total * 0.18).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: '1.05rem',
+                  fontWeight: 800,
+                  color: '#10b981',
+                  borderTop: '1px solid var(--border-subtle)',
+                  paddingTop: '8px',
+                }}
+              >
+                <span>Grand Total</span>
+                <span>₹{Number(selectedOrder.total).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
-          ))}
-        </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
-};
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px',
-  },
-  filterBar: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    background: 'var(--bg-surface)',
-    padding: '6px',
-    borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--border-subtle)',
-    overflowX: 'auto',
-  },
-  statusFilters: {
-    display: 'flex',
-    gap: '4px',
-  },
-  filterBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '7px 14px',
-    borderRadius: 'var(--radius-md)',
-    fontSize: '0.8rem',
-    fontWeight: 500,
-    color: 'var(--text-muted)',
-    transition: 'all 0.15s',
-    whiteSpace: 'nowrap',
-  },
-  filterBtnActive: {
-    background: 'var(--bg-surface-elevated)',
-    color: '#fff',
-    fontWeight: 600,
-    boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-  },
-  badgeCount: {
-    padding: '1px 6px',
-    borderRadius: 'var(--radius-full)',
-    background: 'rgba(255,255,255,0.08)',
-    fontSize: '0.7rem',
-  },
-  loadingBox: {
-    padding: '40px',
-    textAlign: 'center',
-    color: 'var(--text-muted)',
-    fontSize: '0.9rem',
-  },
-  emptyBox: {
-    padding: '40px',
-    textAlign: 'center',
-    color: 'var(--text-dim)',
-    background: 'var(--bg-surface)',
-    borderRadius: 'var(--radius-lg)',
-  },
-  orderList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  orderCard: {
-    background: 'var(--bg-surface)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-lg)',
-    padding: '20px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '14px',
-  },
-  orderHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: '12px',
-    borderBottom: '1px solid var(--border-subtle)',
-    paddingBottom: '12px',
-  },
-  orderIdentity: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px',
-  },
-  orderNum: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '1.1rem',
-    color: '#fff',
-    letterSpacing: '0.02em',
-  },
-  orderTime: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '5px',
-    fontSize: '0.75rem',
-    color: 'var(--text-dim)',
-  },
-  headerRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  },
-  selectWrap: {
-    position: 'relative',
-  },
-  statusSelect: {
-    background: 'var(--bg-surface-elevated)',
-    border: '1px solid var(--border-medium)',
-    color: '#fff',
-    padding: '6px 12px',
-    borderRadius: 'var(--radius-md)',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    outline: 'none',
-  },
-  customerStrip: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '24px',
-    flexWrap: 'wrap',
-    background: 'rgba(255,255,255,0.02)',
-    padding: '10px 14px',
-    borderRadius: 'var(--radius-md)',
-    fontSize: '0.8rem',
-  },
-  infoCol: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    color: 'var(--text-muted)',
-  },
-  custName: {
-    fontWeight: 600,
-    color: '#fff',
-  },
-  addrText: {
-    maxWidth: '420px',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  itemsTable: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  },
-  itemRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '8px 12px',
-    background: 'rgba(255,255,255,0.03)',
-    borderRadius: 'var(--radius-sm)',
-    fontSize: '0.84rem',
-  },
-  itemMain: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-  },
-  itemName: {
-    fontWeight: 600,
-    color: '#fff',
-  },
-  itemUnit: {
-    fontSize: '0.75rem',
-    color: 'var(--text-dim)',
-  },
-  itemPricing: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '18px',
-  },
-  itemQty: {
-    color: 'var(--brand-orange)',
-    fontWeight: 600,
-    fontSize: '0.8rem',
-  },
-  itemRate: {
-    fontWeight: 700,
-    color: '#fff',
-  },
-  orderFooter: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: '12px',
-    borderTop: '1px solid var(--border-subtle)',
-  },
-  itemCountText: {
-    fontSize: '0.78rem',
-    color: 'var(--text-dim)',
-  },
-  totalBlock: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-  },
-  totalLabel: {
-    fontSize: '0.82rem',
-    color: 'var(--text-muted)',
-  },
-  totalVal: {
-    fontFamily: 'var(--font-display)',
-    fontSize: '1.25rem',
-    fontWeight: 800,
-    color: 'var(--brand-orange)',
-  },
 };

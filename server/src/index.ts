@@ -6,6 +6,7 @@ import authRouter from './routes/auth.js';
 import ordersRouter from './routes/orders.js';
 import cmsRouter from './routes/cms.js';
 import pricingRouter from './routes/pricing.js';
+import cartRouter from './routes/cart.js';
 
 dotenv.config();
 
@@ -22,15 +23,19 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Mount Routes
-app.use('/catalog', catalogRouter);
-app.use('/auth', authRouter);
-app.use('/orders', ordersRouter);
-app.use('/cms', cmsRouter);
-app.use('/pricing', pricingRouter);
+// Mount Routes (supporting both root and /api prefixes)
+const mountRouters = (prefix: string) => {
+  app.use(`${prefix}/catalog`, catalogRouter);
+  app.use(`${prefix}/auth`, authRouter);
+  app.use(`${prefix}/orders`, ordersRouter);
+  app.use(`${prefix}/cms`, cmsRouter);
+  app.use(`${prefix}/pricing`, pricingRouter);
+  app.use(`${prefix}/cart`, cartRouter);
+};
+mountRouters('');
+mountRouters('/api');
 
-// Health & System Info
-app.get('/health', (_req, res) => {
+const healthHandler = (_req: express.Request, res: express.Response) => {
   res.json({
     status: 'ok',
     service: 'Techxpert Store API Backend',
@@ -47,9 +52,16 @@ app.get('/health', (_req, res) => {
       'POST /orders',
       'GET  /cms/banners',
       'GET  /pricing/bulk-tiers',
+      'GET  /pricing/calculate',
+      'GET  /cart',
+      'POST /cart/items',
     ],
   });
-});
+};
+
+// Health & System Info
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
 
 // Root handler
 app.get('/', (_req, res) => {
