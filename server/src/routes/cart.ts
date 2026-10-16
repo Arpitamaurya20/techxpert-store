@@ -21,11 +21,53 @@ router.post(
   '/items',
   optionalAuth,
   asyncHandler(async (req, res) => {
-    const { cartId, variantId, quantity } = req.body;
-    if (!cartId || !variantId) return sendError(res, 400, 'cartId and variantId are required');
+    const { cartId, variantId, productId, quantity } = req.body;
+    if (!cartId || (!variantId && !productId)) {
+      return sendError(res, 400, 'cartId and either variantId or productId are required');
+    }
 
-    const item = await CartService.addItem(Number(cartId), Number(variantId), Number(quantity) || 1);
+    const item = await CartService.addItem(
+      Number(cartId),
+      variantId ? Number(variantId) : undefined,
+      Number(quantity) || 1,
+      productId ? Number(productId) : undefined
+    );
     return sendSuccess(res, item, 'Item added to cart');
+  })
+);
+
+// GET /cart/summary - Detailed pre-checkout calculation with bulk discounts and taxes
+router.get(
+  '/summary',
+  asyncHandler(async (req, res) => {
+    const cartId = Number(req.query.cartId);
+    if (!cartId) return sendError(res, 400, 'cartId query param is required');
+
+    const summary = await CartService.getCartSummary(cartId);
+    return sendSuccess(res, summary);
+  })
+);
+
+// POST /cart/checkout - Atomic checkout flow converting active cart into order
+router.post(
+  '/checkout',
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const { cartId, addressId, shippingAddress, paymentMethod, notes, guestName, guestPhone, guestEmail } = req.body;
+    if (!cartId) return sendError(res, 400, 'cartId is required');
+
+    const order = await CartService.checkoutCart(Number(cartId), {
+      userId: req.user?.userId || (req.body.userId ? Number(req.body.userId) : undefined),
+      addressId: addressId ? Number(addressId) : undefined,
+      shippingAddress,
+      paymentMethod,
+      notes,
+      guestName,
+      guestPhone,
+      guestEmail,
+    });
+
+    return sendSuccess(res, order, 'Order confirmed and inventory reserved', 201);
   })
 );
 

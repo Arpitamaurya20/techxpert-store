@@ -1,5 +1,6 @@
-import { storePool } from '../db/mysql.js';
+import { storePool, userPool } from '../db/mysql.js';
 import { store } from '../db/store.js';
+import { PricingService } from './pricingService.js';
 
 export interface OrderFilterParams {
   userId?: number;
@@ -173,94 +174,405 @@ export class OrderService {
     return store.getOrders().find((o) => o.id === String(orderId) || o.orderNumber === String(orderId));
   }
 
-  static async createOrder(orderData: any, userId?: number) {
-    const { items, total, deliveryAddress, customerName, customerMobile, paymentMethod = 'COD' } = orderData;
+  static async resolveDeliveryAddress(
+    userId?: number,
+    addressId?: number,
+    fallbackAddress?: string
+  ): Promise<{ addressString: string; addressDetails?: any }> {
+    if (addressId && userId) {
+      try {
+        const [rows] = await userPool.query<any[]>(
+          `SELECT address_id as id, label, flat_no, building, area, city, pincode 
+           FROM homecare.user_addresses 
+           WHERE address_id = ? AND user_id = ? AND is_deleted = 0 LIMIT 1`,
+          [addressId, userId]
+        );
+        if (rows.length > 0) {
+          const a = rows[0];
+          const parts = [a.flat_no, a.building, a.area, `${a.city} - ${a.pincode}`].filter(Boolean);
+          const formatted = parts.join(', ') + (a.label ? ` (${a.label})` : '');
+          return { addressString: formatted, addressDetails: a };
+        }
+      } catch (err) {
+        console.warn('[OrderService] resolve address by ID failed', err);
+      }
+    }
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
+    if (userId) {
+      try {
+        const [rows] = await userPool.query<any[]>(
+          `SELECT address_id as id, label, flat_no, building, area, city, pincode 
+           FROM homecare.user_addresses 
+           WHERE user_id = ? AND is_deleted = 0 
+           ORDER BY is_default DESC, address_id DESC LIMIT 1`,
+          [userId]
+        );
+        if (rows.length > 0) {
+          const a = rows[0];
+          const parts = [a.flat_no, a.building, a.area, `${a.city} - ${a.pincode}`].filter(Boolean);
+          const formatted = parts.join(', ') + (a.label ? ` (${a.label})` : '');
+          return { addressString: formatted, addressDetails: a };
+        }
+      } catch (err) {
+        console.warn('[OrderService] resolve default address failed', err);
+      }
+    }
+
+    return {
+      addressString: fallbackAddress || 'Sector 62, Noida, Uttar Pradesh 201309 (Default)',
+    };
+  }
+
+  static async resolveCustomerInfo(
+    userId?: number,
+    guestInfo?: { name?: string; phone?: string; email?: string }
+  ): Promise<{ name: string; phone: string; email: string }> {
+    if (userId) {
+      try {
+        const [rows] = await userPool.query<any[]>(
+          `SELECT full_name, phone, email FROM homecare.users WHERE user_id = ? LIMIT 1`,
+          [userId]
+        );
+        if (rows.length > 0) {
+          const u = rows[0];
+          return {
+            name: u.full_name || guestInfo?.name || 'Customer',
+            phone: u.phone || guestInfo?.phone || '',
+            email: u.email || guestInfo?.email || '',
+          };
+        }
+      } catch (err) {
+        console.warn('[OrderService] resolveCustomerInfo failed', err);
+      }
+    }
+
+    return {
+      name: guestInfo?.name || 'Valued Customer',
+      phone: guestInfo?.phone || '',
+      email: guestInfo?.email || '',
+    };
+  }
+
+  static async checkout(payload: {
+    userId?: number;
+    cartId?: number;
+    items?: Array<{ productId: number; variantId?: number; quantity: number; unitPrice?: number }>;
+    addressId?: number;
+    shippingAddress?: string;
+    paymentMethod?: string;
+    notes?: string;
+    guestName?: string;
+    guestPhone?: string;
+    guestEmail?: string;
+  }) {
+    const { userId, cartId, addressId, shippingAddress, paymentMethod = 'COD', notes } = payload;
+
+    // 1. Gather order items (from cart or direct payload)
+    let rawItems = payload.items;
+    if (cartId && (!rawItems || rawItems.length === 0)) {
+      const [cartItems] = await storePool.query<any[]>(
+        `SELECT ci.VariantID as variantId, ci.Quantity as quantity, pv.ProductID as productId
+         FROM techxpertstore.cart_items ci
+         LEFT JOIN techxpertstore.product_variants pv ON pv.ID = ci.VariantID
+         WHERE ci.CartID = ?`,
+        [cartId]
+      );
+      if (cartItems.length === 0) {
+        throw new Error('Cart is empty. Add items to checkout.');
+      }
+      rawItems = cartItems.map((ci) => ({
+        variantId: ci.variantId,
+        productId: ci.productId,
+        quantity: ci.quantity,
+      }));
+    }
+
+    if (!rawItems || rawItems.length === 0) {
       throw new Error('Order must contain at least one item');
     }
 
-    const orderNumber = `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const calculatedTotal =
-      total !== undefined
-        ? Number(total)
-        : items.reduce((acc: number, item: any) => acc + (item.unitPrice || 0) * (item.quantity || 1), 0);
+    // 2. Resolve customer info and address from homecare
+    const customer = await this.resolveCustomerInfo(userId, {
+      name: payload.guestName,
+      phone: payload.guestPhone,
+      email: payload.guestEmail,
+    });
+    const address = await this.resolveDeliveryAddress(userId, addressId, shippingAddress);
 
-    const subTotal = (calculatedTotal * 0.82).toFixed(2);
-    const taxTotal = (calculatedTotal * 0.18).toFixed(2);
-    const resolvedUserId = userId || 1;
-
+    // 3. Connect to DB and start atomic transaction
+    const conn = await storePool.getConnection();
     try {
-      const [orderRes] = await storePool.query<any>(
+      await conn.beginTransaction();
+
+      const processedItems: any[] = [];
+      let subtotal = 0;
+      let totalBulkSavings = 0;
+
+      for (const item of rawItems) {
+        const qty = Math.max(Number(item.quantity) || 1, 1);
+        let variantId = item.variantId ? Number(item.variantId) : null;
+        let productId = item.productId ? Number(item.productId) : null;
+
+        // If variantId not provided, look up primary variant for product
+        if (!variantId && productId) {
+          const [vars] = await conn.query<any[]>(
+            `SELECT ID FROM techxpertstore.product_variants WHERE ProductID = ? ORDER BY ID ASC LIMIT 1`,
+            [productId]
+          );
+          if (vars.length > 0) {
+            variantId = vars[0].ID;
+          }
+        }
+
+        // Lock variant row with FOR UPDATE
+        let variantRow: any = null;
+        if (variantId) {
+          const [vars] = await conn.query<any[]>(
+            `SELECT 
+               pv.ID as variantId,
+               pv.ProductID as productId,
+               pv.StockQuantity as stockQuantity,
+               pv.VariantName as variantName,
+               p.ProductName as productName,
+               p.ProductCode as sku,
+               p.CategoryID as categoryId,
+               COALESCE(pr.SellingPrice, 450) as basePrice,
+               COALESCE(mu.UnitName, 'unit') as unit
+             FROM techxpertstore.product_variants pv
+             LEFT JOIN techxpertstore.products p ON p.ID = pv.ProductID
+             LEFT JOIN techxpertstore.product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
+             LEFT JOIN techxpertstore.measurement_units mu ON p.MeasurementUnitID = mu.ID
+             WHERE pv.ID = ?
+             FOR UPDATE`,
+            [variantId]
+          );
+          if (vars.length > 0) {
+            variantRow = vars[0];
+            productId = variantRow.productId;
+          }
+        }
+
+        if (!variantRow && productId) {
+          const [prods] = await conn.query<any[]>(
+            `SELECT 
+               p.ID as productId,
+               p.ProductName as productName,
+               p.ProductCode as sku,
+               p.CategoryID as categoryId,
+               COALESCE(pr.SellingPrice, 450) as basePrice,
+               COALESCE(mu.UnitName, 'unit') as unit
+             FROM techxpertstore.products p
+             LEFT JOIN techxpertstore.product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
+             LEFT JOIN techxpertstore.measurement_units mu ON p.MeasurementUnitID = mu.ID
+             WHERE p.ID = ?
+             FOR UPDATE`,
+            [productId]
+          );
+          if (prods.length > 0) {
+            variantRow = {
+              ...prods[0],
+              variantId: null,
+              stockQuantity: 999,
+            };
+          }
+        }
+
+        if (!variantRow) {
+          throw new Error(`Product or variant not found for item ${JSON.stringify(item)}`);
+        }
+
+        // Check stock availability
+        const currentStock = Number(variantRow.stockQuantity) || 0;
+        if (variantId && currentStock < qty) {
+          throw new Error(
+            `Insufficient stock for "${variantRow.productName}". Requested: ${qty}, Available: ${currentStock}`
+          );
+        }
+
+        // Calculate pricing and bulk discount
+        const basePrice = item.unitPrice ? Number(item.unitPrice) : Number(variantRow.basePrice);
+        const pricing = await PricingService.calculateBulkPrice(productId!, qty, basePrice);
+
+        const unitPrice = pricing.unitPrice;
+        const discountAmount = pricing.totalSavings;
+        const lineTotal = unitPrice * qty;
+
+        subtotal += lineTotal;
+        totalBulkSavings += discountAmount;
+
+        // Atomic inventory decrement
+        if (variantId) {
+          await conn.query(
+            `UPDATE techxpertstore.product_variants 
+             SET StockQuantity = GREATEST(0, StockQuantity - ?), UpdatedDate = CURDATE(), UpdatedTime = CURTIME() 
+             WHERE ID = ?`,
+            [qty, variantId]
+          );
+
+          await conn.query(
+            `UPDATE techxpertstore.inventory_stock 
+             SET StockQuantity = GREATEST(0, StockQuantity - ?), LastStockOutDate = CURDATE(), UpdatedDate = CURDATE(), UpdatedTime = CURTIME() 
+             WHERE VariantID = ?`,
+            [qty, variantId]
+          );
+
+          // If variant stock hits 0, check if all variants are out of stock
+          if (currentStock - qty <= 0) {
+            await conn.query(
+              `UPDATE techxpertstore.products 
+               SET StockStatus = 'out_of_stock', UpdatedDate = CURDATE(), UpdatedTime = CURTIME() 
+               WHERE ID = ? AND (SELECT COALESCE(SUM(StockQuantity), 0) FROM techxpertstore.product_variants WHERE ProductID = ?) <= 0`,
+              [productId, productId]
+            );
+          }
+        }
+
+        processedItems.push({
+          productId,
+          variantId,
+          name: variantRow.productName,
+          sku: variantRow.sku,
+          unit: variantRow.unit,
+          quantity: qty,
+          basePrice,
+          unitPrice,
+          discountAmount,
+          taxAmount: Number((lineTotal * 0.18).toFixed(2)),
+          lineTotal,
+          appliedTier: pricing.appliedTier,
+        });
+      }
+
+      // 4. Financial Calculations
+      const taxTotal = Number((subtotal * 0.18).toFixed(2));
+      const shippingCharges = subtotal >= 2000 ? 0 : 99;
+      const grandTotal = Number((subtotal + taxTotal + shippingCharges).toFixed(2));
+
+      // 5. Insert into orders table
+      const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+      const orderStatus = 'confirmed';
+      const paymentStatus = paymentMethod.toUpperCase() === 'COD' ? 'pending' : 'paid';
+
+      const [orderRes] = await conn.query<any>(
         `INSERT INTO techxpertstore.orders 
-         (OrderNumber, UserID, ShippingAddress, SubTotal, TaxTotal, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending', ?, CURDATE(), CURTIME(), ?)`,
+         (OrderNumber, UserID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
         [
           orderNumber,
-          resolvedUserId,
-          deliveryAddress || 'Sector 62, Noida, Uttar Pradesh',
-          subTotal,
-          taxTotal,
-          calculatedTotal,
+          userId || null,
+          customer.name,
+          customer.phone,
+          customer.email,
+          address.addressString,
+          subtotal.toFixed(2),
+          taxTotal.toFixed(2),
+          totalBulkSavings.toFixed(2),
+          shippingCharges.toFixed(2),
+          grandTotal.toFixed(2),
+          orderStatus,
+          paymentStatus,
           paymentMethod,
-          resolvedUserId,
+          userId || 1,
         ]
       );
 
-      const newOrderId = orderRes.insertId;
+      const orderId = orderRes.insertId;
 
-      for (const it of items) {
-        const prodId = Number(it.productId) || 1;
-        const variantId = Number(it.variantId) || prodId;
-        const qty = Number(it.quantity) || 1;
-        const unitPrice = Number(it.unitPrice) || 450;
-        const lineTotal = unitPrice * qty;
-
-        await storePool.query(
+      // 6. Insert line items
+      for (const it of processedItems) {
+        await conn.query(
           `INSERT INTO techxpertstore.order_items 
-           (OrderID, VariantID, ProductID, Quantity, UnitPrice, TaxRate, TaxAmount, LineTotal, CreatedDate, CreatedTime)
-           VALUES (?, ?, ?, ?, ?, 18.00, ?, ?, CURDATE(), CURTIME())`,
+           (OrderID, VariantID, ProductID, Quantity, UnitPrice, TaxRate, TaxAmount, DiscountAmount, LineTotal, CreatedDate, CreatedTime)
+           VALUES (?, ?, ?, ?, ?, 18.00, ?, ?, ?, CURDATE(), CURTIME())`,
           [
-            newOrderId,
-            variantId,
-            prodId,
-            qty,
-            unitPrice,
-            (lineTotal * 0.18).toFixed(2),
-            lineTotal.toFixed(2),
+            orderId,
+            it.variantId || it.productId,
+            it.productId,
+            it.quantity,
+            it.unitPrice.toFixed(2),
+            it.taxAmount.toFixed(2),
+            it.discountAmount.toFixed(2),
+            it.lineTotal.toFixed(2),
           ]
         );
       }
 
-      await storePool.query(
+      // 7. Insert status history
+      await conn.query(
         `INSERT INTO techxpertstore.order_status_history 
          (OrderID, OrderStatus, PaymentStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
-         VALUES (?, 'pending', 'pending', 'Order placed by customer', ?, CURDATE(), CURTIME())`,
-        [newOrderId, resolvedUserId]
+         VALUES (?, ?, ?, ?, ?, CURDATE(), CURTIME())`,
+        [
+          orderId,
+          orderStatus,
+          paymentStatus,
+          notes || (cartId ? 'Order placed via Cart Checkout' : 'Order placed directly via Buy Now'),
+          userId || 1,
+        ]
       );
 
+      // 8. If checkout was from cart, clean up cart
+      if (cartId) {
+        await conn.query(`DELETE FROM techxpertstore.cart_items WHERE CartID = ?`, [cartId]);
+        await conn.query(
+          `UPDATE techxpertstore.carts SET Status = 'merged', UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
+          [cartId]
+        );
+      }
+
+      // 9. Commit transaction!
+      await conn.commit();
+
       return {
-        id: String(newOrderId),
+        id: String(orderId),
         orderNumber,
         placedAt: new Date().toISOString(),
-        status: 'pending',
-        items,
-        total: calculatedTotal,
+        status: orderStatus,
+        paymentStatus,
+        paymentMethod,
+        customerName: customer.name,
+        customerMobile: customer.phone,
+        deliveryAddress: address.addressString,
+        subtotal,
+        discountTotal: totalBulkSavings,
+        taxTotal,
+        shippingCharges,
+        grandTotal,
+        total: grandTotal,
+        items: processedItems,
       };
     } catch (err) {
-      console.warn('[OrderService] MySQL insert failed, fallback to local store', err);
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  static async createOrder(orderData: any, userId?: number) {
+    try {
+      return await this.checkout({
+        ...orderData,
+        userId: userId || orderData.userId,
+      });
+    } catch (err: any) {
+      console.warn('[OrderService] MySQL checkout failed, fallback to local store:', err.message);
+      if (err.message?.includes('Insufficient stock') || err.message?.includes('empty')) {
+        throw err;
+      }
     }
 
+    const calculatedTotal = orderData.total || 450;
     return store.createOrder({
       id: `ord-${Date.now()}`,
-      orderNumber,
+      orderNumber: `ORD-${Date.now().toString().slice(-6)}`,
       placedAt: new Date().toISOString(),
       status: 'placed',
-      items,
+      items: orderData.items || [],
       total: calculatedTotal,
-      deliveryAddress: deliveryAddress || 'Sector 62, Noida, Uttar Pradesh',
-      customerName: customerName || 'Valued Customer',
-      customerMobile: customerMobile || '9876543210',
+      deliveryAddress: orderData.deliveryAddress || 'Sector 62, Noida, Uttar Pradesh',
+      customerName: orderData.customerName || 'Valued Customer',
+      customerMobile: orderData.customerMobile || '9876543210',
     });
   }
 
