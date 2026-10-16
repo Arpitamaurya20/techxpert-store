@@ -1,7 +1,7 @@
-import React from 'react';
 import {
   Package,
   ShoppingBag,
+  Users,
   Tag,
   Image as ImageIcon,
   Code,
@@ -9,13 +9,14 @@ import {
   Server,
 } from 'lucide-react';
 
-export type TabId = 'catalog' | 'orders' | 'pricing' | 'banners' | 'api' | 'audit';
+export type TabId = 'catalog' | 'orders' | 'users' | 'pricing' | 'banners' | 'api' | 'audit';
 
 interface SidebarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   ordersCount?: number;
   productsCount?: number;
+  usersCount?: number;
   serverOnline: boolean;
 }
 
@@ -24,16 +25,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   ordersCount = 3,
   productsCount = 7,
+  usersCount = 7,
   serverOnline,
 }) => {
   const navItems: { id: TabId; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'catalog', label: 'Products & Inventory', icon: <Package size={18} />, badge: String(productsCount) },
     { id: 'orders', label: 'Orders & Fulfillment', icon: <ShoppingBag size={18} />, badge: String(ordersCount) },
+    { id: 'users', label: 'Customers (homecare)', icon: <Users size={18} />, badge: String(usersCount) },
     { id: 'pricing', label: 'Bulk Pricing Rules', icon: <Tag size={18} /> },
     { id: 'banners', label: 'Campaign Banners', icon: <ImageIcon size={18} /> },
     { id: 'api', label: 'API & Mobile Sync', icon: <Code size={18} /> },
     { id: 'audit', label: 'Audit Trail', icon: <History size={18} /> },
   ];
+
 
   return (
     <aside style={styles.sidebar}>

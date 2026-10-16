@@ -61,6 +61,10 @@ export const api = {
   deleteBulkTier: (id: string) =>
     fetchApi<{ success: boolean }>(`/pricing/bulk-tiers/${id}`, { method: 'DELETE' }),
 
+  // Users (from homecare.users)
+  getUsers: () => fetchApi<any[]>('/auth/users'),
+
   // Health
   getHealth: () => fetchApi<{ status: string; service: string; endpoints: string[] }>('/health'),
+
 };

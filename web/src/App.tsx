@@ -3,6 +3,7 @@ import { Sidebar, type TabId } from './components/Sidebar';
 import { Header } from './components/Header';
 import { CatalogOverview } from './components/CatalogOverview';
 import { OrdersManager } from './components/OrdersManager';
+import { UserManager } from './components/UserManager';
 import { BulkPricingManager } from './components/BulkPricingManager';
 import { BannerCMS } from './components/BannerCMS';
 import { ApiExplorer } from './components/ApiExplorer';
@@ -21,6 +22,7 @@ export function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [bulkTiers, setBulkTiers] = useState<BulkPriceTier[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([
@@ -55,10 +57,11 @@ export function App() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [prodsData, catsData, ordersData, tiersData, bannersData] = await Promise.all([
+      const [prodsData, catsData, ordersData, usersData, tiersData, bannersData] = await Promise.all([
         api.getProducts().catch(() => []),
         api.getCategories().catch(() => []),
         api.getOrders().catch(() => []),
+        api.getUsers().catch(() => []),
         api.getBulkTiers().catch(() => []),
         api.getBanners().catch(() => []),
       ]);
@@ -66,6 +69,7 @@ export function App() {
       setProducts(prodsData);
       setCategories(catsData);
       setOrders(ordersData);
+      setUsers(usersData);
       setBulkTiers(tiersData);
       setBanners(bannersData);
       setServerOnline(true);
@@ -73,6 +77,7 @@ export function App() {
       console.error('Failed to load from backend API', err);
       setServerOnline(false);
     } finally {
+
       setLoading(false);
     }
   }, []);
@@ -213,6 +218,10 @@ export function App() {
       title: 'Orders & Fulfillment Desk',
       subtitle: 'Real-time order pipeline from customer mobile app and contractor procurement desk',
     },
+    users: {
+      title: 'Customer Directory & Accounts (homecare DB)',
+      subtitle: 'Customer identities, registered delivery locations and spend metrics synced from homecare.users and techxpertstore',
+    },
     pricing: {
       title: 'Bulk Pricing Rules & Tier Precedence',
       subtitle: 'Wholesale quantity thresholds and volume discount calculation rules',
@@ -250,6 +259,7 @@ export function App() {
         onTabChange={(tab) => setActiveTab(tab)}
         ordersCount={orders.length}
         productsCount={products.length}
+        usersCount={users.length}
         serverOnline={serverOnline}
       />
 
@@ -280,6 +290,8 @@ export function App() {
             />
           )}
 
+          {activeTab === 'users' && <UserManager />}
+
           {activeTab === 'pricing' && (
             <BulkPricingManager
               tiers={bulkTiers}
@@ -288,6 +300,7 @@ export function App() {
               onDeleteTier={handleDeleteTier}
             />
           )}
+
 
           {activeTab === 'banners' && (
             <BannerCMS

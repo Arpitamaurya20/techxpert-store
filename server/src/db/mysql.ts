@@ -8,21 +8,21 @@ const MYSQL_PORT = Number(process.env.MYSQL_PORT) || 3306;
 const MYSQL_USER = process.env.MYSQL_USER || 'root';
 const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || 'root123';
 
-const DB_CATALOG = process.env.DB_CATALOG || 'techxpertstore';
-const DB_USERS = process.env.DB_USERS || 'techxpert_users';
-const DB_COMMERCE = process.env.DB_COMMERCE || 'techxpert_commerce';
+const DB_STORE = process.env.DB_STORE || process.env.DB_CATALOG || 'techxpertstore';
+const DB_USERS = process.env.DB_USERS || 'homecare';
 
-export const catalogPool = mysql.createPool({
+export const storePool = mysql.createPool({
   host: MYSQL_HOST,
   port: MYSQL_PORT,
   user: MYSQL_USER,
   password: MYSQL_PASSWORD,
-  database: DB_CATALOG,
+  database: DB_STORE,
   waitForConnections: true,
-  connectionLimit: 15,
+  connectionLimit: 20,
   queueLimit: 0,
 });
 
+// User & Identity pool connects to homecare
 export const userPool = mysql.createPool({
   host: MYSQL_HOST,
   port: MYSQL_PORT,
@@ -34,31 +34,23 @@ export const userPool = mysql.createPool({
   queueLimit: 0,
 });
 
-export const commercePool = mysql.createPool({
-  host: MYSQL_HOST,
-  port: MYSQL_PORT,
-  user: MYSQL_USER,
-  password: MYSQL_PASSWORD,
-  database: DB_COMMERCE,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-});
+// Backward-compatibility aliases
+export const catalogPool = storePool;
+export const commercePool = storePool;
 
 export async function testDbConnections(): Promise<{
-  catalog: boolean;
+  store: boolean;
   users: boolean;
-  commerce: boolean;
 }> {
-  const result = { catalog: false, users: false, commerce: false };
+  const result = { store: false, users: false };
 
   try {
-    const conn1 = await catalogPool.getConnection();
+    const conn1 = await storePool.getConnection();
     await conn1.ping();
     conn1.release();
-    result.catalog = true;
+    result.store = true;
   } catch (e) {
-    console.warn('[DB] Could not connect to catalog pool (techxpertstore)', e);
+    console.warn('[DB] Could not connect to store pool (techxpertstore)', e);
   }
 
   try {
@@ -67,17 +59,9 @@ export async function testDbConnections(): Promise<{
     conn2.release();
     result.users = true;
   } catch (e) {
-    console.warn('[DB] Could not connect to users pool (techxpert_users)', e);
-  }
-
-  try {
-    const conn3 = await commercePool.getConnection();
-    await conn3.ping();
-    conn3.release();
-    result.commerce = true;
-  } catch (e) {
-    console.warn('[DB] Could not connect to commerce pool (techxpert_commerce)', e);
+    console.warn('[DB] Could not connect to users pool (homecare)', e);
   }
 
   return result;
 }
+

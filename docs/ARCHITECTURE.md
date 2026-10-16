@@ -16,15 +16,16 @@ techxpert-store/
 │   └── package.json      # Mobile dependencies
 ├── server/               # Node.js + Express Backend API Service (Port 5001)
 │   ├── src/routes/       # /catalog, /auth, /orders, /cms, /pricing
-│   ├── src/db/           # Persistent DataStore & MySQL adapter
-│   └── package.json      # Express & database dependencies
-├── web/                  # Web Application / Store Management Portal (Port 5173)
-│   ├── src/components/   # Orders, Catalog, Bulk Pricing, API Explorer
+│   ├── src/db/           # MySQL dual-pool manager (homecare & techxpertstore)
+│   └── package.json      # Express, JWT, MySQL2, Bcrypt
+├── web/                  # Web Application / Merchandising & Admin Portal (Port 5173)
+│   ├── src/components/   # Orders, Catalog, Customers (homecare), Bulk Pricing, Banners, API Explorer
 │   └── index.html        # Entry HTML
 ├── docs/                 # Central Documentation Hub
 │   ├── SRS.md            # Software Requirements Specification
-│   ├── DATABASE_SCHEMA.md# Relational MySQL 8.0 schema proposal
+│   ├── DATABASE_SCHEMA.md# Relational dual-database topology (homecare + techxpertstore)
 │   ├── ARCHITECTURE.md   # Overall system architecture (this document)
+│   ├── BACKEND_IMPLEMENTATION_SPEC.md # Endpoints, schemas & integration specs
 │   └── WEB_SPEC.md       # Web frontend specifications & guidelines
 ├── README.md             # Repository entry point & developer setup
 └── .gitignore            # Root-level ignore rules
@@ -32,51 +33,100 @@ techxpert-store/
 
 ---
 
-## 2. Multi-Platform Topology
+## 2. Multi-Platform & Dual-Database Topology
 
 ```
 +------------------------------------+    +------------------------------------+
-|         Customer Mobile App        |    |        Web Admin / Portal          |
-|      (React Native / Expo SDK)     |    |           (Web Client)             |
+|         Customer Mobile App        |    |      Web Merchandising Portal      |
+|      (React Native / Expo SDK)     |    |         (Vite / React TS)          |
 +-----------------+------------------+    +-----------------+------------------+
                   |                                         |
                   | REST / JSON                             | REST / JSON
                   v                                         v
 +------------------------------------------------------------------------------+
-|                             Backend API Service                              |
+|                        Techxpert Backend API Service                         |
 |                          (Node.js + Express / REST)                          |
-+------------------------------------------------------------------------------+
-                  |                                         |
-                  | SQL                                     | S3 / CDN
-                  v                                         v
++-----------------------+------------------------------+-----------------------+
+                        |                              |
+      Identity & Auth   |                              | Store Commerce & Catalog
+                        v                              v
 +------------------------------------+    +------------------------------------+
-|          MySQL 8.0 Database        |    |       Media / Object Storage       |
-|  Catalogue, Orders, Carts, CMS     |    |   Banners, Product Images, Icons   |
+|          homecare Database         |    |        techxpertstore Database     |
+|      (Customer & Identity Core)    |    |      (Commerce & Catalog Core)     |
+|------------------------------------|    |------------------------------------|
+| • users (user_id, phone, email)    |    | • products (103k+ SKUs)            |
+| • user_addresses (pincode, city)   |    | • categories & sub_categories      |
+| • otp_attempts (SHA-256 OTP hashes)|    | • product_pricing & variants       |
+| • refresh_tokens (session tokens)  |    | • inventory_stock                  |
+| • admin_users (portal staff RBAC)  |    | • orders & order_items             |
+|                                    |    | • carts & cart_items               |
+|                                    |    | • bulk_price_tiers & discounts     |
+|                                    |    | • cms_banners & homepage_sections  |
 +------------------------------------+    +------------------------------------+
+                  ^                                    |
+                  +--- UserID Foreign Reference -------+
 ```
 
 ---
 
-## 3. Component Responsibilities
+## 3. Database Separation of Concerns
 
-### 3.1 Customer Mobile App (`app/`)
-- Built with **Expo** (React Native) + **TypeScript**.
-- Mobile-first catalog browsing, delivery location selection, cart management, bulk pricing tiers, and Order Again rails.
-- Dynamic CMS-driven homepage layout rendering banner carousels and promotional sections without requiring native store releases.
-
-### 3.2 Web Application (`web/`)
-- Admin and merchandising portal to configure homepage banners, hero carousels, section ordering, bulk discount rules, and catalog metadata.
-- Built for desktop and responsive web browsers with rich interactivity, responsive tables, real-time preview, and role-based controls.
-- Also capable of serving or linking customer web storefront features.
-
-### 3.3 Backend & Database (`docs/DATABASE_SCHEMA.md`)
-- Single source of truth for inventory, pricing, discount calculations, order processing, and authentication.
-- Relational schema running on **MySQL 8.0 (InnoDB)** with strict transactional consistency and currency stored in `DECIMAL` / integer paise.
+### A. `homecare` Database — Identity & User Management
+The `homecare` database is the single source of truth for all user entities across the Techxpert ecosystem:
+1. **Customer Identities (`homecare.users`)**:
+   - Primary key: `user_id`.
+   - Contact fields: Unique `phone` (10-digit mobile), unique `email`.
+   - Profile: `full_name`, `profile_image`, verification states (`is_active`, `is_verified`, `email_verified`).
+2. **Saved Delivery Addresses (`homecare.user_addresses`)**:
+   - Primary key: `address_id`, Foreign key: `user_id`.
+   - Location payload: `label` ('Home' | 'Office' | 'Site'), `flat_no`, `building`, `area`, `city`, `pincode`, geo-coordinates (`lat`, `lng`).
+   - Flags: `is_default` (used for app delivery zone resolution), `is_deleted` (soft-delete).
+3. **Authentication & OTP (`homecare.otp_attempts`)**:
+   - Primary key: `otp_id`.
+   - Fields: `phone`, `otp_hash` (SHA-256), `purpose` ('login' | 'register'), `expires_at`, `is_used`, `attempts`, `ip_address`.
+4. **Session Lifecycle (`homecare.refresh_tokens`)**:
+   - Primary key: `token_id`, Foreign key: `user_id`.
+   - Fields: `token_hash`, `device_info`, `expires_at`, `is_revoked`.
+5. **Staff & Administration (`homecare.admin_users`)**:
+   - Primary key: `admin_id`.
+   - Fields: `name`, `email`, `password_hash` (bcrypt), `role` (`super_admin`, `admin`, `state_manager`), `is_active`.
 
 ---
 
-## 4. Documentation Guidelines
-- **Cross-Platform Consistency**: Any API contract, pricing rule, or database model change must be reflected in `docs/SRS.md` and `docs/DATABASE_SCHEMA.md`.
-- **Platform-Specific Specs**:
-  - For mobile-specific architectural details, refer to [`app/AGENTS.md`](../app/AGENTS.md).
-  - For web portal requirements, refer to [`docs/WEB_SPEC.md`](./WEB_SPEC.md).
+### B. `techxpertstore` Database — Catalog, Merchandising & Store Commerce
+All commerce, fulfillment, and catalog assets reside in `techxpertstore`:
+1. **Catalog & Inventory Hierarchy**:
+   - `products`: 103,824+ construction and trade SKUs with titles, codes, descriptions, brands, packaging.
+   - `categories` & `sub_categories`: Trade categorizations (Electrical, Lighting, Plumbing, Hardware).
+   - `product_pricing`: Selling prices, MRPs, and active price effective dates.
+   - `product_variants`: Variant definitions linked to product masters.
+   - `inventory_stock`: Warehouse stock balances and reserved inventory.
+   - `measurement_units`: Standard trade packaging units (bags, pieces, coils, boxes).
+2. **Order Lifecycle & Transactions**:
+   - `orders`: Store orders with primary key `ID`, unique `OrderNumber`, and foreign reference `UserID` (pointing to `homecare.users.user_id`).
+   - `order_items`: Line item snapshots with product IDs, quantities, unit prices, tax rates, line totals.
+   - `order_status_history`: State transitions (`pending` → `confirmed` → `processing` → `shipped` → `delivered`) with timestamp and admin actor.
+3. **Shopping Carts**:
+   - `carts`: Active customer baskets referencing `UserID` (from `homecare.users`) or session tokens for guests.
+   - `cart_items`: Variant IDs, quantities, and timestamps.
+4. **Merchandising & CMS**:
+   - `cms_banners`: Dynamic promotional banners for the mobile app home screen with image URLs, CTA targets, schedules, and display order.
+   - `cms_homepage_sections`: Dynamic ordering and toggle controls for mobile screen sections.
+   - `bulk_price_tiers`: Volume quantity pricing thresholds and percentage discount tiers for contractor procurement.
+
+---
+
+## 4. Cross-Database Integration Architecture
+
+1. **User Identity Linking**:
+   - Orders placed by mobile users persist `UserID = homecare.users.user_id`.
+   - If a customer places an order as a guest, `GuestName`, `GuestPhone`, and `GuestEmail` are stored on `techxpertstore.orders`.
+2. **Cross-Database Queries**:
+   - Because both databases reside on the same MySQL cluster, the backend performs high-performance joins:
+     ```sql
+     SELECT o.*, u.full_name as customerName, u.phone as customerMobile, u.email as customerEmail
+     FROM techxpertstore.orders o
+     LEFT JOIN homecare.users u ON o.UserID = u.user_id;
+     ```
+3. **Admin Operations Portal**:
+   - The web portal provides unified operations: staff can inspect customer accounts from `homecare`, review customer order history from `techxpertstore`, modify catalog prices, adjust bulk contractor tiers, and manage hero campaign banners.

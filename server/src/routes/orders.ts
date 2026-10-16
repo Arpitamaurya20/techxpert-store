@@ -1,54 +1,76 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { commercePool } from '../db/mysql.js';
+import { storePool } from '../db/mysql.js';
 import { store } from '../db/store.js';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'techxpert-store-secret-key-2026';
 
+function extractUserId(req: Request): number | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  try {
+    const token = authHeader.split(' ')[1];
+    const payload = jwt.verify(token, JWT_SECRET) as any;
+    return Number(payload.userId || payload.id) || null;
+  } catch {
+    return null;
+  }
+}
+
 // GET /orders
 router.get('/', async (req: Request, res: Response) => {
-  const authHeader = req.headers.authorization;
-  let userId: number | undefined;
-
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    try {
-      const token = authHeader.split(' ')[1];
-      const payload = jwt.verify(token, JWT_SECRET) as { userId: string | number };
-      userId = Number(payload.userId);
-    } catch {
-      // Guest
-    }
-  }
-
+  const userId = extractUserId(req);
   const isPortal = req.query.all === 'true' || req.headers['x-client'] === 'portal';
 
   try {
     let orderQuery = `
-      SELECT id, order_number as orderNumber, placed_at as placedAt,
-             order_status as status, total_amount as total,
-             delivery_address as deliveryAddress, customer_name as customerName,
-             customer_mobile as customerMobile
-      FROM orders
+      SELECT 
+        o.ID as id,
+        o.OrderNumber as orderNumber,
+        o.UserID as userId,
+        CONCAT(o.CreatedDate, 'T', COALESCE(o.CreatedTime, '12:00:00'), 'Z') as placedAt,
+        o.OrderStatus as status,
+        o.PaymentStatus as paymentStatus,
+        o.PaymentMethod as paymentMethod,
+        CAST(o.GrandTotal AS DOUBLE) as total,
+        CAST(o.SubTotal AS DOUBLE) as subtotal,
+        CAST(o.TaxTotal AS DOUBLE) as taxTotal,
+        o.ShippingAddress as deliveryAddress,
+        COALESCE(u.full_name, o.GuestName, 'Valued Customer') as customerName,
+        COALESCE(u.phone, o.GuestPhone, '') as customerMobile,
+        COALESCE(u.email, o.GuestEmail, '') as customerEmail
+      FROM techxpertstore.orders o
+      LEFT JOIN homecare.users u ON o.UserID = u.user_id
     `;
     const params: any[] = [];
 
     if (!isPortal && userId) {
-      orderQuery += ` WHERE user_id = ?`;
+      orderQuery += ` WHERE o.UserID = ?`;
       params.push(userId);
     }
 
-    orderQuery += ` ORDER BY placed_at DESC LIMIT 50`;
+    orderQuery += ` ORDER BY o.ID DESC LIMIT 50`;
 
-    const [orders] = await commercePool.query<any[]>(orderQuery, params);
+    const [orders] = await storePool.query<any[]>(orderQuery, params);
 
     // Fetch line items for each order
     for (const order of orders) {
-      const [items] = await commercePool.query<any[]>(
-        `SELECT product_id as productId, product_name as name, quantity,
-                unit_price as unitPrice, unit
-         FROM order_items
-         WHERE order_id = ?`,
+      const [items] = await storePool.query<any[]>(
+        `SELECT 
+           oi.ID as id,
+           oi.ProductID as productId,
+           oi.VariantID as variantId,
+           COALESCE(p.ProductName, 'Construction Material') as name,
+           COALESCE(p.ProductCode, 'SKU') as sku,
+           oi.Quantity as quantity,
+           CAST(oi.UnitPrice AS DOUBLE) as unitPrice,
+           CAST(oi.LineTotal AS DOUBLE) as lineTotal,
+           COALESCE(mu.UnitName, 'unit') as unit
+         FROM techxpertstore.order_items oi
+         LEFT JOIN techxpertstore.products p ON oi.ProductID = p.ID
+         LEFT JOIN techxpertstore.measurement_units mu ON p.MeasurementUnitID = mu.ID
+         WHERE oi.OrderID = ?`,
         [order.id]
       );
       order.items = items;
@@ -61,68 +83,89 @@ router.get('/', async (req: Request, res: Response) => {
     console.warn('[Orders] MySQL query failed, falling back to local store', err);
   }
 
-  return res.json({ data: store.getOrders(isPortal ? undefined : String(userId)) });
+  return res.json({ data: store.getOrders(isPortal ? undefined : (userId ? String(userId) : undefined)) });
 });
 
 // POST /orders
 router.post('/', async (req: Request, res: Response) => {
-  const { items, total, deliveryAddress, customerName, customerMobile } = req.body;
+  const userId = extractUserId(req) || 1;
+  const { items, total, deliveryAddress, customerName, customerMobile, paymentMethod = 'COD' } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Order must contain at least one item' });
   }
 
-  const orderNumber = `TX-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const orderNumber = `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
   const calculatedTotal =
     total !== undefined
       ? Number(total)
       : items.reduce((acc: number, item: any) => acc + (item.unitPrice || 0) * (item.quantity || 1), 0);
 
+  const subTotal = (calculatedTotal * 0.82).toFixed(2);
+  const taxTotal = (calculatedTotal * 0.18).toFixed(2);
+
   try {
-    const [orderRes] = await commercePool.query<any>(
-      `INSERT INTO orders (order_number, total_amount, subtotal, delivery_address, customer_name, customer_mobile)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+    const [orderRes] = await storePool.query<any>(
+      `INSERT INTO techxpertstore.orders 
+       (OrderNumber, UserID, ShippingAddress, SubTotal, TaxTotal, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending', ?, CURDATE(), CURTIME(), ?)`,
       [
         orderNumber,
-        calculatedTotal,
-        calculatedTotal,
+        userId,
         deliveryAddress || 'Sector 62, Noida, Uttar Pradesh',
-        customerName || 'Contractor Customer',
-        customerMobile || '9876543210',
+        subTotal,
+        taxTotal,
+        calculatedTotal,
+        paymentMethod,
+        userId,
       ]
     );
 
     const newOrderId = orderRes.insertId;
 
     for (const it of items) {
-      await commercePool.query(
-        `INSERT INTO order_items (order_id, product_id, product_name, sku, unit, quantity, unit_price, line_total)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      const prodId = Number(it.productId) || 1;
+      const variantId = Number(it.variantId) || prodId;
+      const qty = Number(it.quantity) || 1;
+      const unitPrice = Number(it.unitPrice) || 450;
+      const lineTotal = unitPrice * qty;
+
+      await storePool.query(
+        `INSERT INTO techxpertstore.order_items 
+         (OrderID, VariantID, ProductID, Quantity, UnitPrice, TaxRate, TaxAmount, LineTotal, CreatedDate, CreatedTime)
+         VALUES (?, ?, ?, ?, ?, 18.00, ?, ?, CURDATE(), CURTIME())`,
         [
           newOrderId,
-          Number(it.productId) || 1,
-          it.name,
-          it.sku || 'TX-SKU',
-          it.unit || '50 kg bag',
-          it.quantity,
-          it.unitPrice || 450,
-          (it.unitPrice || 450) * it.quantity,
+          variantId,
+          prodId,
+          qty,
+          unitPrice,
+          (lineTotal * 0.18).toFixed(2),
+          lineTotal.toFixed(2),
         ]
       );
     }
+
+    // Insert order status history
+    await storePool.query(
+      `INSERT INTO techxpertstore.order_status_history 
+       (OrderID, OrderStatus, PaymentStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
+       VALUES (?, 'pending', 'pending', 'Order placed by customer', ?, CURDATE(), CURTIME())`,
+      [newOrderId, userId]
+    );
 
     return res.status(201).json({
       data: {
         id: String(newOrderId),
         orderNumber,
         placedAt: new Date().toISOString(),
-        status: 'placed',
+        status: 'pending',
         items,
         total: calculatedTotal,
       },
     });
   } catch (err) {
-    console.warn('[Orders] MySQL insert failed, using local store', err);
+    console.warn('[Orders] MySQL insert failed, fallback to local store', err);
   }
 
   const localOrder = store.createOrder({
@@ -142,27 +185,40 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PUT /orders/:id/status
 router.put('/:id/status', async (req: Request, res: Response) => {
-  const { status } = req.body;
+  const { status, note } = req.body;
   if (!status) return res.status(400).json({ error: 'Status is required' });
 
+  const orderIdOrNum = req.params.id;
+
   try {
-    await commercePool.query(
-      `UPDATE orders SET order_status = ? WHERE id = ? OR order_number = ?`,
-      [status, req.params.id, req.params.id]
+    const [result] = await storePool.query<any>(
+      `UPDATE techxpertstore.orders 
+       SET OrderStatus = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
+       WHERE ID = ? OR OrderNumber = ?`,
+      [status, orderIdOrNum, orderIdOrNum]
     );
 
-    await commercePool.query(
-      `INSERT INTO order_status_history (order_id, to_status, note, changed_by)
-       VALUES (?, ?, 'Status updated from admin portal', 'Arpit Maurya')`,
-      [Number(req.params.id) || 1, status]
+    // Also update history if found
+    const [orders] = await storePool.query<any[]>(
+      `SELECT ID, OrderStatus FROM techxpertstore.orders WHERE ID = ? OR OrderNumber = ? LIMIT 1`,
+      [orderIdOrNum, orderIdOrNum]
     );
+
+    if (orders.length > 0) {
+      await storePool.query(
+        `INSERT INTO techxpertstore.order_status_history
+         (OrderID, OrderStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
+         VALUES (?, ?, ?, 1, CURDATE(), CURTIME())`,
+        [orders[0].ID, status, note || 'Status updated from admin operations portal']
+      );
+    }
 
     return res.json({ success: true, status });
   } catch (err) {
     console.warn('[Orders] MySQL update status failed, updating local store', err);
   }
 
-  const updated = store.updateOrderStatus(req.params.id, status);
+  const updated = store.updateOrderStatus(orderIdOrNum, status);
   if (!updated) return res.status(404).json({ error: 'Order not found' });
   return res.json({ data: updated });
 });

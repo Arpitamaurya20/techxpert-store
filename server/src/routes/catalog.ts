@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { catalogPool } from '../db/mysql.js';
+import { storePool, catalogPool } from '../db/mysql.js';
 import { store } from '../db/store.js';
 
 const router = Router();
@@ -78,17 +78,14 @@ router.get('/products', async (req: Request, res: Response) => {
              p.StockStatus as stockStatus, p.MinOrderQuantity as minOrderQuantity,
              p.MaxOrderQuantity as maxOrderQuantity, p.IsFeatured as featured,
              p.CreatedDate as createdAt,
-             COALESCE(pr.SellingPrice, 450) as price,
-             pr.MRP as originalPrice,
+             COALESCE((SELECT MIN(pr.SellingPrice) FROM techxpertstore.product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1), 450) as price,
+             (SELECT MIN(pr.MRP) FROM techxpertstore.product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
              COALESCE(mu.UnitName, 'unit') as unit,
-             COALESCE(inv.StockQuantity, 150) as stockQuantity
-      FROM products p
-      JOIN categories c ON c.ID = p.CategoryID
-      LEFT JOIN sub_categories sc ON sc.ID = p.SubCategoryID
-      LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
-      LEFT JOIN product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
-      LEFT JOIN product_variants pv ON pv.ProductID = p.ID
-      LEFT JOIN inventory_stock inv ON inv.VariantID = pv.ID
+             COALESCE((SELECT SUM(inv.StockQuantity) FROM techxpertstore.product_variants pv JOIN techxpertstore.inventory_stock inv ON inv.VariantID = pv.ID WHERE pv.ProductID = p.ID), 150) as stockQuantity
+      FROM techxpertstore.products p
+      JOIN techxpertstore.categories c ON c.ID = p.CategoryID
+      LEFT JOIN techxpertstore.sub_categories sc ON sc.ID = p.SubCategoryID
+      LEFT JOIN techxpertstore.measurement_units mu ON mu.ID = p.MeasurementUnitID
       WHERE p.IsActive = 1
     `;
     const params: any[] = [];
@@ -114,10 +111,10 @@ router.get('/products', async (req: Request, res: Response) => {
       params.push(featured === 'true' ? 1 : 0);
     }
 
-    query += ` GROUP BY p.ID ORDER BY p.ID ASC LIMIT ? OFFSET ?`;
+    query += ` ORDER BY p.ID ASC LIMIT ? OFFSET ?`;
     params.push(numLimit, numOffset);
 
-    const [rows] = await catalogPool.query<any[]>(query, params);
+    const [rows] = await storePool.query<any[]>(query, params);
     return res.json({ data: rows });
   } catch (err) {
     console.warn('[Catalog] MySQL products query failed, using local store', err);
@@ -136,7 +133,7 @@ router.get('/products', async (req: Request, res: Response) => {
 router.get('/products/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    const [rows] = await catalogPool.query<any[]>(
+    const [rows] = await storePool.query<any[]>(
       `SELECT p.ID as id, p.ProductCode as sku, p.ProductName as name,
               p.ProductDescription as description, p.CategoryID as categoryId,
               c.CategoryName as categoryName, p.SubCategoryID as subcategoryId,
@@ -144,20 +141,19 @@ router.get('/products/:id', async (req: Request, res: Response) => {
               p.StockStatus as stockStatus, p.MinOrderQuantity as minOrderQuantity,
               p.MaxOrderQuantity as maxOrderQuantity, p.IsFeatured as featured,
               p.CreatedDate as createdAt,
-              COALESCE(pr.SellingPrice, 450) as price,
-              pr.MRP as originalPrice,
+              COALESCE((SELECT MIN(pr.SellingPrice) FROM techxpertstore.product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1), 450) as price,
+              (SELECT MIN(pr.MRP) FROM techxpertstore.product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
               COALESCE(mu.UnitName, 'unit') as unit,
-              COALESCE(inv.StockQuantity, 150) as stockQuantity
-       FROM products p
-       JOIN categories c ON c.ID = p.CategoryID
-       LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
-       LEFT JOIN product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
-       LEFT JOIN product_variants pv ON pv.ProductID = p.ID
-       LEFT JOIN inventory_stock inv ON inv.VariantID = pv.ID
-       WHERE p.ID = ? OR p.ProductCode = ?
+              COALESCE((SELECT SUM(inv.StockQuantity) FROM techxpertstore.product_variants pv JOIN techxpertstore.inventory_stock inv ON inv.VariantID = pv.ID WHERE pv.ProductID = p.ID), 150) as stockQuantity
+       FROM techxpertstore.products p
+       JOIN techxpertstore.categories c ON c.ID = p.CategoryID
+       LEFT JOIN techxpertstore.sub_categories sc ON sc.ID = p.SubCategoryID
+       LEFT JOIN techxpertstore.measurement_units mu ON mu.ID = p.MeasurementUnitID
+       WHERE (p.ID = ? OR p.ProductCode = ?) AND p.IsActive = 1
        LIMIT 1`,
       [id, id]
     );
+
 
     if (rows.length > 0) {
       return res.json({ data: rows[0] });
