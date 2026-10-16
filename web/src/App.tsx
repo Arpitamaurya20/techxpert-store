@@ -1,123 +1,178 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar, type TabId } from './components/Sidebar';
 import { Header } from './components/Header';
-import { BannerCMS } from './components/BannerCMS';
-import { SectionLayoutManager } from './components/SectionLayoutManager';
-import { BulkPricingManager } from './components/BulkPricingManager';
 import { CatalogOverview } from './components/CatalogOverview';
+import { OrdersManager } from './components/OrdersManager';
+import { BulkPricingManager } from './components/BulkPricingManager';
+import { BannerCMS } from './components/BannerCMS';
+import { ApiExplorer } from './components/ApiExplorer';
 import { AuditLogViewer } from './components/AuditLogViewer';
-import { LiveMobileSimulator } from './components/LiveMobileSimulator';
-import {
-  INITIAL_BANNERS,
-  INITIAL_SECTIONS,
-  INITIAL_CATEGORIES,
-  INITIAL_PRODUCTS,
-  INITIAL_BULK_TIERS,
-  INITIAL_AUDIT_LOGS,
-} from './data/mockData';
-import type { Banner, HomepageSection, BulkPriceTier, Product, AuditLog, BannerStatus } from './types';
+import { api } from './services/api';
+import type { Banner, BulkPriceTier, Product, AuditLog } from './types';
 import { CheckCircle2, X } from 'lucide-react';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('banners');
-  const [showMobileSimulator, setShowMobileSimulator] = useState<boolean>(true);
-  const [selectedBannerId, setSelectedBannerId] = useState<string | undefined>(
-    INITIAL_BANNERS[0]?.id
-  );
-
-  // Core application states initialized with seed data or saved localStorage
-  const [banners, setBanners] = useState<Banner[]>(() => {
-    const saved = localStorage.getItem('techxpert_banners');
-    return saved ? JSON.parse(saved) : INITIAL_BANNERS;
-  });
-
-  const [sections, setSections] = useState<HomepageSection[]>(() => {
-    const saved = localStorage.getItem('techxpert_sections');
-    return saved ? JSON.parse(saved) : INITIAL_SECTIONS;
-  });
-
-  const [bulkTiers, setBulkTiers] = useState<BulkPriceTier[]>(() => {
-    const saved = localStorage.getItem('techxpert_bulk_tiers');
-    return saved ? JSON.parse(saved) : INITIAL_BULK_TIERS;
-  });
-
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('techxpert_products');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
-  });
-
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
-    const saved = localStorage.getItem('techxpert_audit_logs');
-    return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
-  });
-
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [lastPublished, setLastPublished] = useState('Today at 11:30 AM');
+  const [activeTab, setActiveTab] = useState<TabId>('catalog');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [serverOnline, setServerOnline] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Sync to localStorage
-  useEffect(() => {
-    localStorage.setItem('techxpert_banners', JSON.stringify(banners));
-  }, [banners]);
+  // Live state from backend
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [bulkTiers, setBulkTiers] = useState<BulkPriceTier[]>([]);
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([
+    {
+      id: 'log-1',
+      action: 'Backend API Service Initialized',
+      entity: 'publish',
+      details: 'Express API running on port 5001 with active endpoints for Expo Mobile and Admin Portal',
+      user: 'System Service',
+      timestamp: 'Just now',
+    },
+  ]);
 
-  useEffect(() => {
-    localStorage.setItem('techxpert_sections', JSON.stringify(sections));
-  }, [sections]);
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3800);
+  };
 
-  useEffect(() => {
-    localStorage.setItem('techxpert_bulk_tiers', JSON.stringify(bulkTiers));
-  }, [bulkTiers]);
-
-  useEffect(() => {
-    localStorage.setItem('techxpert_products', JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    localStorage.setItem('techxpert_audit_logs', JSON.stringify(auditLogs));
-  }, [auditLogs]);
-
-  // Helper to append an audit log
   const addAuditLog = (action: string, entity: AuditLog['entity'], details: string) => {
     const newLog: AuditLog = {
       id: `log-${Date.now()}`,
       action,
       entity,
       details,
-      user: 'Arpit Maurya (Merchandiser)',
+      user: 'Arpit Maurya (Store Admin)',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
     setAuditLogs((prev) => [newLog, ...prev]);
   };
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 3800);
+  // Fetch all data from live backend
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [prodsData, catsData, ordersData, tiersData, bannersData] = await Promise.all([
+        api.getProducts().catch(() => []),
+        api.getCategories().catch(() => []),
+        api.getOrders().catch(() => []),
+        api.getBulkTiers().catch(() => []),
+        api.getBanners().catch(() => []),
+      ]);
+
+      setProducts(prodsData);
+      setCategories(catsData);
+      setOrders(ordersData);
+      setBulkTiers(tiersData);
+      setBanners(bannersData);
+      setServerOnline(true);
+    } catch (err: any) {
+      console.error('Failed to load from backend API', err);
+      setServerOnline(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Product Actions
+  const handleUpdateProduct = async (updated: Product) => {
+    try {
+      await api.updateProduct(updated.id, updated);
+      setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      addAuditLog(
+        'Updated Material SKU',
+        'product',
+        `Adjusted ${updated.name}: ₹${updated.price}, Stock: ${updated.stockQuantity} units`
+      );
+      showToast(`Product "${updated.name}" updated on backend!`);
+    } catch (err: any) {
+      showToast(`Failed to update product: ${err.message}`);
+    }
+  };
+
+  // Order Actions
+  const handleUpdateOrderStatus = async (orderId: string, status: string) => {
+    try {
+      await api.updateOrderStatus(orderId, status);
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, status } : o))
+      );
+      addAuditLog(
+        'Updated Order Status',
+        'publish',
+        `Order ${orderId} marked as ${status}`
+      );
+      showToast(`Order status updated to "${status.replace(/_/g, ' ')}"`);
+    } catch (err: any) {
+      showToast(`Failed to update status: ${err.message}`);
+    }
+  };
+
+  // Bulk Tier Actions
+  const handleAddTier = async (newTier: BulkPriceTier) => {
+    try {
+      const created = await api.createBulkTier(newTier);
+      setBulkTiers((prev) => [...prev, created]);
+      addAuditLog(
+        'Created Bulk Tier',
+        'bulk_tier',
+        `Added ${newTier.discountValue}% tier for ${newTier.productName}`
+      );
+      showToast(`Bulk pricing tier added for ${newTier.productName}!`);
+    } catch (err: any) {
+      showToast(`Failed to save bulk tier: ${err.message}`);
+    }
+  };
+
+  const handleDeleteTier = async (id: string) => {
+    try {
+      await api.deleteBulkTier(id);
+      setBulkTiers((prev) => prev.filter((t) => t.id !== id));
+      addAuditLog('Deleted Bulk Tier', 'bulk_tier', `Removed tier rule ${id}`);
+      showToast('Bulk pricing tier removed from backend.');
+    } catch (err: any) {
+      showToast(`Failed to delete tier: ${err.message}`);
+    }
   };
 
   // Banner Actions
-  const handleSaveBanner = (savedBanner: Banner) => {
-    setBanners((prev) => {
-      const exists = prev.some((b) => b.id === savedBanner.id);
+  const handleSaveBanner = async (banner: Banner) => {
+    try {
+      const exists = banners.some((b) => b.id === banner.id);
+      let resultBanner: Banner;
       if (exists) {
-        return prev.map((b) => (b.id === savedBanner.id ? savedBanner : b));
+        resultBanner = await api.updateBanner(banner.id, banner);
+        setBanners((prev) => prev.map((b) => (b.id === banner.id ? resultBanner : b)));
+      } else {
+        resultBanner = await api.createBanner(banner);
+        setBanners((prev) => [...prev, resultBanner]);
       }
-      return [...prev, savedBanner];
-    });
-    setSelectedBannerId(savedBanner.id);
-    addAuditLog('Saved Campaign Banner', 'banner', `Updated "${savedBanner.title}" banner details`);
-    showToast(`Banner "${savedBanner.title}" saved successfully!`);
+      addAuditLog('Saved Campaign Banner', 'banner', `Saved "${banner.title}"`);
+      showToast(`Banner "${banner.title}" saved successfully!`);
+    } catch (err: any) {
+      showToast(`Failed to save banner: ${err.message}`);
+    }
   };
 
-  const handleDeleteBanner = (id: string) => {
-    const bannerToDelete = banners.find((b) => b.id === id);
-    setBanners((prev) => prev.filter((b) => b.id !== id));
-    addAuditLog('Deleted Banner', 'banner', `Removed banner "${bannerToDelete?.title}"`);
-    showToast('Banner removed from campaign list.');
+  const handleDeleteBanner = async (id: string) => {
+    try {
+      await api.deleteBanner(id);
+      setBanners((prev) => prev.filter((b) => b.id !== id));
+      addAuditLog('Deleted Banner', 'banner', `Removed banner ${id}`);
+      showToast('Banner removed.');
+    } catch (err: any) {
+      showToast(`Failed to delete banner: ${err.message}`);
+    }
   };
 
-  const handleReorderBanner = (id: string, direction: 'up' | 'down') => {
+  const handleReorderBanner = async (id: string, direction: 'up' | 'down') => {
     const sorted = [...banners].sort((a, b) => a.position - b.position);
     const index = sorted.findIndex((b) => b.id === id);
     if (index === -1) return;
@@ -132,126 +187,47 @@ export function App() {
     sorted[targetIndex].position = currentPos;
 
     setBanners([...sorted]);
-    addAuditLog('Reordered Banner', 'banner', `Adjusted position of "${sorted[index].title}"`);
-    showToast('Banner carousel ordering updated.');
+    await api.updateBanner(sorted[index].id, { position: targetPos });
+    await api.updateBanner(sorted[targetIndex].id, { position: currentPos });
+    showToast('Banner order updated.');
   };
 
-  const handleStatusChange = (id: string, newStatus: BannerStatus) => {
-    setBanners((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, status: newStatus } : b))
-    );
-    const b = banners.find((x) => x.id === id);
-    addAuditLog(
-      `${newStatus === 'published' ? 'Published' : 'Updated'} Banner`,
-      'banner',
-      `Set "${b?.title}" status to ${newStatus}`
-    );
-    showToast(`Banner status changed to ${newStatus}.`);
-  };
-
-  // Section Layout Actions
-  const handleToggleSection = (id: string) => {
-    setSections((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s))
-    );
-    const sec = sections.find((s) => s.id === id);
-    addAuditLog(
-      'Toggled Section Visibility',
-      'section',
-      `${sec?.enabled ? 'Disabled' : 'Enabled'} homepage block "${sec?.title}"`
-    );
-    showToast(`Homepage section visibility toggled.`);
-  };
-
-  const handleReorderSection = (id: string, direction: 'up' | 'down') => {
-    const sorted = [...sections].sort((a, b) => a.position - b.position);
-    const index = sorted.findIndex((s) => s.id === id);
-    if (index === -1) return;
-
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= sorted.length) return;
-
-    const currentPos = sorted[index].position;
-    const targetPos = sorted[targetIndex].position;
-
-    sorted[index].position = targetPos;
-    sorted[targetIndex].position = currentPos;
-
-    setSections([...sorted]);
-    addAuditLog('Reordered Section', 'section', `Moved section "${sorted[index].title}"`);
-    showToast('Homepage section arrangement updated.');
-  };
-
-  const handleResetDefaultSections = () => {
-    setSections([...INITIAL_SECTIONS]);
-    addAuditLog('Reset Sections', 'section', 'Restored SRS recommended homepage order');
-    showToast('Reset homepage sections to SRS defaults.');
-  };
-
-  // Bulk Pricing Actions
-  const handleAddTier = (tier: BulkPriceTier) => {
-    setBulkTiers((prev) => [...prev, tier]);
-    addAuditLog(
-      'Created Bulk Pricing Tier',
-      'bulk_tier',
-      `Added ${tier.discountValue}% tier for ${tier.productName}`
-    );
-    showToast(`Bulk pricing tier added for ${tier.productName}.`);
-  };
-
-  const handleDeleteTier = (id: string) => {
-    setBulkTiers((prev) => prev.filter((t) => t.id !== id));
-    addAuditLog('Deleted Bulk Tier', 'bulk_tier', `Removed tier rule ${id}`);
-    showToast('Bulk pricing tier removed.');
-  };
-
-  // Product Catalog Actions
-  const handleUpdateProduct = (updated: Product) => {
-    setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    addAuditLog(
-      'Updated Material SKU',
-      'product',
-      `Adjusted ${updated.name}: ₹${updated.price}, Stock: ${updated.stockQuantity} units`
-    );
-    showToast(`Catalog item "${updated.name}" updated!`);
-  };
-
-  // Publish All
-  const handlePublishAll = () => {
-    setIsPublishing(true);
-    setTimeout(() => {
-      setIsPublishing(false);
-      const nowStr = `Today at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-      setLastPublished(nowStr);
-      addAuditLog(
-        'Published CMS Deployment',
-        'publish',
-        'Synced all banners, section orders, and bulk rules to production mobile cache'
+  const handleStatusChangeBanner = async (id: string, newStatus: Banner['status']) => {
+    try {
+      await api.updateBanner(id, { status: newStatus });
+      setBanners((prev) =>
+        prev.map((b) => (b.id === id ? { ...b, status: newStatus } : b))
       );
-      showToast('All changes successfully deployed to Techxpert Mobile API!');
-    }, 1200);
+      showToast(`Banner marked as ${newStatus}`);
+    } catch (err: any) {
+      showToast(`Failed to update banner status: ${err.message}`);
+    }
   };
 
   const titles: Record<TabId, { title: string; subtitle: string }> = {
-    banners: {
-      title: 'Campaign Banners & Hero CMS',
-      subtitle: 'Manage visual carousels, seasonal offers, and contractor promotions for the mobile app',
+    catalog: {
+      title: 'Products & Inventory Management',
+      subtitle: 'Live construction materials inventory, selling units, and base prices served via GET /catalog/products',
     },
-    sections: {
-      title: 'Homepage Section Layout',
-      subtitle: 'Dynamically arrange, order, and toggle mobile homepage blocks without native store updates',
+    orders: {
+      title: 'Orders & Fulfillment Desk',
+      subtitle: 'Real-time order pipeline from customer mobile app and contractor procurement desk',
     },
     pricing: {
-      title: 'Bulk Pricing & Volume Discounts',
-      subtitle: 'Configure wholesale tier savings and test customer checkout calculation rules',
+      title: 'Bulk Pricing Rules & Tier Precedence',
+      subtitle: 'Wholesale quantity thresholds and volume discount calculation rules',
     },
-    catalog: {
-      title: 'Catalog & Stock Status',
-      subtitle: 'Monitor construction material inventory, selling units, and base prices',
+    banners: {
+      title: 'Campaign & Hero Carousel Banners',
+      subtitle: 'Promotional banners for the mobile app home screen served via GET /cms/banners',
+    },
+    api: {
+      title: 'Backend API & Mobile App Integration',
+      subtitle: 'Interactive endpoint tester and configuration guide for the Expo React Native app',
     },
     audit: {
-      title: 'Publishing Audit & Version Trail',
-      subtitle: 'Review timeline of changes, deployments, and editor accountability',
+      title: 'Audit Log & Change Trail',
+      subtitle: 'Operational logs of product, pricing, and fulfillment changes',
     },
   };
 
@@ -272,39 +248,35 @@ export function App() {
       <Sidebar
         activeTab={activeTab}
         onTabChange={(tab) => setActiveTab(tab)}
-        showMobileSimulator={showMobileSimulator}
-        onToggleSimulator={() => setShowMobileSimulator(!showMobileSimulator)}
+        ordersCount={orders.length}
+        productsCount={products.length}
+        serverOnline={serverOnline}
       />
 
-      {/* Main Workspace */}
+      {/* Main Content */}
       <div style={styles.mainWrapper}>
         <Header
           title={titles[activeTab].title}
           subtitle={titles[activeTab].subtitle}
-          onPublishAll={handlePublishAll}
-          isPublishing={isPublishing}
-          lastPublished={lastPublished}
+          onRefresh={loadData}
+          loading={loading}
+          serverOnline={serverOnline}
         />
 
         <main style={styles.contentArea}>
-          {activeTab === 'banners' && (
-            <BannerCMS
-              banners={banners}
-              onSaveBanner={handleSaveBanner}
-              onDeleteBanner={handleDeleteBanner}
-              onReorder={handleReorderBanner}
-              onStatusChange={handleStatusChange}
-              selectedBannerId={selectedBannerId}
-              onSelectBanner={(id) => setSelectedBannerId(id)}
+          {activeTab === 'catalog' && (
+            <CatalogOverview
+              products={products}
+              categories={categories}
+              onUpdateProduct={handleUpdateProduct}
             />
           )}
 
-          {activeTab === 'sections' && (
-            <SectionLayoutManager
-              sections={sections}
-              onToggleSection={handleToggleSection}
-              onReorderSection={handleReorderSection}
-              onResetDefaultOrder={handleResetDefaultSections}
+          {activeTab === 'orders' && (
+            <OrdersManager
+              orders={orders}
+              onUpdateStatus={handleUpdateOrderStatus}
+              loading={loading}
             />
           )}
 
@@ -317,28 +289,23 @@ export function App() {
             />
           )}
 
-          {activeTab === 'catalog' && (
-            <CatalogOverview
-              products={products}
-              categories={INITIAL_CATEGORIES}
-              onUpdateProduct={handleUpdateProduct}
+          {activeTab === 'banners' && (
+            <BannerCMS
+              banners={banners}
+              onSaveBanner={handleSaveBanner}
+              onDeleteBanner={handleDeleteBanner}
+              onReorder={handleReorderBanner}
+              onStatusChange={handleStatusChangeBanner}
+              selectedBannerId={banners[0]?.id}
+              onSelectBanner={() => {}}
             />
           )}
+
+          {activeTab === 'api' && <ApiExplorer />}
 
           {activeTab === 'audit' && <AuditLogViewer logs={auditLogs} />}
         </main>
       </div>
-
-      {/* Right Live Mobile Simulator */}
-      {showMobileSimulator && (
-        <LiveMobileSimulator
-          banners={banners}
-          sections={sections}
-          products={products}
-          activeBannerId={selectedBannerId}
-          onBannerSelect={(id) => setSelectedBannerId(id)}
-        />
-      )}
     </div>
   );
 }
@@ -360,7 +327,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   contentArea: {
     padding: '28px 32px 60px',
-    maxWidth: '1280px',
+    maxWidth: '1440px',
     width: '100%',
     margin: '0 auto',
   },

@@ -48,13 +48,32 @@ npx expo start
 
 ---
 
-### 💻 Web Application (`web/`)
+### 🔌 Backend API Service (`server/`)
 
-The web client provides the administrative and merchandising portal for managing banners, campaigns, and catalog data.
+The Node.js + Express backend service running on port 5001, providing catalog, auth, order, and CMS APIs for both the mobile app and management portal.
+
+```bash
+cd server
+npm install
+npm run dev     # Starts server on http://localhost:5001
+```
+
+- Health & API Manifest: `http://localhost:5001/health`
+- Catalog Categories: `http://localhost:5001/catalog/categories`
+- Catalog Products: `http://localhost:5001/catalog/products`
+- Auth Login: `POST http://localhost:5001/auth/login`
+- Customer Orders: `http://localhost:5001/orders`
+
+---
+
+### 💻 Web Management Portal (`web/`)
+
+The web client provides real-time administrative control over inventory, orders, wholesale bulk pricing tiers, and banners.
 
 ```bash
 cd web
-# Open index.html in a local browser or run a dev server
+npm install
+npm run dev     # Starts portal on http://localhost:5173
 ```
 
 ---

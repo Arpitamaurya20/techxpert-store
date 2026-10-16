@@ -1,34 +1,38 @@
 import React from 'react';
 import {
-  Layers,
-  Image as ImageIcon,
-  Tag,
   Package,
+  ShoppingBag,
+  Tag,
+  Image as ImageIcon,
+  Code,
   History,
-  Smartphone,
+  Server,
 } from 'lucide-react';
 
-export type TabId = 'banners' | 'sections' | 'pricing' | 'catalog' | 'audit';
+export type TabId = 'catalog' | 'orders' | 'pricing' | 'banners' | 'api' | 'audit';
 
 interface SidebarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
-  showMobileSimulator: boolean;
-  onToggleSimulator: () => void;
+  ordersCount?: number;
+  productsCount?: number;
+  serverOnline: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onTabChange,
-  showMobileSimulator,
-  onToggleSimulator,
+  ordersCount = 3,
+  productsCount = 7,
+  serverOnline,
 }) => {
   const navItems: { id: TabId; label: string; icon: React.ReactNode; badge?: string }[] = [
-    { id: 'banners', label: 'Banners & Hero CMS', icon: <ImageIcon size={18} />, badge: '4' },
-    { id: 'sections', label: 'Homepage Layout', icon: <Layers size={18} />, badge: '8' },
+    { id: 'catalog', label: 'Products & Inventory', icon: <Package size={18} />, badge: String(productsCount) },
+    { id: 'orders', label: 'Orders & Fulfillment', icon: <ShoppingBag size={18} />, badge: String(ordersCount) },
     { id: 'pricing', label: 'Bulk Pricing Rules', icon: <Tag size={18} /> },
-    { id: 'catalog', label: 'Catalog & Stock', icon: <Package size={18} /> },
-    { id: 'audit', label: 'Publishing Audit', icon: <History size={18} /> },
+    { id: 'banners', label: 'Campaign Banners', icon: <ImageIcon size={18} /> },
+    { id: 'api', label: 'API & Mobile Sync', icon: <Code size={18} /> },
+    { id: 'audit', label: 'Audit Trail', icon: <History size={18} /> },
   ];
 
   return (
@@ -41,28 +45,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
             alt="Techxpert Logo"
             style={styles.logoImg}
             onError={(e) => {
-              // fallback if gif is loading
               (e.target as HTMLElement).style.display = 'none';
             }}
           />
           <div style={styles.brandTextWrapper}>
             <span style={styles.brandTitle}>TECHXPERT</span>
-            <span style={styles.brandSubtitle}>Merchandising Portal</span>
+            <span style={styles.brandSubtitle}>Admin & Operations</span>
           </div>
         </div>
       </div>
 
-      {/* Environment Pill */}
+      {/* Backend API Status Pill */}
       <div style={styles.envContainer}>
-        <div style={styles.envPill}>
-          <span style={styles.envDot} />
-          <span>Staging CMS • Live Sync Active</span>
+        <div
+          style={{
+            ...styles.envPill,
+            borderColor: serverOnline ? 'rgba(16, 185, 129, 0.3)' : 'rgba(244, 63, 94, 0.3)',
+          }}
+        >
+          <span
+            style={{
+              ...styles.envDot,
+              background: serverOnline ? '#10b981' : '#f43f5e',
+              boxShadow: serverOnline ? '0 0 8px #10b981' : '0 0 8px #f43f5e',
+            }}
+          />
+          <span style={{ color: serverOnline ? '#10b981' : '#f43f5e', fontWeight: 600 }}>
+            {serverOnline ? 'Backend API: Connected' : 'Backend Offline'}
+          </span>
         </div>
       </div>
 
       {/* Navigation */}
       <nav style={styles.nav}>
-        <div style={styles.navSectionLabel}>MERCHANDISING & CONTENT</div>
+        <div style={styles.navSectionLabel}>STORE MANAGEMENT</div>
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
@@ -74,7 +90,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ...(isActive ? styles.navBtnActive : {}),
               }}
             >
-              <span style={{ ...styles.navIcon, color: isActive ? 'var(--brand-orange)' : 'var(--text-muted)' }}>
+              <span
+                style={{
+                  ...styles.navIcon,
+                  color: isActive ? 'var(--brand-orange)' : 'var(--text-muted)',
+                }}
+              >
                 {item.icon}
               </span>
               <span style={styles.navLabel}>{item.label}</span>
@@ -88,31 +109,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Simulator Toggle & Footer */}
+      {/* Footer Info */}
       <div style={styles.footer}>
-        <button
-          onClick={onToggleSimulator}
-          style={{
-            ...styles.simulatorToggleBtn,
-            ...(showMobileSimulator ? styles.simulatorToggleActive : {}),
-          }}
-          title="Toggle Mobile Simulator"
-        >
-          <Smartphone size={18} color={showMobileSimulator ? 'var(--brand-orange)' : 'var(--text-muted)'} />
-          <span style={styles.toggleText}>
-            {showMobileSimulator ? 'Hide Mobile Simulator' : 'Show Mobile Simulator'}
-          </span>
-          <span style={{
-            ...styles.simulatorIndicator,
-            background: showMobileSimulator ? '#10b981' : '#64748b',
-          }} />
-        </button>
+        <div style={styles.serverInfoCard}>
+          <div style={styles.serverRow}>
+            <Server size={14} color="var(--brand-orange)" />
+            <span style={styles.serverUrl}>http://localhost:5001</span>
+          </div>
+          <div style={styles.appSyncText}>Expo App Target: /catalog, /auth, /orders</div>
+        </div>
 
         <div style={styles.userCard}>
           <div style={styles.userAvatar}>AM</div>
           <div style={styles.userInfo}>
             <div style={styles.userName}>Arpit Maurya</div>
-            <div style={styles.userRole}>Store Admin & Merchandiser</div>
+            <div style={styles.userRole}>Store Admin</div>
           </div>
         </div>
       </div>
@@ -122,7 +133,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
 const styles: Record<string, React.CSSProperties> = {
   sidebar: {
-    width: '270px',
+    width: '260px',
     background: 'var(--bg-sidebar)',
     borderRight: '1px solid var(--border-subtle)',
     display: 'flex',
@@ -178,15 +189,11 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 'var(--radius-full)',
     padding: '6px 12px',
     fontSize: '0.74rem',
-    color: 'var(--text-muted)',
-    fontWeight: 500,
   },
   envDot: {
     width: '6px',
     height: '6px',
     borderRadius: '50%',
-    background: '#10b981',
-    boxShadow: '0 0 8px #10b981',
   },
   nav: {
     flex: 1,
@@ -248,34 +255,31 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: '1px solid var(--border-subtle)',
     display: 'flex',
     flexDirection: 'column',
-    gap: '14px',
+    gap: '12px',
   },
-  simulatorToggleBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '10px 12px',
-    borderRadius: 'var(--radius-md)',
+  serverInfoCard: {
     background: 'rgba(255, 255, 255, 0.03)',
     border: '1px solid var(--border-subtle)',
-    color: 'var(--text-main)',
-    fontSize: '0.82rem',
+    borderRadius: 'var(--radius-md)',
+    padding: '10px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+  },
+  serverRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  serverUrl: {
+    fontFamily: 'monospace',
+    fontSize: '0.74rem',
+    color: '#fff',
     fontWeight: 600,
-    cursor: 'pointer',
-    transition: 'all var(--transition-fast)',
   },
-  simulatorToggleActive: {
-    borderColor: 'rgba(249, 115, 22, 0.4)',
-    background: 'rgba(249, 115, 22, 0.08)',
-  },
-  toggleText: {
-    flex: 1,
-    textAlign: 'left',
-  },
-  simulatorIndicator: {
-    width: '8px',
-    height: '8px',
-    borderRadius: '50%',
+  appSyncText: {
+    fontSize: '0.66rem',
+    color: 'var(--text-dim)',
   },
   userCard: {
     display: 'flex',
@@ -304,9 +308,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.82rem',
     fontWeight: 600,
     color: '#fff',
-    whiteSpace: 'nowrap',
-    textOverflow: 'ellipsis',
-    overflow: 'hidden',
   },
   userRole: {
     fontSize: '0.7rem',

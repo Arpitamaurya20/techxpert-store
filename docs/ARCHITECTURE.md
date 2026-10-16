@@ -14,9 +14,13 @@ techxpert-store/
 │   ├── src/              # Screens, components, services, state, assets
 │   ├── app.json          # Expo configuration
 │   └── package.json      # Mobile dependencies
-├── web/                  # Web Application / Admin Portal
-│   ├── index.html        # Entry HTML
-│   └── ...               # Web application code & assets
+├── server/               # Node.js + Express Backend API Service (Port 5001)
+│   ├── src/routes/       # /catalog, /auth, /orders, /cms, /pricing
+│   ├── src/db/           # Persistent DataStore & MySQL adapter
+│   └── package.json      # Express & database dependencies
+├── web/                  # Web Application / Store Management Portal (Port 5173)
+│   ├── src/components/   # Orders, Catalog, Bulk Pricing, API Explorer
+│   └── index.html        # Entry HTML
 ├── docs/                 # Central Documentation Hub
 │   ├── SRS.md            # Software Requirements Specification
 │   ├── DATABASE_SCHEMA.md# Relational MySQL 8.0 schema proposal

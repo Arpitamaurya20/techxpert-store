@@ -1,28 +1,21 @@
-import React, { useState } from 'react';
-import {
-  Bell,
-  Sparkles,
-  CheckCircle2,
-  RefreshCw,
-} from 'lucide-react';
+import React from 'react';
+import { RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface HeaderProps {
   title: string;
   subtitle: string;
-  onPublishAll: () => void;
-  isPublishing: boolean;
-  lastPublished: string;
+  onRefresh: () => void;
+  loading: boolean;
+  serverOnline: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   title,
   subtitle,
-  onPublishAll,
-  isPublishing,
-  lastPublished,
+  onRefresh,
+  loading,
+  serverOnline,
 }) => {
-  const [showNotificationToast, setShowNotificationToast] = useState(false);
-
   return (
     <header style={styles.header}>
       {/* Title & Subtitle */}
@@ -33,45 +26,28 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Controls */}
       <div style={styles.actionsArea}>
-        {/* Sync Status Badge */}
-        <div style={styles.syncStatus}>
-          <CheckCircle2 size={15} color="#10b981" />
-          <span>Mobile API: Synced</span>
-          <span style={styles.divider}>•</span>
-          <span style={styles.timeText}>{lastPublished}</span>
+        {/* Backend API Status Badge */}
+        <div
+          style={{
+            ...styles.syncStatus,
+            background: serverOnline ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)',
+            borderColor: serverOnline ? 'rgba(16, 185, 129, 0.25)' : 'rgba(244, 63, 94, 0.25)',
+            color: serverOnline ? '#10b981' : '#f43f5e',
+          }}
+        >
+          {serverOnline ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+          <span>{serverOnline ? 'Backend Online (Port 5001)' : 'Connecting to API...'}</span>
         </div>
 
-        {/* Publish Changes Button */}
+        {/* Reload Data Button */}
         <button
-          onClick={onPublishAll}
-          disabled={isPublishing}
-          style={{
-            ...styles.publishBtn,
-            opacity: isPublishing ? 0.7 : 1,
-          }}
-          className="btn btn-primary"
+          onClick={onRefresh}
+          disabled={loading}
+          style={styles.refreshBtn}
+          title="Refresh Data from API"
         >
-          {isPublishing ? (
-            <>
-              <RefreshCw size={16} className="spin-icon" />
-              <span>Deploying to App...</span>
-            </>
-          ) : (
-            <>
-              <Sparkles size={16} />
-              <span>Publish to Mobile App</span>
-            </>
-          )}
-        </button>
-
-        {/* Notifications */}
-        <button
-          style={styles.iconBtn}
-          onClick={() => setShowNotificationToast(!showNotificationToast)}
-          title="Notifications"
-        >
-          <Bell size={18} color="var(--text-muted)" />
-          <span style={styles.badgeDot} />
+          <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+          <span>Sync Data</span>
         </button>
       </div>
     </header>
@@ -109,62 +85,30 @@ const styles: Record<string, React.CSSProperties> = {
   actionsArea: {
     display: 'flex',
     alignItems: 'center',
-    gap: '16px',
+    gap: '14px',
   },
   syncStatus: {
     display: 'flex',
     alignItems: 'center',
-    gap: '6px',
-    padding: '6px 12px',
-    background: 'rgba(16, 185, 129, 0.08)',
-    border: '1px solid rgba(16, 185, 129, 0.2)',
+    gap: '8px',
+    padding: '7px 14px',
+    border: '1px solid',
     borderRadius: 'var(--radius-full)',
-    fontSize: '0.75rem',
-    color: '#10b981',
-    fontWeight: 500,
+    fontSize: '0.78rem',
+    fontWeight: 600,
   },
-  divider: {
-    color: 'rgba(255, 255, 255, 0.2)',
-  },
-  timeText: {
-    color: 'var(--text-muted)',
-    fontSize: '0.72rem',
-  },
-  publishBtn: {
+  refreshBtn: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '8px',
-    padding: '9px 18px',
-    fontSize: '0.86rem',
+    gap: '6px',
+    padding: '7px 14px',
+    fontSize: '0.82rem',
     fontWeight: 600,
     borderRadius: 'var(--radius-md)',
-    background: 'linear-gradient(135deg, #f97316, #ea580c)',
-    color: '#fff',
-    cursor: 'pointer',
-    border: 'none',
-    boxShadow: '0 4px 14px rgba(249, 115, 22, 0.35)',
-    transition: 'all 0.2s',
-  },
-  iconBtn: {
-    width: '38px',
-    height: '38px',
-    borderRadius: 'var(--radius-md)',
     background: 'var(--bg-surface-elevated)',
-    border: '1px solid var(--border-subtle)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    border: '1px solid var(--border-medium)',
+    color: 'var(--text-main)',
     cursor: 'pointer',
-    position: 'relative',
-  },
-  badgeDot: {
-    position: 'absolute',
-    top: '8px',
-    right: '8px',
-    width: '7px',
-    height: '7px',
-    borderRadius: '50%',
-    background: 'var(--brand-orange)',
-    boxShadow: '0 0 6px var(--brand-orange)',
+    transition: 'all 0.15s',
   },
 };
