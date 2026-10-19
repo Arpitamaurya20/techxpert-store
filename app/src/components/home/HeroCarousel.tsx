@@ -55,7 +55,7 @@ export function HeroCarousel({ width }: HeroCarouselProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
-  const height = Math.round(Math.min(Math.max(width * 0.53, 190), 300));
+  const height = Math.round(Math.min(Math.max(width * 0.58, 200), 320));
 
   useEffect(() => {
     AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {

@@ -14,6 +14,7 @@ type FeaturedProductsRailProps = {
   products: Product[];
   error?: unknown;
   onRetry: () => void;
+  actionLabel?: string;
   onSeeAll: () => void;
   onOpenProduct: (product: Product) => void;
   onAdd: (product: Product, quantity: number) => void;
@@ -25,6 +26,7 @@ export function FeaturedProductsRail({
   products,
   error,
   onRetry,
+  actionLabel = 'See all',
   onSeeAll,
   onOpenProduct,
   onAdd,
@@ -33,7 +35,7 @@ export function FeaturedProductsRail({
 
   return (
     <View style={styles.section}>
-      <SectionHeader title={title} actionLabel="See all" onAction={onSeeAll} />
+      <SectionHeader title={title} actionLabel={actionLabel} onAction={onSeeAll} />
       {status === 'error' ? (
         <StateView
           variant="error"

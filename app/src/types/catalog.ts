@@ -71,6 +71,11 @@ export type Product = {
   /** Quantities must go up in this step, e.g. 5 for "sold in multiples of 5" (defaults to 1). */
   quantityStep?: number;
   description?: string;
+  /** Short selling points for the "Key Features" list; only shown when the backend sends them. */
+  highlights?: string[];
+  /** Average customer rating out of 5; only shown when the backend sends it. */
+  rating?: number;
+  reviewCount?: number;
   /** Only attributes the backend sends, in its order. */
   specifications?: ProductSpecification[];
   /** Public product page on the store website; Share is offered only when present. */

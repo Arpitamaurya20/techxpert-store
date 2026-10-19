@@ -26,7 +26,7 @@ export function ProjectDeals({ categories, showSampleOffers, onOpenCategory, onV
 
   return (
     <View style={styles.section}>
-      <SectionHeader title="Deals for Your Projects" actionLabel="View all" onAction={onViewAll} />
+      <SectionHeader title="Deals for You" actionLabel="View all" onAction={onViewAll} />
       <View style={styles.row}>
         {deals.map((deal) => {
           const navy = deal.tone === 'navy';

@@ -22,13 +22,21 @@ type ProductImageGalleryProps = {
   /** Bundled photo shown when the product has no images. */
   localSource?: ImageSourcePropType;
   fallbackIcon: MaterialIconName;
+  /** Borderless, edge-to-edge look with the page dots below the photo. */
+  bare?: boolean;
 };
 
 const ASPECT_RATIO = 4 / 3;
 const MAX_HEIGHT = 420;
 
 /** One photo shows on its own; carousel controls appear only when the product has several. */
-export function ProductImageGallery({ images, productName, localSource, fallbackIcon }: ProductImageGalleryProps) {
+export function ProductImageGallery({
+  images,
+  productName,
+  localSource,
+  fallbackIcon,
+  bare = false,
+}: ProductImageGalleryProps) {
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<string>>(null);
@@ -63,13 +71,13 @@ export function ProductImageGallery({ images, productName, localSource, fallback
         fallbackIcon={fallbackIcon}
         accessibilityLabel={productName}
         iconSize={88}
-        style={styles.single}
+        style={[styles.single, bare && styles.bare]}
       />
     );
   }
 
   return (
-    <View style={styles.frame}>
+    <View style={[styles.frame, bare && styles.bare]}>
       {/* Measured inside the frame's border so each page is exactly one viewport wide. */}
       <View onLayout={onLayout}>
         {width > 0 ? (
@@ -110,7 +118,7 @@ export function ProductImageGallery({ images, productName, localSource, fallback
       ) : null}
 
       <View
-        style={styles.dots}
+        style={[styles.dots, bare && styles.dotsBelow]}
         accessible
         accessibilityLabel={`Image ${index + 1} of ${images.length}`}
       >
@@ -162,6 +170,17 @@ const styles = StyleSheet.create({
     borderColor: colors.cardBorder,
     overflow: 'hidden',
     backgroundColor: '#EEF2F6',
+  },
+  bare: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: colors.card,
+  },
+  dotsBelow: {
+    position: 'relative',
+    bottom: 0,
+    marginVertical: spacing.sm,
+    backgroundColor: 'transparent',
   },
   arrow: {
     position: 'absolute',

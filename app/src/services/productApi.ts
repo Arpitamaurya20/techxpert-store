@@ -53,6 +53,8 @@ import { asId, asNumber, asRecord, asText, normalizeList } from './normalize';
  *           sku?            (or productCode)
  *           images?         extra photo URLs, strings or `{ url }`
  *           specifications? `[{ label, value }]` or `{ "Material": "Brass", ... }`
+ *           highlights?     key feature strings, e.g. ["High strength", "Longer life"]
+ *           rating?, reviewCount?   average rating out of 5 and number of reviews
  *           minOrderQuantity?, quantityStep?, maxOrderQuantity?   whole numbers
  *           shareUrl?       public product page URL (enables Share)
  *         `price` may be left out when a product has no published price;
@@ -160,6 +162,11 @@ function normalizeProduct(raw: unknown): Product | null {
     (url, index, list): url is string => url !== undefined && list.indexOf(url) === index
   );
   const specifications = asSpecifications(record.specifications ?? record.attributes);
+  const highlights = Array.isArray(record.highlights)
+    ? record.highlights.map(asText).filter((text): text is string => text !== undefined)
+    : [];
+  const rating = asNumber(record.rating);
+  const reviewCount = asCount(record.reviewCount);
 
   return {
     id,
@@ -184,6 +191,9 @@ function normalizeProduct(raw: unknown): Product | null {
     maxOrderQuantity: asCount(record.maxOrderQuantity ?? record.maximumOrderQuantity),
     quantityStep: asCount(record.quantityStep),
     description: asText(record.description),
+    highlights: highlights.length > 0 ? highlights : undefined,
+    rating: rating !== undefined && rating > 0 && rating <= 5 ? rating : undefined,
+    reviewCount,
     specifications: specifications.length > 0 ? specifications : undefined,
     shareUrl: asWebUrl(record.shareUrl ?? record.productUrl ?? record.url),
     featured: record.featured === true,

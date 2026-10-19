@@ -1,73 +1,111 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CategoryCard } from '@/components/store/CategoryCard';
+import { CategoryListItem, CategoryListItemSkeleton } from '@/components/store/CategoryListItem';
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
-import { StoreHeader } from '@/components/store/StoreHeader';
-import { SubcategoryTile, SubcategoryTileSkeleton } from '@/components/store/SubcategoryTile';
+import { ProductSearchBar } from '@/components/store/ProductSearchBar';
 import { StateView } from '@/components/ui/StateView';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, spacing } from '@/constants/theme';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
-import { GRID_GAP, useStoreLayout } from '@/hooks/useStoreLayout';
 import { getErrorMessage } from '@/services/apiClient';
 import { getCategories, getSubcategories } from '@/services/productApi';
 import type { Category, Subcategory } from '@/types/catalog';
 
-const SKELETON_SECTIONS = 2;
-const SKELETON_TILES = 4;
+const SKELETON_ROWS = 6;
+
+type CategoryRow = {
+  category: Category;
+  subtitle?: string;
+  /** Set when the search matched exactly one product type, so the tap opens it directly. */
+  subId?: string;
+};
+
+function countText(category: Category, types: Subcategory[]) {
+  if (category.productCount !== undefined) {
+    const count = category.productCount;
+    return `${count.toLocaleString('en-IN')} ${count === 1 ? 'Product' : 'Products'}`;
+  }
+  if (types.length > 0) {
+    return `${types.length} ${types.length === 1 ? 'type' : 'types'}`;
+  }
+  return undefined;
+}
 
 export default function CategoriesScreen() {
-  useStatusBarStyle('dark');
+  useStatusBarStyle('light');
   const router = useRouter();
-  const layout = useStoreLayout();
+  const insets = useSafeAreaInsets();
+  const [query, setQuery] = useState('');
 
   const categories = useAsyncData('categories-tab', getCategories);
   const subcategories = useAsyncData('categories-tab-subcategories', getSubcategories);
 
-  const categoryList = categories.data?.data ?? [];
   const isDemo = categories.data?.source === 'demo' || subcategories.data?.source === 'demo';
   const isLoading = categories.status === 'loading' || subcategories.status === 'loading';
   const failed = categories.status === 'error' ? categories : subcategories.status === 'error' ? subcategories : null;
 
-  const byCategory = useMemo(() => {
-    const groups = new Map<string, Subcategory[]>();
+  const rows = useMemo<CategoryRow[]>(() => {
+    const byCategory = new Map<string, Subcategory[]>();
     for (const item of subcategories.data?.data ?? []) {
-      groups.set(item.categoryId, [...(groups.get(item.categoryId) ?? []), item]);
+      byCategory.set(item.categoryId, [...(byCategory.get(item.categoryId) ?? []), item]);
     }
-    return groups;
-  }, [subcategories.data]);
+    const term = query.trim().toLowerCase();
+    const result: CategoryRow[] = [];
+    for (const category of categories.data?.data ?? []) {
+      const types = byCategory.get(category.id) ?? [];
+      if (!term || category.name.toLowerCase().includes(term)) {
+        result.push({ category, subtitle: countText(category, types) });
+        continue;
+      }
+      const matches = types.filter((type) =>
+        [type.name, type.searchTerm].some((text) => text?.toLowerCase().includes(term))
+      );
+      if (matches.length > 0) {
+        result.push({
+          category,
+          subtitle: `Includes ${matches.map((type) => type.name).join(', ')}`,
+          subId: matches.length === 1 ? matches[0].id : undefined,
+        });
+      }
+    }
+    return result;
+  }, [categories.data, subcategories.data, query]);
+
+  const openRow = useCallback(
+    (row: CategoryRow) =>
+      router.push({
+        pathname: '/category/[id]',
+        params: row.subId ? { id: row.category.id, sub: row.subId } : { id: row.category.id },
+      }),
+    [router]
+  );
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.navigate('/home');
+    }
+  };
 
   const refreshAll = () => {
     categories.refresh();
     subcategories.refresh();
   };
 
-  const openCategory = useCallback(
-    (category: Category) => router.push({ pathname: '/category/[id]', params: { id: category.id } }),
-    [router]
-  );
-
-  const openSubcategory = useCallback(
-    (subcategory: Subcategory) =>
-      router.push({ pathname: '/category/[id]', params: { id: subcategory.categoryId, sub: subcategory.id } }),
-    [router]
-  );
-
-  const renderSections = () => {
+  const renderList = () => {
     if (isLoading) {
-      return Array.from({ length: SKELETON_SECTIONS }, (_, section) => (
-        <View key={section} style={styles.section} accessibilityRole="progressbar" accessibilityLabel="Loading categories">
-          <View style={styles.skeletonTitle} />
-          <View style={styles.grid}>
-            {Array.from({ length: SKELETON_TILES }, (_, tile) => (
-              <SubcategoryTileSkeleton key={tile} width={layout.categoryTileWidth} />
-            ))}
-          </View>
+      return (
+        <View style={styles.list} accessibilityRole="progressbar" accessibilityLabel="Loading categories">
+          {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+            <CategoryListItemSkeleton key={index} />
+          ))}
         </View>
-      ));
+      );
     }
     if (failed) {
       return (
@@ -83,76 +121,126 @@ export default function CategoriesScreen() {
         />
       );
     }
-    if (categoryList.length === 0) {
+    if ((categories.data?.data ?? []).length === 0) {
       return <StateView variant="empty" icon="grid-outline" title="No categories available yet" />;
     }
-    return categoryList.map((category) => {
-      const items = byCategory.get(category.id) ?? [];
+    if (rows.length === 0) {
       return (
-        <View key={category.id} style={styles.section}>
-          <Pressable
-            onPress={() => openCategory(category)}
-            accessibilityRole="button"
-            accessibilityLabel={`See all ${category.name}`}
-            style={({ pressed }) => [styles.titleRow, pressed && styles.titlePressed]}
-          >
-            <Text style={styles.sectionTitle} accessibilityRole="header">
-              {category.name}
-            </Text>
-            <View style={styles.seeAll}>
-              <Text style={styles.seeAllText}>See all</Text>
-              <Ionicons name="arrow-forward" size={14} color={colors.primary} />
-            </View>
-          </Pressable>
-          <View style={styles.grid}>
-            {items.length > 0 ? (
-              items.map((item) => (
-                <SubcategoryTile
-                  key={item.id}
-                  subcategory={item}
-                  width={layout.categoryTileWidth}
-                  onPress={openSubcategory}
-                />
-              ))
-            ) : (
-              <CategoryCard category={category} width={layout.categoryTileWidth} onPress={openCategory} />
-            )}
-          </View>
-        </View>
+        <StateView
+          variant="empty"
+          icon="search-outline"
+          title="No matching categories"
+          message={`Nothing matches “${query.trim()}”.`}
+          actionLabel="Clear search"
+          onAction={() => setQuery('')}
+        />
       );
-    });
+    }
+    return (
+      <View style={styles.list}>
+        {rows.map((row) => (
+          <CategoryListItem
+            key={row.category.id}
+            category={row.category}
+            subtitle={row.subtitle}
+            onPress={() => openRow(row)}
+          />
+        ))}
+      </View>
+    );
   };
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-      stickyHeaderIndices={[0]}
-      refreshControl={
-        <RefreshControl
-          refreshing={categories.isRefreshing || subcategories.isRefreshing}
-          onRefresh={refreshAll}
-          colors={[colors.orange]}
-          tintColor={colors.navy}
-          progressBackgroundColor={colors.card}
-        />
-      }
-    >
-      <StoreHeader />
-
-      <View style={styles.body}>
-        {renderSections()}
-        {isDemo && !isLoading ? <DemoDataNotice /> : null}
+    <View style={styles.screen}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+        <View style={styles.headerInner}>
+          <Pressable
+            onPress={goBack}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            hitSlop={8}
+            style={({ pressed }) => [styles.backButton, pressed && styles.backPressed]}
+          >
+            <Ionicons name="arrow-back" size={24} color={colors.white} />
+          </Pressable>
+          <Text style={styles.title} accessibilityRole="header">
+            Categories
+          </Text>
+        </View>
       </View>
-    </ScrollView>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={categories.isRefreshing || subcategories.isRefreshing}
+            onRefresh={refreshAll}
+            colors={[colors.orange]}
+            tintColor={colors.navy}
+            progressBackgroundColor={colors.card}
+          />
+        }
+      >
+        <View style={styles.body}>
+          <ProductSearchBar
+            value={query}
+            onChangeText={setQuery}
+            onSubmit={() => {
+              if (rows.length === 1) openRow(rows[0]);
+            }}
+            placeholder="Search categories..."
+            accessibilityLabel="Search categories"
+          />
+          {renderList()}
+          {isDemo && !isLoading ? <DemoDataNotice /> : null}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.navy,
+  },
+  header: {
+    paddingHorizontal: SCREEN_PADDING,
+    paddingBottom: spacing.lg,
+    backgroundColor: colors.navy,
+  },
+  headerInner: {
+    width: '100%',
+    maxWidth: MAX_STORE_WIDTH,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 40,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+  },
+  backPressed: {
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  title: {
+    fontSize: 20,
+    lineHeight: 28,
+    fontFamily: fonts.bold,
+    color: colors.white,
+  },
+  scroll: {
+    flex: 1,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    backgroundColor: colors.screen,
   },
   content: {
     paddingBottom: spacing.xxl,
@@ -162,50 +250,10 @@ const styles = StyleSheet.create({
     maxWidth: MAX_STORE_WIDTH,
     alignSelf: 'center',
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: spacing.xl,
-    gap: spacing.xl,
-  },
-  section: {
+    paddingTop: spacing.lg,
     gap: spacing.md,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    minHeight: 32,
-  },
-  titlePressed: {
-    opacity: 0.7,
-  },
-  sectionTitle: {
-    flex: 1,
-    fontSize: 18,
-    lineHeight: 24,
-    fontFamily: fonts.bold,
-    color: colors.homeInk,
-  },
-  seeAll: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  seeAllText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontFamily: fonts.semiBold,
-    color: colors.primary,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    columnGap: GRID_GAP,
-    rowGap: spacing.lg,
-  },
-  skeletonTitle: {
-    height: 18,
-    width: '45%',
-    borderRadius: 6,
-    backgroundColor: '#EDF1F5',
+  list: {
+    gap: spacing.sm,
   },
 });

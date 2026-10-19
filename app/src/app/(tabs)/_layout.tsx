@@ -52,8 +52,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="help"
         options={{
-          title: 'Need help?',
+          title: 'Help & Support',
           tabBarLabel: 'Help',
+          headerShown: false,
           tabBarIcon: tabIcon('chatbubble-ellipses', 'chatbubble-ellipses-outline'),
         }}
       />

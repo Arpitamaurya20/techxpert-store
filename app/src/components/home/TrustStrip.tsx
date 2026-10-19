@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SUPPORT } from '@/constants/brand';
-import { colors, fonts, radius, spacing } from '@/constants/theme';
+import { cardShadow, colors, fonts, radius, spacing } from '@/constants/theme';
 
 type TrustItem = {
   icon: ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -19,7 +19,7 @@ export function TrustStrip() {
   const items: TrustItem[] = [
     {
       icon: 'truck-fast-outline',
-      label: 'Fast & Reliable\nDelivery',
+      label: 'Fast\nDelivery',
       accessibilityLabel: 'Fast and reliable delivery. Set delivery location',
       onPress: () => router.push('/delivery-location'),
     },
@@ -53,7 +53,9 @@ export function TrustStrip() {
           accessibilityLabel={item.accessibilityLabel}
           style={({ pressed }) => [styles.item, pressed && styles.pressed]}
         >
-          <MaterialCommunityIcons name={item.icon} size={18} color={colors.navy} />
+          <View style={styles.iconCircle}>
+            <MaterialCommunityIcons name={item.icon} size={20} color={colors.navy} />
+          </View>
           <Text style={styles.label}>{item.label}</Text>
         </Pressable>
       ))}
@@ -64,30 +66,37 @@ export function TrustStrip() {
 const styles = StyleSheet.create({
   strip: {
     flexDirection: 'row',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: 4,
-    borderRadius: radius.md,
-    backgroundColor: colors.navySoft,
+    gap: spacing.sm,
   },
   item: {
     flex: 1,
     minWidth: 0,
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    paddingVertical: 4,
-    paddingHorizontal: 1,
-    borderRadius: radius.sm,
+    gap: 6,
+    paddingVertical: spacing.md,
+    paddingHorizontal: 2,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+    ...cardShadow,
   },
   pressed: {
-    backgroundColor: colors.logoBackdropDeep,
+    backgroundColor: colors.navySoft,
+  },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    backgroundColor: colors.navySoft,
   },
   label: {
-    flexShrink: 1,
-    fontSize: 8.5,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 13,
     fontFamily: fonts.medium,
     color: colors.navy,
+    textAlign: 'center',
   },
 });

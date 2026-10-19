@@ -8,6 +8,7 @@ import { BrandMark } from '@/components/brand/BrandMark';
 import { MAX_STORE_WIDTH, MIN_TOUCH_TARGET, SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/theme';
 import { useCartCount } from '@/state/cartStore';
 import { useDeliveryLocation } from '@/state/locationStore';
+import { addRecentSearch } from '@/state/searchHistoryStore';
 
 import { ProductSearchBar } from './ProductSearchBar';
 
@@ -18,7 +19,7 @@ type HeaderActionProps = {
   badgeCount?: number;
 };
 
-function HeaderAction({ icon, accessibilityLabel, onPress, badgeCount = 0 }: HeaderActionProps) {
+function HeaderAction({ icon, accessibilityLabel, onPress, badgeCount = false }: HeaderActionProps) {
   return (
     <Pressable
       onPress={onPress}
@@ -46,36 +47,23 @@ export function StoreHeader() {
   const cartCount = useCartCount();
   const location = useDeliveryLocation();
   const [searchText, setSearchText] = useState('');
-  const locationText = location ? location.pincode : 'Select';
+  const locationText = location
+    ? [location.city, location.pincode].filter(Boolean).join(', ')
+    : 'Select your delivery location';
+
+  const search = (query: string) => {
+    addRecentSearch(query);
+    router.push({ pathname: '/products', params: { search: query } });
+  };
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
       <View style={styles.inner}>
         <View style={styles.topRow}>
           <View style={styles.brand}>
-            <BrandMark size="compact" />
-            <Text style={styles.tagline} numberOfLines={1}>
-              Shop Materials & Supplies
-            </Text>
+            <BrandMark size="small" />
+            
           </View>
-
-          <Pressable
-            onPress={() => router.push('/delivery-location')}
-            accessibilityRole="button"
-            accessibilityLabel={`Deliver to ${location ? `${location.city} ${location.pincode}` : 'location not set'}. Change location`}
-            style={({ pressed }) => [styles.location, pressed && styles.actionPressed]}
-          >
-            <Ionicons name="location-sharp" size={22} color={colors.navy} />
-            <View style={styles.locationText}>
-              <Text style={styles.locationLabel}>Deliver to</Text>
-              <View style={styles.locationValueRow}>
-                <Text style={styles.locationValue} numberOfLines={1}>
-                  {locationText}
-                </Text>
-                <Ionicons name="chevron-down" size={14} color={colors.navy} />
-              </View>
-            </View>
-          </Pressable>
 
           <HeaderAction
             icon="cart"
@@ -95,10 +83,28 @@ export function StoreHeader() {
           </Pressable>
         </View>
 
+        <Pressable
+          onPress={() => router.push('/delivery-location')}
+          accessibilityRole="button"
+          accessibilityLabel={`Deliver to ${location ? locationText : 'location not set'}. Change location`}
+          style={({ pressed }) => [styles.location, pressed && styles.actionPressed]}
+        >
+          <Ionicons name="location-outline" size={20} color={colors.navy} />
+          <View style={styles.locationText}>
+            <Text style={styles.locationLabel}>Deliver to</Text>
+            <View style={styles.locationValueRow}>
+              <Text style={styles.locationValue} numberOfLines={1}>
+                {locationText}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={colors.navy} />
+            </View>
+          </View>
+        </Pressable>
+
         <ProductSearchBar
           value={searchText}
           onChangeText={setSearchText}
-          onSubmit={(search) => router.push({ pathname: '/products', params: { search } })}
+          onSubmit={search}
           placeholder="Search cement, tiles, paints, plumbing..."
           voice
         />
@@ -137,24 +143,24 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   brand: {
+    flex: 1,
     alignItems: 'flex-start',
   },
   tagline: {
     marginTop: -2,
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: 10,
+    lineHeight: 13,
     fontFamily: fonts.medium,
     color: colors.logoBlue,
   },
   location: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: MIN_TOUCH_TARGET,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginLeft: spacing.md,
-    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    paddingRight: spacing.sm,
     borderRadius: radius.sm,
   },
   profileCircle: {
@@ -167,7 +173,7 @@ const styles = StyleSheet.create({
     borderColor: colors.navy,
   },
   locationText: {
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
   },
   locationLabel: {

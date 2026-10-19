@@ -37,7 +37,7 @@ function ShortcutArt({ category }: { category: Category }) {
   return <MaterialCommunityIcons name={getCategoryIcon(category.id, category.icon)} size={24} color={colors.navy} />;
 }
 
-/** One row of category shortcuts under the header, ending in "More". */
+/** Two rows of four category shortcuts under the header, ending in "More". */
 export function CategoryShortcuts({ categories, loading, onOpenCategory, onViewAll }: CategoryShortcutsProps) {
   const shortcuts = CATEGORY_SHORTCUTS.flatMap(({ categoryId, label }) => {
     const category = categories.find((item) => item.id === categoryId);
@@ -64,7 +64,9 @@ export function CategoryShortcuts({ categories, loading, onOpenCategory, onViewA
               <View style={styles.art}>
                 <ShortcutArt category={category} />
               </View>
-              <Text style={styles.label}>{label}</Text>
+              <Text style={styles.label} numberOfLines={1}>
+                {label}
+              </Text>
             </Pressable>
           ))}
 
@@ -74,8 +76,8 @@ export function CategoryShortcuts({ categories, loading, onOpenCategory, onViewA
         accessibilityLabel="More categories"
         style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
       >
-        <View style={styles.art}>
-          <Ionicons name="grid-outline" size={22} color={colors.navy} />
+        <View style={[styles.art, styles.moreArt]}>
+          <Ionicons name="grid-outline" size={24} color={colors.navy} />
         </View>
         <Text style={styles.label}>More</Text>
       </Pressable>
@@ -86,38 +88,43 @@ export function CategoryShortcuts({ categories, loading, onOpenCategory, onViewA
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 4,
+    rowGap: 14,
   },
   tile: {
-    flex: 1,
-    maxWidth: 76,
+    width: '23%',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   pressed: {
     opacity: 0.8,
   },
   art: {
     width: '100%',
+    maxWidth: 72,
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    borderRadius: radius.md,
-    backgroundColor: '#F1F4F8',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+  },
+  moreArt: {
+    borderColor: colors.navySoft,
+    backgroundColor: colors.navySoft,
   },
   image: {
     width: '100%',
     height: '100%',
   },
-  /** Slightly wider than narrow tiles so one-word labels like "Electrical" stay on one line. */
   label: {
-    width: 46,
-    fontSize: 9,
-    lineHeight: 13,
-    fontFamily: fonts.medium,
-    color: colors.text,
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: fonts.semiBold,
+    color: colors.navy,
     textAlign: 'center',
   },
   skeletonLine: {

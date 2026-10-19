@@ -47,7 +47,7 @@ export const HERO_SLIDES: HeroSlide[] = [
   },
 ];
 
-/** The single row of shortcuts under the header, in display order, followed by "More". */
+/** The category grid under the header, in display order, followed by "More". */
 export const CATEGORY_SHORTCUTS: { categoryId: string; label: string }[] = [
   { categoryId: 'cement-plaster', label: 'Cement' },
   { categoryId: 'tiling-grouts', label: 'Tiles' },
@@ -91,6 +91,75 @@ export const PROJECT_DEALS: ProjectDeal[] = [
     image: require('../../assets/images/subcategories/interior-emulsion.jpg'),
   },
 ];
+
+export type ShopProject = {
+  id: string;
+  title: string;
+  subtitle: string;
+  image: ImageSourcePropType;
+  /** Categories needed for this job, in the order a customer usually buys them. */
+  categoryIds: string[];
+};
+
+/** "Shop by Project" cards on Home; each opens a page listing the categories for that job. */
+export const SHOP_PROJECTS: ShopProject[] = [
+  {
+    id: 'bathroom',
+    title: 'Bathroom',
+    subtitle: 'Fittings, tiles & waterproofing',
+    image: require('../../assets/images/subcategories/showers.jpg'),
+    categoryIds: ['bath-sanitary', 'plumbing-supplies', 'tiling-grouts', 'waterproofing', 'adhesives-sealants'],
+  },
+  {
+    id: 'kitchen',
+    title: 'Kitchen',
+    subtitle: 'Boards, fittings & taps',
+    image: require('../../assets/images/subcategories/cabinet-hinges.jpg'),
+    categoryIds: ['plywood-mdf', 'furniture-fittings', 'plumbing-supplies', 'tiling-grouts', 'electricals-lighting'],
+  },
+  {
+    id: 'painting',
+    title: 'Painting',
+    subtitle: 'Putty, primer & paints',
+    image: require('../../assets/images/subcategories/interior-emulsion.jpg'),
+    categoryIds: ['paints-putty', 'waterproofing', 'tools-accessories'],
+  },
+  {
+    id: 'construction',
+    title: 'New Construction',
+    subtitle: 'Cement, plumbing & electricals',
+    image: require('../../assets/images/subcategories/opc-cement.jpg'),
+    categoryIds: [
+      'cement-plaster',
+      'waterproofing',
+      'plumbing-supplies',
+      'electricals-lighting',
+      'tools-accessories',
+      'safety-equipment',
+    ],
+  },
+  {
+    id: 'flooring',
+    title: 'Flooring',
+    subtitle: 'Tiles, adhesive & grout',
+    image: require('../../assets/images/subcategories/floor-tiles.jpg'),
+    categoryIds: ['tiling-grouts', 'adhesives-sealants', 'tools-accessories'],
+  },
+  {
+    id: 'electrical',
+    title: 'Electrical Work',
+    subtitle: 'Wires, switches & lights',
+    image: require('../../assets/images/subcategories/switches.jpg'),
+    categoryIds: ['electricals-lighting', 'tools-accessories', 'safety-equipment'],
+  },
+];
+
+export function getShopProject(id: string | undefined): ShopProject | undefined {
+  return SHOP_PROJECTS.find((project) => project.id === id);
+}
+
+/** Search ideas shown as chips on Home; these are suggestions, not live popularity data. */
+export const SEARCH_SUGGESTIONS = ['Cement', 'Wall putty', 'PVC pipes', 'Floor tiles', 'LED bulbs', 'Plywood'];
 
 /** SAMPLE "Order Again" items from the demo catalogue, shown only before the store is connected. */
 export const SAMPLE_ORDER_AGAIN_IDS = [

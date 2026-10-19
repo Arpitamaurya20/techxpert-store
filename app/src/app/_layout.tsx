@@ -75,6 +75,16 @@ export default function RootLayout() {
         <Stack.Screen name="about/us" options={{ ...SETTINGS_HEADER, title: 'About us' }} />
         <Stack.Screen name="about/contact" options={{ ...SETTINGS_HEADER, title: 'Contact us' }} />
         <Stack.Screen name="about/[policy]" options={{ ...SETTINGS_HEADER, title: 'Policy' }} />
+        <Stack.Screen name="faq" options={{ ...SETTINGS_HEADER, title: 'FAQs' }} />
+        <Stack.Screen
+          name="calculator"
+          options={{ ...SETTINGS_HEADER, title: 'Material Calculator', contentStyle: { backgroundColor: colors.screen } }}
+        />
+        <Stack.Screen name="wishlist" options={{ ...SETTINGS_HEADER, title: 'Saved Items' }} />
+        <Stack.Screen
+          name="project/[id]"
+          options={{ ...SETTINGS_HEADER, title: 'Project', contentStyle: { backgroundColor: colors.screen } }}
+        />
         <Stack.Screen name="language" options={{ ...SETTINGS_HEADER, title: 'Language' }} />
         <Stack.Screen
           name="delivery-location"

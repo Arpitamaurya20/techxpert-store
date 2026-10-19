@@ -7,6 +7,9 @@ import { FeaturedProductsRail } from '@/components/home/FeaturedProductsRail';
 import { HeroCarousel } from '@/components/home/HeroCarousel';
 import { OrderAgainSection, type OrderAgainMode } from '@/components/home/OrderAgainSection';
 import { ProjectDeals } from '@/components/home/ProjectDeals';
+import { QuickTools } from '@/components/home/QuickTools';
+import { SearchSuggestions } from '@/components/home/SearchSuggestions';
+import { ShopByProject } from '@/components/home/ShopByProject';
 import { TrustStrip } from '@/components/home/TrustStrip';
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
 import { StoreHeader } from '@/components/store/StoreHeader';
@@ -20,6 +23,7 @@ import { useStoreLayout } from '@/hooks/useStoreLayout';
 import { getErrorMessage } from '@/services/apiClient';
 import { getOrders } from '@/services/orderApi';
 import { getCategories, getFeaturedProducts, getProductById } from '@/services/productApi';
+import { clearRecentlyViewed, useRecentlyViewedIds } from '@/state/recentlyViewedStore';
 import { useSession } from '@/state/sessionStore';
 import type { Category, Product } from '@/types/catalog';
 
@@ -64,6 +68,11 @@ export default function HomeScreen() {
   const featured = useAsyncData(`home-featured-${refreshKey}`, () => getFeaturedProducts(FEATURED_LIMIT), {
     keepPreviousData: true,
   });
+  const recentIds = useRecentlyViewedIds();
+  const recent = useAsyncData(`home-recent-${recentIds.join(',')}`, () => loadProducts(recentIds), {
+    keepPreviousData: true,
+  });
+  const recentProducts = (recent.data ?? []).filter((product) => recentIds.includes(product.id));
 
   const categoryList = categories.data?.data ?? [];
   const isDemo = categories.data?.source === 'demo' || featured.data?.source === 'demo';
@@ -110,6 +119,8 @@ export default function HomeScreen() {
       <StoreHeader />
 
       <View style={styles.body}>
+        <SearchSuggestions />
+
         {categories.status === 'error' ? (
           <StateView
             variant="error"
@@ -132,6 +143,8 @@ export default function HomeScreen() {
 
         <TrustStrip />
 
+        <QuickTools />
+
         <OrderAgainSection
           status={orderAgain.status}
           mode={orderAgain.data?.mode}
@@ -141,12 +154,27 @@ export default function HomeScreen() {
           onAdd={addProduct}
         />
 
+        <ShopByProject />
+
         <ProjectDeals
           categories={categoryList}
           showSampleOffers={isDemo}
           onOpenCategory={openCategory}
           onViewAll={openAllCategories}
         />
+
+        {recentIds.length > 0 ? (
+          <FeaturedProductsRail
+            title="Recently Viewed"
+            status={recent.status === 'loading' && recentProducts.length === 0 ? 'loading' : 'success'}
+            products={recentProducts}
+            onRetry={recent.reload}
+            actionLabel="Clear"
+            onSeeAll={clearRecentlyViewed}
+            onOpenProduct={openProduct}
+            onAdd={addProduct}
+          />
+        ) : null}
 
         <FeaturedProductsRail
           title="Featured Products"

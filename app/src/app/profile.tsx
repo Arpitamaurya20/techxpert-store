@@ -13,6 +13,7 @@ import { MAX_CONTENT_WIDTH, SCREEN_PADDING, colors, fonts, spacing } from '@/con
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
 import { useDeliveryLocation } from '@/state/locationStore';
 import { clearSession, useSession } from '@/state/sessionStore';
+import { useWishlistCount } from '@/state/wishlistStore';
 
 const APP_VERSION = Constants.expoConfig?.version;
 const SHARE_MESSAGE = `I shop construction materials and hardware on the ${BRAND.fullName} app.`;
@@ -23,6 +24,7 @@ export default function ProfileScreen() {
   const { showToast } = useToast();
   const session = useSession();
   const location = useDeliveryLocation();
+  const wishlistCount = useWishlistCount();
   const user = session?.user;
 
   const signOut = () => {
@@ -84,6 +86,19 @@ export default function ProfileScreen() {
           value={location ? `${location.city} ${location.pincode}` : 'Not set'}
           showChevron
           onPress={() => router.push('/delivery-location')}
+        />
+        <SettingsRow
+          icon="heart-outline"
+          label="Saved Items"
+          value={wishlistCount > 0 ? String(wishlistCount) : undefined}
+          showChevron
+          onPress={() => router.push('/wishlist')}
+        />
+        <SettingsRow
+          icon="calculator-outline"
+          label="Material Calculator"
+          showChevron
+          onPress={() => router.push('/calculator')}
         />
         <SettingsRow icon="share-outline" label="Share App" onPress={shareApp} />
         <SettingsRow

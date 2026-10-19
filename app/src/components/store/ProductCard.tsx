@@ -9,6 +9,7 @@ import { getCategoryIcon } from '@/utils/categoryIcon';
 import { discountPercent, formatPrice } from '@/utils/format';
 
 import { ProductImage } from './ProductImage';
+import { WishlistButton } from './WishlistButton';
 
 type ProductCardProps = {
   product: Product;
@@ -56,6 +57,9 @@ function ProductCardComponent({ product, width, onOpen, onAddToCart }: ProductCa
             style={styles.image}
           />
         </Pressable>
+        <View style={styles.wishlist}>
+          <WishlistButton productId={product.id} productName={product.name} />
+        </View>
 
         <Pressable
           onPress={() => onAddToCart(product)}
@@ -147,6 +151,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.cardBorder,
     backgroundColor: '#F5F6F8',
+  },
+  wishlist: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
   },
   addButton: {
     position: 'absolute',

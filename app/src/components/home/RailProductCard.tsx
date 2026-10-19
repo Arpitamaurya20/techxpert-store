@@ -3,6 +3,7 @@ import { memo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ProductImage } from '@/components/store/ProductImage';
+import { WishlistButton } from '@/components/store/WishlistButton';
 import { colors, fonts, radius, spacing } from '@/constants/theme';
 import { getDemoProductArt } from '@/data/demoProductArt';
 import { getAddableRange, getMaxQuantity, useCartQuantity } from '@/state/cartStore';
@@ -56,6 +57,9 @@ function RailProductCardComponent({ product, onOpen, onAdd }: RailProductCardPro
               <Text style={styles.discountText}>{discount}% OFF</Text>
             </View>
           ) : null}
+          <View style={styles.wishlist}>
+            <WishlistButton productId={product.id} productName={product.name} />
+          </View>
         </View>
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={1}>
@@ -179,6 +183,11 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: 4,
     backgroundColor: colors.orange,
+  },
+  wishlist: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
   },
   discountText: {
     fontSize: 9,
