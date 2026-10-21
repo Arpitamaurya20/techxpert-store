@@ -118,7 +118,7 @@ export default function CartScreen() {
                 title="Proceed to Checkout"
                 icon="arrow-forward"
                 onPress={goToCheckout}
-                accessibilityHint="Opens checkout. Address, payment and order placement are not available yet."
+                accessibilityHint="Opens checkout to enter your delivery details and place the order"
               />
             </View>
           </View>

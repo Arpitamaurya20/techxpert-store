@@ -1,0 +1,456 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Tag,
+  Percent,
+  Calculator,
+  Plus,
+  Trash2,
+  TrendingDown,
+} from 'lucide-react';
+import type { BulkPriceTier, Product } from '../types';
+import { DataTable, StatGrid, Badge, Button, Modal } from './ui';
+import type { Column, StatItem } from './ui';
+
+
+interface BulkPricingManagerProps {
+  tiers: BulkPriceTier[];
+  products: Product[];
+  onAddTier: (tier: BulkPriceTier) => void;
+  onDeleteTier: (id: string) => void;
+}
+
+export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
+  tiers,
+  products,
+  onAddTier,
+  onDeleteTier,
+}) => {
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || '1');
+  const [calculatorQty, setCalculatorQty] = useState<number>(25);
+  const [calcResult, setCalcResult] = useState<any>(null);
+
+  // New tier form state
+  const [newTier, setNewTier] = useState({
+    productId: products[0]?.id || '1',
+    productName: products[0]?.name || 'Construction Material',
+    minQty: 10,
+    maxQty: 49,
+    discountType: 'percentage' as const,
+    discountValue: 10,
+    terms: 'Contractor bulk rate applied at checkout',
+  });
+
+  const selectedProduct = products.find((p) => String(p.id) === String(selectedProductId)) || products[0];
+
+  // Fetch live discount calculation from backend API
+  useEffect(() => {
+    if (!selectedProduct) return;
+    const basePrice = selectedProduct.price || 450;
+    fetch(
+      `http://localhost:5001/pricing/calculate?productId=${selectedProduct.id}&quantity=${calculatorQty}&basePrice=${basePrice}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data) {
+          setCalcResult(data.data);
+        }
+      })
+      .catch(() => {
+        // Local calculation fallback
+        const applicableTier = tiers.find(
+          (t) =>
+            String(t.productId) === String(selectedProduct.id) &&
+            calculatorQty >= t.minQty &&
+            (!t.maxQty || calculatorQty <= t.maxQty)
+        );
+        const discountPct = applicableTier ? applicableTier.discountValue : 0;
+        const discountPerUnit = (basePrice * discountPct) / 100;
+        setCalcResult({
+          basePrice,
+          unitPrice: basePrice - discountPerUnit,
+          discountPercent: discountPct,
+          totalSavings: discountPerUnit * calculatorQty,
+          subtotal: (basePrice - discountPerUnit) * calculatorQty,
+          appliedTier: applicableTier,
+        });
+      });
+  }, [selectedProductId, calculatorQty, selectedProduct, tiers]);
+
+  const handleCreateTier = (e: React.FormEvent) => {
+    e.preventDefault();
+    const prod = products.find((p) => String(p.id) === String(newTier.productId));
+    onAddTier({
+      id: `tier-${Date.now()}`,
+      productId: newTier.productId,
+      productName: prod?.name || newTier.productName,
+      minQty: Number(newTier.minQty),
+      maxQty: newTier.maxQty ? Number(newTier.maxQty) : undefined,
+      discountType: newTier.discountType,
+      discountValue: Number(newTier.discountValue),
+      terms: newTier.terms,
+    });
+    setIsAddModalOpen(false);
+  };
+
+  const avgDiscount = tiers.length > 0
+    ? Math.round(tiers.reduce((acc, t) => acc + Number(t.discountValue), 0) / tiers.length)
+    : 12;
+
+  const stats: StatItem[] = [
+    {
+      label: 'Configured Volume Tiers',
+      value: tiers.length,
+      icon: <Tag size={20} />,
+      iconColor: 'var(--brand-orange)',
+    },
+    {
+      label: 'Average Contractor Savings',
+      value: `${avgDiscount}%`,
+      icon: <TrendingDown size={20} />,
+      iconColor: '#10b981',
+    },
+    {
+      label: 'Covered High-Turnover SKUs',
+      value: new Set(tiers.map((t) => t.productId)).size,
+      icon: <Percent size={20} />,
+      iconColor: '#38bdf8',
+    },
+    {
+      label: 'Calculation Engine',
+      value: 'Real-time',
+      icon: <Calculator size={20} />,
+      iconColor: '#a855f7',
+    },
+  ];
+
+  const columns: Column<BulkPriceTier>[] = [
+    {
+      key: 'productName',
+      header: 'MATERIAL / SKU',
+      sortable: true,
+      render: (t) => (
+        <div>
+          <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.88rem' }}>{t.productName}</div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+            ID: #{t.productId}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'quantityRange',
+      header: 'QUANTITY THRESHOLD',
+      render: (t) => (
+        <Badge variant="neutral">
+          {t.minQty} {t.maxQty ? `– ${t.maxQty}` : '+'} units
+        </Badge>
+      ),
+    },
+    {
+      key: 'discountValue',
+      header: 'DISCOUNT BENEFIT',
+      sortable: true,
+      render: (t) => (
+        <Badge variant="success" icon={<TrendingDown size={12} />}>
+          {t.discountValue}% OFF
+        </Badge>
+      ),
+    },
+    {
+      key: 'terms',
+      header: 'TERMS & INVOICE NOTES',
+      render: (t) => (
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          {t.terms || 'Applied at checkout'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (t) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Trash2 size={14} color="#f43f5e" />}
+          onClick={() => onDeleteTier(t.id)}
+        >
+          Remove
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      {/* Metrics Row */}
+      <StatGrid items={stats} />
+
+      {/* Interactive Volume Simulator */}
+      <div
+        style={{
+          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9))',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '20px 24px',
+          boxShadow: 'var(--shadow-md)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <Calculator size={20} color="var(--brand-orange)" />
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff', margin: 0 }}>
+            Contractor Volume Pricing Simulator (Live API /pricing/calculate)
+          </h3>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px', alignItems: 'center' }}>
+          <div>
+            <div style={{ display: 'flex', gap: '14px', marginBottom: '14px' }}>
+              <div style={{ flex: 1 }}>
+                <label style={styles.label}>Select Product</label>
+                <select
+                  value={selectedProductId}
+                  onChange={(e) => setSelectedProductId(e.target.value)}
+                  style={styles.select}
+                >
+                  {products.map((p) => (
+                    <option key={p.id} value={String(p.id)} style={{ background: '#0f172a' }}>
+                      {p.name} (Base: ₹{p.price})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ width: '130px' }}>
+                <label style={styles.label}>Order Qty</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  value={calculatorQty}
+                  onChange={(e) => setCalculatorQty(Math.max(1, Number(e.target.value)))}
+                  style={styles.input}
+                />
+              </div>
+            </div>
+
+            <input
+              type="range"
+              min="1"
+              max="200"
+              value={calculatorQty}
+              onChange={(e) => setCalculatorQty(Number(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--brand-orange)', cursor: 'pointer' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '4px' }}>
+              <span>1 unit (Retail)</span>
+              <span>50 units (Small Trade)</span>
+              <span>100+ units (Wholesale)</span>
+              <span>200+ units</span>
+            </div>
+          </div>
+
+          {/* Calculator Output */}
+          <div
+            style={{
+              background: 'rgba(0, 0, 0, 0.25)',
+              border: '1px solid rgba(249, 115, 22, 0.25)',
+              borderRadius: 'var(--radius-md)',
+              padding: '16px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              <span>Base Retail Rate:</span>
+              <span>₹{calcResult?.basePrice || selectedProduct?.price || 450} / unit</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              <span>Volume Discount:</span>
+              <span style={{ color: '#10b981', fontWeight: 700 }}>
+                {calcResult?.discountPercent || 0}% OFF
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: '#fff', fontWeight: 600 }}>
+              <span>Contractor Unit Rate:</span>
+              <span style={{ color: 'var(--brand-orange)', fontWeight: 800, fontFamily: 'monospace' }}>
+                ₹{Number(calcResult?.unitPrice || selectedProduct?.price || 450).toFixed(2)}
+              </span>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '1rem',
+                fontWeight: 800,
+                color: '#fff',
+                borderTop: '1px solid var(--border-subtle)',
+                paddingTop: '8px',
+                marginTop: '4px',
+              }}
+            >
+              <span>Total Payable ({calculatorQty} units):</span>
+              <span style={{ color: '#10b981', fontFamily: 'monospace' }}>
+                ₹{Number(calcResult?.subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+            {Number(calcResult?.totalSavings || 0) > 0 && (
+              <div style={{ fontSize: '0.74rem', color: '#10b981', textAlign: 'right' }}>
+                ✨ Contractor saves ₹{Number(calcResult?.totalSavings).toLocaleString('en-IN', { minimumFractionDigits: 2 })} on this order!
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Tiers Data Table */}
+      <DataTable<BulkPriceTier>
+        data={tiers}
+        columns={columns}
+        keyExtractor={(t) => t.id}
+        searchPlaceholder="Filter rules by product name or terms..."
+        searchKeys={['productName', 'terms']}
+        pageSize={8}
+        extraControls={
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Plus size={15} />}
+            onClick={() => setIsAddModalOpen(true)}
+          >
+            Add Pricing Rule
+          </Button>
+        }
+      />
+
+      {/* Add Tier Modal */}
+      {isAddModalOpen && (
+        <Modal
+          isOpen={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          title="Create Bulk Pricing Tier"
+          subtitle="Configure volume threshold and contractor discount percentage"
+          footer={
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setIsAddModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleCreateTier}>
+                Create Tier
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={handleCreateTier} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div>
+              <label style={styles.label}>Select Product</label>
+              <select
+                value={newTier.productId}
+                onChange={(e) => {
+                  const p = products.find((pr) => String(pr.id) === e.target.value);
+                  setNewTier({
+                    ...newTier,
+                    productId: e.target.value,
+                    productName: p?.name || '',
+                  });
+                }}
+                style={styles.select}
+              >
+                {products.map((p) => (
+                  <option key={p.id} value={String(p.id)} style={{ background: '#0f172a' }}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label style={styles.label}>Min Quantity</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={newTier.minQty}
+                  onChange={(e) => setNewTier({ ...newTier, minQty: Number(e.target.value) })}
+                  style={styles.input}
+                />
+              </div>
+              <div>
+                <label style={styles.label}>Max Quantity (Optional)</label>
+                <input
+                  type="number"
+                  placeholder="Leave empty for unlimited"
+                  value={newTier.maxQty || ''}
+                  onChange={(e) =>
+                    setNewTier({
+                      ...newTier,
+                      maxQty: e.target.value ? Number(e.target.value) : undefined as any,
+                    })
+                  }
+                  style={styles.input}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={styles.label}>Discount Percentage (%)</label>
+              <input
+                type="number"
+                min="1"
+                max="90"
+                value={newTier.discountValue}
+                onChange={(e) => setNewTier({ ...newTier, discountValue: Number(e.target.value) })}
+                style={styles.input}
+              />
+            </div>
+
+            <div>
+              <label style={styles.label}>Terms / Qualification Note</label>
+              <input
+                type="text"
+                value={newTier.terms}
+                onChange={(e) => setNewTier({ ...newTier, terms: e.target.value })}
+                style={styles.input}
+                placeholder="e.g. Valid for verified GST trade contractors"
+              />
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+const styles: Record<string, React.CSSProperties> = {
+  label: {
+    display: 'block',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    marginBottom: '6px',
+  },
+  select: {
+    width: '100%',
+    background: 'rgba(255, 255, 255, 0.05)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-md)',
+    padding: '9px 12px',
+    color: '#fff',
+    fontSize: '0.86rem',
+    outline: 'none',
+    cursor: 'pointer',
+  },
+  input: {
+    width: '100%',
+    background: 'rgba(255, 255, 255, 0.05)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-md)',
+    padding: '9px 14px',
+    color: '#fff',
+    fontSize: '0.86rem',
+    outline: 'none',
+  },
+};

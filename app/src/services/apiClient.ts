@@ -34,12 +34,33 @@ function buildUrl(path: string, params?: QueryParams) {
 }
 
 /** GET request to the Techxpert API. Sends the session token as a Bearer header when signed in. */
-export async function apiGet(path: string, params?: QueryParams): Promise<unknown> {
+export function apiGet(path: string, params?: QueryParams): Promise<unknown> {
+  return request('GET', buildUrl(path, params));
+}
+
+/** POST a JSON body to the Techxpert API. Sends the session token as a Bearer header when signed in. */
+export function apiPost(path: string, body: unknown): Promise<unknown> {
+  return request('POST', buildUrl(path), body);
+}
+
+/** The server's own explanation for a rejected request, e.g. "Insufficient stock". */
+async function readErrorMessage(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { error?: unknown; message?: unknown };
+    const message = typeof body.error === 'string' ? body.error : body.message;
+    return typeof message === 'string' && message.trim() ? message.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function request(method: 'GET' | 'POST', url: string, body?: unknown): Promise<unknown> {
   if (!isApiConfigured) {
     throw new ApiError('NOT_CONFIGURED', 'The Techxpert store server is not connected yet.');
   }
 
   const headers: Record<string, string> = { Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   const token = getAuthToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -48,7 +69,12 @@ export async function apiGet(path: string, params?: QueryParams): Promise<unknow
 
   let response: Response;
   try {
-    response = await fetch(buildUrl(path, params), { headers, signal: controller.signal });
+    response = await fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
   } catch {
     if (controller.signal.aborted) {
       throw new ApiError('TIMEOUT', 'The server took too long to respond. Please try again.');
@@ -66,6 +92,14 @@ export async function apiGet(path: string, params?: QueryParams): Promise<unknow
   }
   if (response.status === 404) {
     throw new ApiError('NOT_FOUND', 'We could not find what you were looking for.', 404);
+  }
+  if (method === 'POST' && response.status >= 400 && response.status < 500) {
+    const message = await readErrorMessage(response);
+    throw new ApiError(
+      'SERVER',
+      message ?? 'The server could not accept this request. Please check the details and try again.',
+      response.status
+    );
   }
   if (!response.ok) {
     throw new ApiError(

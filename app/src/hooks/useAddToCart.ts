@@ -23,16 +23,20 @@ function failureMessage(reason: AddToCartFailure, maxQuantity: number): string {
   }
 }
 
-/** Adds a product to the shared cart and tells the user exactly what happened. */
+/**
+ * Adds a product to the shared cart and tells the user exactly what happened.
+ * `quiet` skips the success toast for flows that move straight on to checkout.
+ */
 export function useAddToCart({ toastBottomOffset }: UseAddToCartOptions = {}) {
   const router = useRouter();
   const { showToast } = useToast();
 
   return useCallback(
-    (product: Product, quantity?: number): AddToCartResult => {
+    (product: Product, quantity?: number, { quiet = false }: { quiet?: boolean } = {}): AddToCartResult => {
       const result = addToCart(product, quantity);
 
       if (result.ok) {
+        if (quiet) return result;
         showToast({
           message:
             result.added === result.quantity

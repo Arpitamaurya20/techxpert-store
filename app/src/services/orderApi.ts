@@ -1,7 +1,7 @@
 import { getAuthToken } from '@/state/sessionStore';
 import type { Order, OrderItem, OrderStatus } from '@/types/order';
 
-import { ApiError, apiGet } from './apiClient';
+import { ApiError, apiGet, apiPost } from './apiClient';
 import { isApiConfigured } from './apiConfig';
 import { asId, asList, asNumber, asRecord, asText, normalizeList } from './normalize';
 
@@ -81,6 +81,59 @@ function normalizeOrder(raw: unknown): Order | null {
     statusLabel: status ? undefined : asText(record.status),
     items,
     total: asNumber(record.total ?? record.totalAmount ?? record.grandTotal),
+  };
+}
+
+export type PaymentMethod = 'COD';
+
+export type PlaceOrderInput = {
+  items: { productId: string; quantity: number; unitPrice: number }[];
+  customerName: string;
+  mobile: string;
+  address: { line: string; city: string; pincode: string };
+  paymentMethod: PaymentMethod;
+};
+
+/** What the server confirmed; its totals include delivery and tax, so they may differ from the cart. */
+export type PlacedOrder = {
+  id: string;
+  orderNumber: string;
+  total?: number;
+  shippingCharges?: number;
+  placedAt?: string;
+};
+
+/**
+ * Places an order (POST /orders, JSON; Bearer token when signed in, guest details otherwise):
+ *
+ *   { items: [{ productId, quantity, unitPrice }], shippingAddress, paymentMethod: "COD",
+ *     guestName, guestPhone }
+ *       → { data: { id, orderNumber, total? (or grandTotal), shippingCharges?, placedAt? } }
+ *
+ * The server re-checks prices and stock. Throws `ApiError` ("NOT_CONFIGURED" without a server).
+ */
+export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
+  const { line, city, pincode } = input.address;
+  const raw = await apiPost('/orders', {
+    items: input.items,
+    shippingAddress: `${line}, ${city} - ${pincode}`,
+    paymentMethod: input.paymentMethod,
+    guestName: input.customerName,
+    guestPhone: input.mobile,
+  });
+
+  const envelope = asRecord(raw);
+  const record = asRecord(envelope?.data) ?? envelope;
+  const id = asId(record?.id);
+  if (!record || !id) {
+    throw new ApiError('INVALID_RESPONSE', 'We could not confirm your order. Please check My Orders before trying again.');
+  }
+  return {
+    id,
+    orderNumber: asText(record.orderNumber) ?? asId(record.orderNumber) ?? id,
+    total: asNumber(record.total ?? record.grandTotal),
+    shippingCharges: asNumber(record.shippingCharges),
+    placedAt: asText(record.placedAt),
   };
 }
 

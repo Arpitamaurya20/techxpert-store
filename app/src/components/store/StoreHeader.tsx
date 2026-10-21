@@ -1,11 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { useState, type ComponentProps } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandMark } from '@/components/brand/BrandMark';
-import { MAX_STORE_WIDTH, MIN_TOUCH_TARGET, SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/theme';
+import { GLASS_EDGE, GlassBackground, glassSurface } from '@/components/ui/GlassBackground';
+import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/theme';
 import { useCartCount } from '@/state/cartStore';
 import { useDeliveryLocation } from '@/state/locationStore';
 import { addRecentSearch } from '@/state/searchHistoryStore';
@@ -19,15 +20,16 @@ type HeaderActionProps = {
   badgeCount?: number;
 };
 
-function HeaderAction({ icon, accessibilityLabel, onPress, badgeCount = false }: HeaderActionProps) {
+function HeaderAction({ icon, accessibilityLabel, onPress, badgeCount = 0 }: HeaderActionProps) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={badgeCount > 0 ? `${accessibilityLabel}, ${badgeCount} items` : accessibilityLabel}
+      hitSlop={4}
       style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
     >
-      <Ionicons name={icon} size={24} color={colors.navy} />
+      <Ionicons name={icon} size={21} color={colors.navy} />
       {badgeCount > 0 ? (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
@@ -37,11 +39,20 @@ function HeaderAction({ icon, accessibilityLabel, onPress, badgeCount = false }:
   );
 }
 
+type HeaderSearch = {
+  value: string;
+  onChangeText: (text: string) => void;
+  onSubmit: (query: string) => void;
+  placeholder: string;
+  accessibilityLabel: string;
+};
+
 /**
  * Compact store header: logo, delivery location, cart, profile and search.
  * Screens pin it with `stickyHeaderIndices={[0]}` so search stays one tap away.
+ * By default the search opens product results; pass `search` to drive it from the screen instead.
  */
-export function StoreHeader() {
+export function StoreHeader({ search: screenSearch }: { search?: HeaderSearch } = {}) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const cartCount = useCartCount();
@@ -58,6 +69,7 @@ export function StoreHeader() {
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+      <GlassBackground />
       <View style={styles.inner}>
         <View style={styles.topRow}>
           <View style={styles.brand}>
@@ -66,21 +78,12 @@ export function StoreHeader() {
           </View>
 
           <HeaderAction
-            icon="cart"
+            icon="cart-outline"
             accessibilityLabel="Cart"
             badgeCount={cartCount}
             onPress={() => router.navigate('/cart')}
           />
-          <Pressable
-            onPress={() => router.navigate('/profile')}
-            accessibilityRole="button"
-            accessibilityLabel="Profile"
-            style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
-          >
-            <View style={styles.profileCircle}>
-              <Ionicons name="person-outline" size={18} color={colors.navy} />
-            </View>
-          </Pressable>
+          <HeaderAction icon="person-outline" accessibilityLabel="Profile" onPress={() => router.navigate('/profile')} />
         </View>
 
         <Pressable
@@ -101,13 +104,17 @@ export function StoreHeader() {
           </View>
         </Pressable>
 
-        <ProductSearchBar
-          value={searchText}
-          onChangeText={setSearchText}
-          onSubmit={search}
-          placeholder="Search cement, tiles, paints, plumbing..."
-          voice
-        />
+        {screenSearch ? (
+          <ProductSearchBar {...screenSearch} />
+        ) : (
+          <ProductSearchBar
+            value={searchText}
+            onChangeText={setSearchText}
+            onSubmit={search}
+            placeholder="Search cement, tiles, paints, plumbing..."
+            voice
+          />
+        )}
       </View>
     </View>
   );
@@ -118,19 +125,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: SCREEN_PADDING,
     paddingBottom: spacing.md,
-    backgroundColor: colors.card,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.cardBorder,
-    ...Platform.select({
-      web: { boxShadow: '0px 2px 8px rgba(11, 42, 91, 0.06)' },
-      default: {
-        shadowColor: colors.navy,
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 2,
-      },
-    }),
+    ...glassSurface,
   },
   inner: {
     width: '100%',
@@ -140,7 +135,7 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   brand: {
     flex: 1,
@@ -162,15 +157,6 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     paddingRight: spacing.sm,
     borderRadius: radius.sm,
-  },
-  profileCircle: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: colors.navy,
   },
   locationText: {
     flexShrink: 1,
@@ -196,18 +182,21 @@ const styles = StyleSheet.create({
   },
   action: {
     width: 40,
-    height: MIN_TOUCH_TARGET,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderWidth: 1,
+    borderColor: GLASS_EDGE,
   },
   actionPressed: {
-    backgroundColor: colors.navySoft,
+    backgroundColor: 'rgba(15, 23, 42, 0.06)',
   },
   badge: {
     position: 'absolute',
-    top: 6,
-    right: 2,
+    top: -4,
+    right: -4,
     minWidth: 18,
     height: 18,
     paddingHorizontal: 4,

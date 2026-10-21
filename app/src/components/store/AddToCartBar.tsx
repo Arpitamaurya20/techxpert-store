@@ -4,35 +4,31 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/Button';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, spacing, typography } from '@/constants/theme';
-import { formatPrice, lineSubtotal } from '@/utils/format';
 
 type AddToCartBarProps = {
-  price?: number;
   canAdd: boolean;
+  /** Buy Now stays available when the item is already in the cart, even if no more can be added. */
+  canBuy: boolean;
   quantity: number;
   onAdd: () => void;
+  onBuyNow: () => void;
   blockedTitle: string;
   blockedMessage?: string;
   onLayout?: (event: LayoutChangeEvent) => void;
 };
 
-/** Sticky purchase button; it sits above the system navigation using the safe-area inset. */
+/** Sticky Add to Cart / Buy Now buttons; they sit above the system navigation using the safe-area inset. */
 export function AddToCartBar({
-  price,
   canAdd,
+  canBuy,
   quantity,
   onAdd,
+  onBuyNow,
   blockedTitle,
   blockedMessage,
   onLayout,
 }: AddToCartBarProps) {
   const insets = useSafeAreaInsets();
-  const title =
-    canAdd && price !== undefined && quantity > 1
-      ? `Add to Cart · ${formatPrice(lineSubtotal(price, quantity))}`
-      : canAdd
-        ? 'Add to Cart'
-        : blockedTitle;
 
   return (
     <View style={[styles.bar, { paddingBottom: insets.bottom + spacing.md }]} onLayout={onLayout}>
@@ -43,13 +39,25 @@ export function AddToCartBar({
             <Text style={styles.blockedText}>{blockedMessage}</Text>
           </View>
         ) : null}
-        <Button
-          title={title}
-          icon={canAdd ? 'cart-outline' : undefined}
-          disabled={!canAdd}
-          onPress={onAdd}
-          accessibilityHint={canAdd ? `Adds ${quantity} to your cart` : undefined}
-        />
+        <View style={styles.buttons}>
+          <Button
+            title={canAdd ? 'Add to Cart' : blockedTitle}
+            variant="outline"
+            icon={canAdd ? 'cart-outline' : undefined}
+            disabled={!canAdd}
+            onPress={onAdd}
+            accessibilityHint={canAdd ? `Adds ${quantity} to your cart` : undefined}
+            style={[styles.button, styles.addButton]}
+          />
+          <Button
+            title="Buy Now"
+            icon="flash-outline"
+            disabled={!canBuy}
+            onPress={onBuyNow}
+            accessibilityHint={canAdd ? `Adds ${quantity} to your cart and goes to checkout` : 'Goes to checkout'}
+            style={styles.button}
+          />
+        </View>
       </View>
     </View>
   );
@@ -72,6 +80,17 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: MAX_STORE_WIDTH - SCREEN_PADDING * 2,
     gap: spacing.sm,
+  },
+  buttons: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  button: {
+    flex: 1,
+    paddingHorizontal: spacing.sm,
+  },
+  addButton: {
+    borderColor: colors.navy,
   },
   blocked: {
     flexDirection: 'row',

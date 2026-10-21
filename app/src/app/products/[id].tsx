@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
 import {
@@ -23,6 +24,7 @@ import { StockBadge } from '@/components/store/StockBadge';
 import { WishlistButton } from '@/components/store/WishlistButton';
 import { StateView } from '@/components/ui/StateView';
 import { useToast } from '@/components/ui/Toast';
+import { BRAND, COMPANY } from '@/constants/brand';
 import {
   MAX_STORE_WIDTH,
   SCREEN_PADDING,
@@ -39,17 +41,12 @@ import { useAddToCart } from '@/hooks/useAddToCart';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { getErrorMessage } from '@/services/apiClient';
 import { getProductById } from '@/services/productApi';
-import {
-  getAddableRange,
-  getQuantityRules,
-  useCartCount,
-  useCartQuantity,
-  type AddableRange,
-} from '@/state/cartStore';
+import { getAddableRange, getQuantityRules, useCartQuantity, type AddableRange } from '@/state/cartStore';
+import { useDeliveryLocation } from '@/state/locationStore';
 import { addRecentlyViewed } from '@/state/recentlyViewedStore';
 import type { CatalogResult, Product, ProductSpecification } from '@/types/catalog';
 import { getCategoryIcon } from '@/utils/categoryIcon';
-import { discountPercent, formatPrice } from '@/utils/format';
+import { discountPercent, formatPrice, lineSubtotal } from '@/utils/format';
 
 /** Used until the purchase bar reports its real height. */
 const BAR_HEIGHT_ESTIMATE = 96;
@@ -79,7 +76,7 @@ export default function ProductDetailsScreen() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
-  const cartCount = useCartCount();
+  const location = useDeliveryLocation();
 
   const [barHeight, setBarHeight] = useState(BAR_HEIGHT_ESTIMATE);
   const [scrolled, setScrolled] = useState(false);
@@ -120,15 +117,33 @@ export default function ProductDetailsScreen() {
     setBarHeight(Math.round(event.nativeEvent.layout.height));
   }, []);
 
-  const shareUrl = product?.shareUrl;
+  // Without a product page link, the store website is shared alongside the product name.
+  const shareUrl = product?.shareUrl ?? COMPANY.website;
   const productName = product?.name;
+  const productUnit = product?.unit;
   const onShare = useCallback(async () => {
-    if (!shareUrl || !productName) return;
+    if (!productName) return;
+    const text = `${productName}${productUnit ? ` (${productUnit})` : ''} on ${BRAND.fullName}`;
+
+    if (!canUseShareSheet()) {
+      try {
+        await navigator.clipboard.writeText(`${text}\n${shareUrl}`);
+        showToast({ message: 'Product details copied. Paste them to share.', bottomOffset: toastBottomOffset });
+      } catch {
+        showToast({
+          variant: 'error',
+          message: "Sharing isn't available in this browser.",
+          bottomOffset: toastBottomOffset,
+        });
+      }
+      return;
+    }
+
     try {
       await Share.share(
         Platform.OS === 'android'
-          ? { title: productName, message: `${productName}\n${shareUrl}` }
-          : { title: productName, message: productName, url: shareUrl }
+          ? { title: productName, message: `${text}\n${shareUrl}` }
+          : { title: productName, message: text, url: shareUrl }
       );
     } catch (error) {
       // Closing the web share sheet rejects with AbortError; that is not a failure.
@@ -139,7 +154,7 @@ export default function ProductDetailsScreen() {
         bottomOffset: toastBottomOffset,
       });
     }
-  }, [shareUrl, productName, showToast, toastBottomOffset]);
+  }, [shareUrl, productName, productUnit, showToast, toastBottomOffset]);
 
   const onAdd = () => {
     if (!product || !range || addingRef.current) return;
@@ -152,24 +167,33 @@ export default function ProductDetailsScreen() {
     }
   };
 
+  const onBuyNow = () => {
+    if (!product || addingRef.current) return;
+    if (range) {
+      addingRef.current = true;
+      try {
+        const outcome = handleAddToCart(product, quantity, { quiet: true });
+        if (!outcome.ok) return;
+        setSelected(null);
+      } finally {
+        addingRef.current = false;
+      }
+    }
+    router.push('/checkout');
+  };
+
   const topBar = (
     <View
       style={[styles.topBar, scrolled && styles.topBarSolid, { paddingTop: insets.top + spacing.sm }]}
       pointerEvents="box-none"
     >
       <CircleButton icon="arrow-back" label="Go back" onPress={goBack} />
-      <View style={styles.topActions}>
-        {product ? <WishlistButton productId={product.id} productName={product.name} size="large" /> : null}
-        <CircleButton
-          icon="cart-outline"
-          label={cartCount > 0 ? `Cart, ${cartCount} items` : 'Cart'}
-          badgeCount={cartCount}
-          onPress={() => router.navigate('/cart')}
-        />
-        {shareUrl && canUseShareSheet() ? (
-          <CircleButton icon="share-social-outline" label="Share product" onPress={onShare} />
-        ) : null}
-      </View>
+      {product ? (
+        <View style={styles.topActions}>
+          <WishlistButton productId={product.id} productName={product.name} size="large" />
+          <CircleButton icon="share-social-outline" label={`Share ${product.name}`} onPress={onShare} />
+        </View>
+      ) : null}
     </View>
   );
 
@@ -257,14 +281,24 @@ export default function ProductDetailsScreen() {
         {product.name}
       </Text>
 
-      {display.rating !== undefined ? (
-        <View style={styles.ratingRow} accessible accessibilityLabel={ratingLabel(display, isSample)}>
-          <Stars rating={display.rating} />
-          <Text style={styles.ratingText}>
-            {display.rating.toFixed(1)}
-            {display.reviewCount ? ` (${display.reviewCount.toLocaleString('en-IN')} reviews)` : ''}
-          </Text>
-          {isSample ? <SampleTag /> : null}
+      {display.rating !== undefined || product.brandName ? (
+        <View style={styles.metaRow}>
+          {display.rating !== undefined ? (
+            <View style={styles.ratingRow} accessible accessibilityLabel={ratingLabel(display, isSample)}>
+              <Stars rating={display.rating} />
+              <Text style={styles.ratingText}>
+                {display.rating.toFixed(1)}
+                {display.reviewCount ? ` (${display.reviewCount.toLocaleString('en-IN')} reviews)` : ''}
+              </Text>
+              {isSample ? <SampleTag /> : null}
+            </View>
+          ) : null}
+          {product.brandName ? (
+            <View style={styles.brandBadge} accessible accessibilityLabel={`Brand: ${product.brandName}`}>
+              <Ionicons name="shield-checkmark" size={14} color={colors.navy} />
+              <Text style={styles.brandText}>{product.brandName}</Text>
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -308,8 +342,6 @@ export default function ProductDetailsScreen() {
         ) : null}
       </View>
 
-      {product.description ? <Description text={product.description} /> : null}
-
       {display.highlights?.length ? (
         <View style={styles.section}>
           <View style={styles.sectionHead}>
@@ -320,27 +352,21 @@ export default function ProductDetailsScreen() {
           </View>
           {display.highlights.map((item) => (
             <View key={item} style={styles.featureRow}>
-              <Ionicons name="checkmark" size={18} color={colors.success} />
+              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
               <Text style={styles.featureText}>{item}</Text>
             </View>
           ))}
         </View>
       ) : null}
 
-      {product.unit ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle} accessibilityRole="header">
-            Size
-          </Text>
-          <View style={styles.sizeChip} accessibilityLabel={`Size ${product.unit}`}>
-            <Text style={styles.sizeText}>{product.unit}</Text>
-          </View>
-        </View>
-      ) : null}
-
       {range ? (
         <View style={styles.quantityRow}>
-          <Text style={styles.sectionTitle}>Quantity</Text>
+          <View>
+            <Text style={styles.sectionTitle}>Quantity</Text>
+            {product.price !== undefined && quantity > 1 ? (
+              <Text style={styles.muted}>Total {formatPrice(lineSubtotal(product.price, quantity))}</Text>
+            ) : null}
+          </View>
           <QuantitySelector
             value={quantity}
             min={range.min}
@@ -352,6 +378,35 @@ export default function ProductDetailsScreen() {
         </View>
       ) : null}
       {purchaseNotes.length > 0 ? <Text style={styles.muted}>{purchaseNotes.join(' · ')}</Text> : null}
+
+      <Pressable
+        onPress={() => router.push('/delivery-location')}
+        accessibilityRole="button"
+        accessibilityLabel={
+          location
+            ? `Deliver to ${location.city}, ${location.pincode}. Change delivery location`
+            : 'Select your delivery location'
+        }
+        style={({ pressed }) => [styles.deliveryCard, pressed && styles.linkPressed]}
+      >
+        <MaterialCommunityIcons name="truck-delivery-outline" size={24} color={colors.navy} />
+        <View style={styles.deliveryCopy}>
+          <Text style={styles.deliveryTitle} numberOfLines={1}>
+            {location ? `Deliver to ${location.city}, ${location.pincode}` : 'Select delivery location'}
+          </Text>
+          {location ? null : <Text style={styles.muted}>Add your city and pincode</Text>}
+        </View>
+        <Text style={styles.changeText}>{location ? 'Change' : 'Select'}</Text>
+      </Pressable>
+
+      {product.description ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle} accessibilityRole="header">
+            Description
+          </Text>
+          <Description text={product.description} />
+        </View>
+      ) : null}
     </View>
   );
 
@@ -412,10 +467,11 @@ export default function ProductDetailsScreen() {
       {topBar}
 
       <AddToCartBar
-        price={product.price}
         canAdd={range !== null}
+        canBuy={range !== null || quantityInCart > 0}
         quantity={quantity}
         onAdd={onAdd}
+        onBuyNow={onBuyNow}
         blockedTitle={blocked.title}
         blockedMessage={blocked.message}
         onLayout={onBarLayout}
@@ -454,10 +510,9 @@ type CircleButtonProps = {
   icon: ComponentProps<typeof Ionicons>['name'];
   label: string;
   onPress: () => void;
-  badgeCount?: number;
 };
 
-function CircleButton({ icon, label, onPress, badgeCount = 0 }: CircleButtonProps) {
+function CircleButton({ icon, label, onPress }: CircleButtonProps) {
   return (
     <Pressable
       onPress={onPress}
@@ -467,11 +522,6 @@ function CircleButton({ icon, label, onPress, badgeCount = 0 }: CircleButtonProp
       style={({ pressed }) => [styles.circle, pressed && styles.circlePressed]}
     >
       <Ionicons name={icon} size={20} color={colors.navy} />
-      {badgeCount > 0 ? (
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
-        </View>
-      ) : null}
     </Pressable>
   );
 }
@@ -557,26 +607,6 @@ const styles = StyleSheet.create({
   circlePressed: {
     backgroundColor: colors.navySoft,
   },
-  badge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: colors.card,
-    backgroundColor: colors.accent,
-  },
-  badgeText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontFamily: fonts.semiBold,
-    color: colors.white,
-  },
   inner: {
     width: '100%',
     maxWidth: MAX_STORE_WIDTH,
@@ -606,11 +636,33 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     color: colors.navy,
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    columnGap: spacing.md,
+    rowGap: spacing.xs,
+    marginTop: -spacing.sm,
+  },
   ratingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginTop: -spacing.sm,
+  },
+  brandBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    backgroundColor: colors.navySoft,
+  },
+  brandText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: fonts.semiBold,
+    color: colors.navy,
   },
   stars: {
     flexDirection: 'row',
@@ -727,18 +779,30 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colors.text,
   },
-  sizeChip: {
-    alignSelf: 'flex-start',
+  deliveryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 56,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
-    backgroundColor: colors.navy,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
   },
-  sizeText: {
-    fontSize: 13,
-    lineHeight: 18,
+  deliveryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  deliveryTitle: {
+    fontSize: 14,
+    lineHeight: 20,
     fontFamily: fonts.semiBold,
-    color: colors.white,
+    color: colors.navy,
+  },
+  changeText: {
+    ...typography.label,
+    color: colors.accent,
   },
   quantityRow: {
     flexDirection: 'row',

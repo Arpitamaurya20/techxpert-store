@@ -5,6 +5,7 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Tex
 
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
 import { HeaderCartButton } from '@/components/store/HeaderCartButton';
+import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { ProductCard, ProductCardSkeleton } from '@/components/store/ProductCard';
 import { ProductFilterSheet } from '@/components/store/ProductFilterSheet';
 import { ProductSearchBar } from '@/components/store/ProductSearchBar';
@@ -292,6 +293,10 @@ export default function ProductListScreen() {
           title,
           headerRight: () => <HeaderCartButton />,
         }}
+      />
+      <HeaderBackFallback
+        fallback={params.categoryId ? '/categories' : '/home'}
+        accessibilityLabel={params.categoryId ? 'Back to Categories' : 'Back to Home'}
       />
       <FlatList
         key={`columns-${layout.productColumns}`}

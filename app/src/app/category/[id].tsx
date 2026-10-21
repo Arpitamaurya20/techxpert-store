@@ -5,6 +5,7 @@ import { FlatList, RefreshControl, StyleSheet, View, useWindowDimensions } from 
 import { CATEGORY_RAIL_WIDTH, CategoryRail, type CategoryRailItem } from '@/components/store/CategoryRail';
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
 import { HeaderCartButton } from '@/components/store/HeaderCartButton';
+import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { ProductCard, ProductCardSkeleton } from '@/components/store/ProductCard';
 import { IconButton } from '@/components/ui/IconButton';
 import { StateView } from '@/components/ui/StateView';
@@ -148,6 +149,7 @@ export default function CategoryScreen() {
           ),
         }}
       />
+      <HeaderBackFallback fallback="/categories" accessibilityLabel="Back to Categories" />
       <View style={styles.body}>
         <CategoryRail items={railItems} selectedId={selectedId} onSelect={selectType} />
         <FlatList

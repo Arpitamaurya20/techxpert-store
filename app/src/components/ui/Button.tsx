@@ -1,5 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 import { MIN_TOUCH_TARGET, colors, radius, spacing, typography } from '@/constants/theme';
 
@@ -16,6 +24,7 @@ type ButtonProps = {
   loadingTitle?: string;
   disabled?: boolean;
   accessibilityHint?: string;
+  style?: StyleProp<ViewStyle>;
 };
 
 export function Button({
@@ -27,6 +36,7 @@ export function Button({
   loadingTitle,
   disabled = false,
   accessibilityHint,
+  style,
 }: ButtonProps) {
   const isPrimary = variant === 'primary';
   const isInactive = disabled || loading;
@@ -45,6 +55,7 @@ export function Button({
         isPrimary ? styles.primary : styles.outline,
         pressed && (isPrimary ? styles.primaryPressed : styles.outlinePressed),
         disabled && !loading && styles.disabled,
+        style,
       ]}
     >
       <View style={styles.content}>

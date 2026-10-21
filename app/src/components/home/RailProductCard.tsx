@@ -1,5 +1,4 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ProductImage } from '@/components/store/ProductImage';
@@ -19,19 +18,16 @@ type RailProductCardProps = {
   onAdd: (product: Product, quantity: number) => void;
 };
 
-/** Product card with a quantity picker (− n +) and an Add button that adds that quantity. */
+/** Compact Home product card; Add puts the product's minimum quantity in the cart. */
 function RailProductCardComponent({ product, onOpen, onAdd }: RailProductCardProps) {
   const quantityInCart = useCartQuantity(product.id);
   const range = getAddableRange(product, quantityInCart);
   const isOutOfStock = getMaxQuantity(product) === 0;
-  const [picked, setPicked] = useState<number | null>(null);
-  const quantity = range ? Math.min(Math.max(picked ?? range.min, range.min), range.max) : 0;
+  const quantity = range?.min ?? 0;
   const discount = product.price !== undefined ? discountPercent(product.price, product.originalPrice) : undefined;
 
   const add = () => {
-    if (!range) return;
-    onAdd(product, quantity);
-    setPicked(null);
+    if (range) onAdd(product, quantity);
   };
 
   const disabledLabel = isOutOfStock ? 'Sold out' : product.price === undefined ? 'N/A' : 'Max';
@@ -57,9 +53,6 @@ function RailProductCardComponent({ product, onOpen, onAdd }: RailProductCardPro
               <Text style={styles.discountText}>{discount}% OFF</Text>
             </View>
           ) : null}
-          <View style={styles.wishlist}>
-            <WishlistButton productId={product.id} productName={product.name} />
-          </View>
         </View>
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={1}>
@@ -85,51 +78,22 @@ function RailProductCardComponent({ product, onOpen, onAdd }: RailProductCardPro
           )}
         </View>
       </Pressable>
-
-      <View style={styles.actions}>
-        <View style={[styles.stepper, !range && styles.stepperDisabled]}>
-          <Pressable
-            onPress={() => range && setPicked(quantity - range.step)}
-            disabled={!range || quantity <= range.min}
-            hitSlop={6}
-            accessibilityRole="button"
-            accessibilityLabel={`Decrease quantity of ${product.name}`}
-            style={styles.stepButton}
-          >
-            <Ionicons name="remove" size={14} color={range && quantity > range.min ? colors.text : colors.disabled} />
-          </Pressable>
-          <Text style={styles.quantity} accessibilityLabel={`Quantity ${quantity}`}>
-            {range ? quantity : '-'}
-          </Text>
-          <Pressable
-            onPress={() => range && setPicked(quantity + range.step)}
-            disabled={!range || quantity + range.step > range.max}
-            hitSlop={6}
-            accessibilityRole="button"
-            accessibilityLabel={`Increase quantity of ${product.name}`}
-            style={styles.stepButton}
-          >
-            <Ionicons
-              name="add"
-              size={14}
-              color={range && quantity + range.step <= range.max ? colors.text : colors.disabled}
-            />
-          </Pressable>
-        </View>
-
-        <Pressable
-          onPress={add}
-          disabled={!range}
-          accessibilityRole="button"
-          accessibilityLabel={range ? `Add ${quantity} ${product.name} to cart` : disabledLabel}
-          accessibilityState={{ disabled: !range }}
-          style={({ pressed }) => [styles.addButton, pressed && styles.addPressed, !range && styles.addDisabled]}
-        >
-          <Text style={[styles.addText, !range && styles.addDisabledText]} numberOfLines={1}>
-            {range ? 'Add' : disabledLabel}
-          </Text>
-        </Pressable>
+      <View style={styles.wishlist}>
+        <WishlistButton productId={product.id} productName={product.name} />
       </View>
+
+      <Pressable
+        onPress={add}
+        disabled={!range}
+        accessibilityRole="button"
+        accessibilityLabel={range ? `Add ${quantity} ${product.name} to cart` : disabledLabel}
+        accessibilityState={{ disabled: !range }}
+        style={({ pressed }) => [styles.addButton, pressed && styles.addPressed, !range && styles.addDisabled]}
+      >
+        <Text style={[styles.addText, !range && styles.addDisabledText]} numberOfLines={1}>
+          {range ? 'Add' : disabledLabel}
+        </Text>
+      </Pressable>
       {quantityInCart > 0 ? <Text style={styles.inCart}>{quantityInCart} in cart</Text> : null}
     </View>
   );
@@ -143,7 +107,7 @@ export function RailProductCardSkeleton() {
       <View style={[styles.image, styles.skeleton]} />
       <View style={[styles.skeletonLine, { width: '90%' }]} />
       <View style={[styles.skeletonLine, { width: '50%' }]} />
-      <View style={[styles.actions, styles.skeletonActions]} />
+      <View style={[styles.addButton, styles.skeletonActions]} />
     </View>
   );
 }
@@ -186,8 +150,8 @@ const styles = StyleSheet.create({
   },
   wishlist: {
     position: 'absolute',
-    top: 4,
-    right: 4,
+    top: 10,
+    right: 10,
   },
   discountText: {
     fontSize: 9,
@@ -237,41 +201,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.textMuted,
   },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    height: 28,
-  },
-  stepper: {
-    flex: 1,
-    height: 28,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-  },
-  stepperDisabled: {
-    opacity: 0.5,
-  },
-  stepButton: {
-    width: 20,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quantity: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontFamily: fonts.semiBold,
-    color: colors.text,
-  },
   addButton: {
-    minWidth: 44,
-    height: 28,
-    paddingHorizontal: 8,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 6,

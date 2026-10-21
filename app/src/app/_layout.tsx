@@ -63,11 +63,12 @@ export default function RootLayout() {
           name="products/[id]"
           options={{ title: 'Product Details', contentStyle: { backgroundColor: colors.screen } }}
         />
+        <Stack.Screen name="checkout" options={{ headerShown: false, title: 'Checkout' }} />
         <Stack.Screen
-          name="checkout"
-          options={{ title: 'Checkout', contentStyle: { backgroundColor: colors.screen } }}
+          name="order-placed"
+          options={{ headerShown: false, title: 'Order Placed', gestureEnabled: false }}
         />
-        <Stack.Screen name="profile" options={{ ...SETTINGS_HEADER, title: 'Settings' }} />
+        <Stack.Screen name="profile" options={{ headerShown: false, title: 'My Profile' }} />
         <Stack.Screen
           name="about/index"
           options={{ ...SETTINGS_HEADER, title: `About ${BRAND.fullName}` }}
@@ -86,10 +87,8 @@ export default function RootLayout() {
           options={{ ...SETTINGS_HEADER, title: 'Project', contentStyle: { backgroundColor: colors.screen } }}
         />
         <Stack.Screen name="language" options={{ ...SETTINGS_HEADER, title: 'Language' }} />
-        <Stack.Screen
-          name="delivery-location"
-          options={{ title: 'Delivery Location', presentation: 'modal' }}
-        />
+        <Stack.Screen name="delivery-location" options={{ headerShown: false, title: 'Delivery Address' }} />
+        <Stack.Screen name="address-form" options={{ headerShown: false, title: 'Address' }} />
       </Stack>
     </ToastProvider>
   );

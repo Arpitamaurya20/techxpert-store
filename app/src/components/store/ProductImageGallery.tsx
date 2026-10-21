@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from 'react';
 import {
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
   type ImageSourcePropType,
@@ -22,12 +23,13 @@ type ProductImageGalleryProps = {
   /** Bundled photo shown when the product has no images. */
   localSource?: ImageSourcePropType;
   fallbackIcon: MaterialIconName;
-  /** Borderless, edge-to-edge look with the page dots below the photo. */
+  /** Borderless look; several photos get a thumbnail column beside the main photo and dots below. */
   bare?: boolean;
 };
 
 const ASPECT_RATIO = 4 / 3;
 const MAX_HEIGHT = 420;
+const THUMB_SIZE = 56;
 
 /** One photo shows on its own; carousel controls appear only when the product has several. */
 export function ProductImageGallery({
@@ -76,8 +78,78 @@ export function ProductImageGallery({
     );
   }
 
+  if (bare) {
+    return (
+      <View style={styles.bareWrap}>
+        <View style={styles.bareRow}>
+          <View style={styles.bareMain} onLayout={onLayout}>
+            {width > 0 ? (
+              <FlatList
+                ref={listRef}
+                data={images}
+                keyExtractor={(uri, itemIndex) => `${itemIndex}-${uri}`}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onScroll={onScroll}
+                scrollEventThrottle={32}
+                getItemLayout={(_, itemIndex) => ({
+                  length: width,
+                  offset: width * itemIndex,
+                  index: itemIndex,
+                })}
+                renderItem={({ item, index: itemIndex }) => (
+                  <ProductImage
+                    uri={item}
+                    fallbackIcon={fallbackIcon}
+                    accessibilityLabel={`${productName}, image ${itemIndex + 1} of ${images.length}`}
+                    iconSize={88}
+                    style={{ width, height: width }}
+                  />
+                )}
+              />
+            ) : (
+              <View style={{ aspectRatio: 1 }} />
+            )}
+          </View>
+
+          <ScrollView
+            style={[styles.thumbs, width > 0 && { maxHeight: width }]}
+            contentContainerStyle={styles.thumbsContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {images.map((uri, thumbIndex) => (
+              <Pressable
+                key={`${thumbIndex}-${uri}`}
+                onPress={() => goTo(thumbIndex)}
+                accessibilityRole="button"
+                accessibilityLabel={`Show image ${thumbIndex + 1} of ${images.length}`}
+                accessibilityState={{ selected: thumbIndex === index }}
+                style={[styles.thumb, thumbIndex === index && styles.thumbActive]}
+              >
+                <ProductImage
+                  uri={uri}
+                  fallbackIcon={fallbackIcon}
+                  accessibilityLabel=""
+                  iconSize={20}
+                  style={styles.thumbImage}
+                />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
+        <View style={[styles.dots, styles.dotsBelow]} accessible accessibilityLabel={`Image ${index + 1} of ${images.length}`}>
+          {images.map((uri, dotIndex) => (
+            <View key={`${dotIndex}-${uri}`} style={[styles.dot, dotIndex === index && styles.dotActive]} />
+          ))}
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.frame, bare && styles.bare]}>
+    <View style={styles.frame}>
       {/* Measured inside the frame's border so each page is exactly one viewport wide. */}
       <View onLayout={onLayout}>
         {width > 0 ? (
@@ -118,7 +190,7 @@ export function ProductImageGallery({
       ) : null}
 
       <View
-        style={[styles.dots, bare && styles.dotsBelow]}
+        style={styles.dots}
         accessible
         accessibilityLabel={`Image ${index + 1} of ${images.length}`}
       >
@@ -175,6 +247,43 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     borderRadius: 0,
     backgroundColor: colors.card,
+  },
+  bareWrap: {
+    paddingHorizontal: spacing.lg,
+  },
+  bareRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  bareMain: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  thumbs: {
+    width: THUMB_SIZE,
+    flexGrow: 0,
+  },
+  thumbsContent: {
+    gap: spacing.sm,
+  },
+  thumb: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    overflow: 'hidden',
+    backgroundColor: colors.card,
+  },
+  thumbActive: {
+    borderWidth: 2,
+    borderColor: colors.accent,
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
   },
   dotsBelow: {
     position: 'relative',

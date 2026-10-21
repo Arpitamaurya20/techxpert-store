@@ -68,6 +68,19 @@ export function validateCity(value: string): string | undefined {
   return value.trim().length >= 2 ? undefined : 'Enter your city or area.';
 }
 
+export function validateFullName(value: string): string | undefined {
+  return value.trim().length >= 2 ? undefined : 'Enter your full name.';
+}
+
+export function validateMobile(value: string): string | undefined {
+  if (!value.trim()) return 'Enter your 10-digit mobile number.';
+  return isValidIndianMobile(value) ? undefined : 'Enter a valid 10-digit Indian mobile number.';
+}
+
+export function validateAddressLine(value: string): string | undefined {
+  return value.trim().length >= 5 ? undefined : 'Enter your house, building and street.';
+}
+
 export type LoginFormValues = {
   identifier: string;
   password: string;

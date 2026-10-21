@@ -175,6 +175,11 @@ export function removeFromCart(productId: string) {
   }));
 }
 
+/** Empties the cart once the server has accepted the order. */
+export function clearCart() {
+  cartStore.setState({ items: [] });
+}
+
 export function useCartItems() {
   return cartStore.useStore((state) => state.items);
 }
