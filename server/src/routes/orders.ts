@@ -34,6 +34,8 @@ router.get(
         return sendError(res, 403, permissionRefusal('orders', 'view'));
       }
       storeIds = storeFilter(admin.access.scope);
+    } else if (!req.user?.userId) {
+      return sendError(res, 401, 'Sign in to see your orders.');
     }
 
     const result = await OrderService.getOrders({

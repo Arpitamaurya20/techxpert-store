@@ -122,7 +122,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 104 unit tests, including `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 107 unit tests, including `security`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -155,6 +155,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 7 | Production rollout | [`ROLLOUT.md`](./ROLLOUT.md): SQL, settings, API and portal together, phone build, checks, rollback | Checklist written 23 Oct; waits for someone with production access |
 | 8 | Server gaps from the UI pass: order status, `/pricing/calculate` price, bulk tier picking, clearing a product's brand or price | `bulkPricing.ts`, `validate.ts`, `pricingService.ts`, `routes/orders.ts`, `routes/pricing.ts`, `catalogService.updateProduct`, `CatalogOverview.tsx` | **Done** 23 Oct: 99/99 unit tests, HTTP checks, browser check (remove-price confirm) |
 | 9 | Cancelling puts stock back. Decided 23 Oct: delivered orders can't be cancelled, cancelled is final, imported orders put nothing back | `orderRules.ts`, `orderService.ts`, `OrdersManager.tsx`, `orderStatus.ts`, `App.tsx` | **Done** 23 Oct: 104/104 unit tests. A test guest order took 1 + 2 units, and cancelling it put them back exactly (68 and 500 again); reopening, cancelling twice and cancelling delivered order 1 were refused without touching stock. Browser: cancelled order locked, delivered order has no Cancel, confirm wording for shop vs imported orders |
+| 10 | Customer API holes found while writing the app guide: `GET /orders` without a sign-in listed every customer's orders; `POST /auth/login` gave a customer token with no code; code `123456` worked in production | `config/security.ts`, `authService.ts`, `routes/auth.ts`, `routes/orders.ts`; guide [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) | **Done** 23 Oct: 107/107 unit tests. Local: anonymous and staff-without-`all` get 401, a customer sees only their own orders. Production mode: `/auth/login` 403, `123456` refused, anonymous orders 401 |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
@@ -168,7 +169,10 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
 - **App home, for the app team:**
   - The category shortcuts point at category ids (`cement-plaster`, `tiling-grouts`…) that don't exist in this catalogue, so that block finds nothing.
   - Banner buttons can't open outside links (they show all products).
-- **Test order left in the local DB:** order 12 (`TX-ORD-551492-390`, guest "Cancel test (agent)") is cancelled with its stock put back, from the plan item 9 check.
+- **No SMS sender:** `send-otp` makes a code but nothing texts it to the customer. Locally the code is always `123456`; production needs an SMS provider before phone sign-in works.
+- **App sign-in must move to codes:** the app calls `POST /auth/login`, which production now refuses. It must use `send-otp` then `verify-otp` ([`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §8 UC-7).
+- **App order statuses:** the app expects `placed`, `packed`, `out_for_delivery`, `returned`; the server uses `pending`, `confirmed`, `processing`, `shipped`, `delivered`, `cancelled`.
+- **Guest checkout writes to `homecare.users`:** an unregistered 10-digit phone at checkout creates an unverified customer there (S3 decision). Open question for the owner.
 - **Bulk prices on a removed product:** bulk prices 1–3 belong to product 1 (1.5 Ton Split AC), which was removed, so they never apply. The portal marks them; a merchandiser should remove or re-point them.
 - **Not device-tested:** S1–S3 proven over HTTP and the local DB only; the device run is with the app team.
 - **Ops:** admin login rate limit is in-memory (single node); `JWT_SECRET` and `CORS_ORIGINS` must be set in production (the API refuses to start otherwise).
@@ -187,6 +191,7 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
 | [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) | Tables, including new portal tables |
 | [`BACKEND_IMPLEMENTATION_SPEC.md`](./BACKEND_IMPLEMENTATION_SPEC.md) | API contract |
 | [`APP_WORKFLOW.md`](./APP_WORKFLOW.md) | Phone flows |
+| [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) | For app developers: run the API locally and build every app flow against it |
 | [`WEB_SPEC.md`](./WEB_SPEC.md) | Portal modules and P1–P11 plan with notes |
 | [`WEB_PORTAL_AUDIT.md`](./WEB_PORTAL_AUDIT.md) | Security findings, fixes, AuthZ matrix |
 | [`SHOP_TRACK.md`](./SHOP_TRACK.md) | Shop S0–S3 spec, as-built, proof |

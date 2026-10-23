@@ -3,7 +3,8 @@
 **Product:** Techxpert Store — Customer Mobile Application  
 **Framework:** Expo SDK 57 (React Native 0.86.3, React 19.2.3, TypeScript 6.0)  
 **Routing:** Expo Router 57 (File-based navigation)  
-**Reference:** [`docs/SRS.md`](./SRS.md), [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md), [`docs/WEB_SPEC.md`](./WEB_SPEC.md)
+**Reference:** [`docs/SRS.md`](./SRS.md), [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md), [`docs/WEB_SPEC.md`](./WEB_SPEC.md)  
+**Building against a local API:** [`docs/APP_API_GUIDE.md`](./APP_API_GUIDE.md) (setup, use cases, real requests and responses)
 
 ---
 

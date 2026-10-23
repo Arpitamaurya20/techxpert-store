@@ -113,6 +113,7 @@ Then the super admin adds staff (store logins, or links for people who also work
 
 - [ ] Build with `EXPO_PUBLIC_API_BASE_URL=https://<api>` (HTTPS), plus `EXPO_PUBLIC_ASSET_BASE_URL` if the app's assets are hosted.
 - [ ] `app/eas.json` has only an internal `preview` profile (Android APK). A store release needs a production profile; the app team owns this.
+- [ ] Sign-in uses `send-otp` then `verify-otp`, not `POST /auth/login` ([`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-7).
 - [ ] Device run of plan item 2 (guest cart, merge on sign-in, pincode check, order, repeat tap) against the production API, before release.
 
 ## 5. Rollback
@@ -138,3 +139,4 @@ From [`PROJECT_STATUS.md` §7](./PROJECT_STATUS.md):
 - Bulk prices 1–3 belong to a removed product and never apply. Remove or re-point them.
 - The admin sign-in rate limit is held in memory, so it only works on a single API instance.
 - Not device-tested yet: plan item 2.
+- **Phone sign-in can't work yet in production.** Production refuses `POST /auth/login` and the local code `123456`, so the app must use `send-otp` then `verify-otp`, and the server has no SMS sender to text the code. Both are needed before customers can sign in. Guest checkout still works without them.

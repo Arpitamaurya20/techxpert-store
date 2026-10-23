@@ -1,0 +1,480 @@
+# App developer guide: local API and use cases
+
+For whoever builds the customer app (`app/`). It covers getting the API running on your own machine, pointing the app at it, and every app flow with the exact calls, real request and response examples, and the refusals each one can give.
+
+Everything below was checked against a local API on 23 Oct 2026. Example values come from the shared local database; the personal details in the signed-in examples are placeholders.
+
+---
+
+## 1. What you need
+
+- **Node.js 20 or newer** and npm.
+- **MySQL 8** running locally.
+- **Both databases on that one MySQL**, because the API joins across them:
+  - `techxpertstore`: the catalogue, prices, stock, carts, orders, home screen and delivery areas.
+  - `homecare`: customer logins, OTP codes and saved addresses. The store API uses four of its tables: `users`, `user_addresses`, `otp_attempts` and `admin_users`.
+- This repository.
+
+## 2. Get the databases
+
+There is no script that builds `techxpertstore` or `homecare` from nothing, so start from a copy of the team's local databases. Ask the backend owner to run this on their machine and send you the two files. **Never use a copy of production customer data.**
+
+```bash
+mysqldump -u root -p --single-transaction --routines techxpertstore > techxpertstore.sql
+mysqldump -u root -p --single-transaction homecare users user_addresses otp_attempts admin_users > homecare_store_tables.sql
+```
+
+Load them on your machine:
+
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS techxpertstore; CREATE DATABASE IF NOT EXISTS homecare;"
+mysql -u root -p techxpertstore < techxpertstore.sql
+mysql -u root -p homecare < homecare_store_tables.sql
+```
+
+A copy from the team already has every script in `server/sql/` applied. If yours is older, run them in the order in [`server/sql/README.md`](../server/sql/README.md).
+
+## 3. Start the API
+
+```bash
+cd server
+cp .env.example .env      # then set MYSQL_PASSWORD to your local MySQL password
+npm install
+npm run dev               # restarts on code changes; API on http://localhost:5001
+```
+
+Keep `.env` close to the example:
+
+- `ALLOW_DEV_ADMIN=1` turns on the local portal login (section 6).
+- Don't set `NODE_ENV=production` locally, because that turns off the local sign-in shortcuts.
+
+**Check it:** open `http://localhost:5001/health`. You want `"status":"ok"` with both `db.users.ok` and `db.store.ok` true. A 503 with `"degraded"` means MySQL isn't reachable or a database is missing.
+
+`ALLOW_FILE_STORE=1` serves a small demo file when MySQL is down. It doesn't cover carts, checkout or sign-in, so don't build against it.
+
+## 4. Point the app at it
+
+In `app/.env.local` (git ignores it; copy `app/.env.example`):
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=http://localhost:5001/api
+```
+
+The address depends on where the app runs:
+
+| App runs on | Use |
+|---|---|
+| iOS simulator | `http://localhost:5001/api` |
+| Android emulator | `http://10.0.2.2:5001/api` |
+| A real phone (Expo Go or a dev build) on the same Wi-Fi | `http://<your computer's LAN IP>:5001/api`. On a Mac, `ipconfig getifaddr en0` prints it |
+
+After changing `.env.local`, restart Expo with the cache cleared: `npx expo start -c`.
+
+The API answers on both `/api/...` and `/...`. This guide writes paths without the `/api`, because it's already in the base URL above.
+
+## 5. How the API talks
+
+**Successful answers** come wrapped:
+
+```json
+{ "success": true, "data": { }, "message": "optional", "meta": { "page": 1, "limit": 50, "total": 2720, "totalPages": 55 } }
+```
+
+`meta` only appears on paged lists.
+
+**Exception:** `POST /auth/login` and `POST /auth/verify-otp` return `{ "token", "user" }` with no wrapper.
+
+**Refusals:**
+
+```json
+{ "success": false, "error": "We don't deliver to 110001 yet." }
+```
+
+- `error` is written for customers, so the app can show it as it is.
+- Locally there is also a `details` field with the server stack trace. Never show it.
+
+| Status | Meaning |
+|---|---|
+| 400 | The request is wrong, for example a missing field or a 5-digit pincode |
+| 401 | Not signed in, or a wrong or expired OTP |
+| 403 | Signed in, but this isn't yours |
+| 404 | Not found |
+| 409 | The request is fine, but the shop refuses it right now: over a limit, out of stock, changed prices, an area not served |
+| 503 | The database is down |
+
+**Signed-in calls** send `Authorization: Bearer <token>`. The customer token lasts 30 days.
+
+**Guests** have no token. They send `x-session-id: <sessionId>`, which the server hands out on the first `GET /cart` (use case 6).
+
+**Money:**
+- Cart, checkout and order amounts are numbers in rupees.
+- In catalogue answers, `price` and `originalPrice` are strings such as `"149.00"`, so convert them before doing maths.
+- Never work out totals in the app. Show the server's numbers.
+
+**Images:** `imageUrl` on products and categories is a path such as `store/assets/catalog/...` that no server hosts yet, so it won't load. Banner `imageUrl` values are full addresses.
+
+## 6. Local shortcuts (never in production)
+
+| Shortcut | What it does |
+|---|---|
+| OTP `123456` | Every phone's code locally. `POST /auth/send-otp` also returns it as `devOtp` |
+| `POST /auth/login` with `{ "identifier": "<phone or email>" }` | Signs in an existing customer with no code. It's handy for testing screens, but production refuses it with a 403, so the real sign-in must use OTP (use case 7) |
+| Portal login `admin@techxpert.in` / `admin123` | Needs `ALLOW_DEV_ADMIN=1`. See below |
+
+**Making test data** (prices, stock, delivery pincodes, banners, home sections, bulk prices, order statuses) is done in the staff portal:
+
+```bash
+cd web
+npm install
+VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
+```
+
+## 7. Test data you can count on locally
+
+| What | Value |
+|---|---|
+| Priced, in-stock products | **5** "9W LED Bulb": ₹149, MRP ₹199, maximum 50 per order. **3** 48" Ceiling Fan: ₹1,999, maximum 10 per order |
+| Bulk prices on product 5 | 10% off for 25–99 units; 18% off for 100 or more (but the order maximum is 50) |
+| Most other products | No price, so they show as unavailable and can't be added to the cart. Only a handful of the 110,106 active products have a price; give more of them prices in the portal |
+| A served pincode | `201301` (Sector-62) |
+| An unserved pincode | `110001` |
+| Free delivery | From ₹2,000 subtotal. Below that delivery is ₹99. GST is 18% of the subtotal |
+
+---
+
+## 8. Use cases
+
+### UC-1 Home screen
+
+**Screen:** Home. **Calls, all public:**
+
+| Call | Gives |
+|---|---|
+| `GET /cms/sections` | The home blocks the app should draw, in order, each with `enabled` |
+| `GET /cms/banners` | Only the banners live right now, in order |
+| `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
+| `GET /catalog/categories` | Category tiles |
+
+```json
+GET /cms/sections → 200
+{ "success": true, "data": [
+  { "id": "1", "type": "hero_carousel", "sectionCode": "hero_carousel", "title": "Featured Promotions",
+    "description": "Main hero carousel with high-impact offers", "enabled": true, "position": 1 } ] }
+```
+
+```json
+GET /cms/banners → 200
+{ "success": true, "data": [
+  { "id": 1, "title": "Festive Mega Wiring Sale", "subtitle": "Up to 30% off on premium copper cables and switchgears",
+    "imageUrl": "https://images.unsplash.com/photo-1558494949-…", "ctaLabel": "Shop Wiring",
+    "ctaType": "category", "ctaTarget": "5", "status": "published", "startsAt": null, "endsAt": null,
+    "position": 1, "termsText": null, "locationScope": "All serviceable zones", "updatedAt": "2026-10-16" } ] }
+```
+
+**App rules:**
+- Draw only the section types you know, in the order given, and skip `enabled: false`.
+- What a banner tap opens depends on `ctaType`:
+  - `category`: `ctaTarget` is a category ID.
+  - `product`: a product ID.
+  - `deals`: the deals list.
+  - `external` or `url`: an outside link.
+
+### UC-2 Categories, subcategories, brands
+
+**Calls, all public:** `GET /catalog/categories`, `GET /catalog/subcategories`, `GET /catalog/brands`.
+
+```json
+GET /catalog/categories → 200
+{ "success": true, "data": [ { "id": 1, "slug": "ELEC", "name": "Electrical Appliances",
+  "imageUrl": "store/assets/catalog/Switches & Sockets/extension-board.webp", "description": "Electrical devices and appliances",
+  "displayOrder": 1, "productCount": 0, "featured": 1 } ] }
+
+GET /catalog/subcategories → 200
+{ "success": true, "data": [ { "id": 87, "categoryId": 19, "slug": "MOTION_SENSORS", "name": "Motion Sensors",
+  "searchTerm": "Motion Sensors", "imageUrl": "", "displayOrder": 1 } ] }
+
+GET /catalog/brands → 200
+{ "success": true, "data": [ { "id": "Havells", "name": "Havells", "productCount": 8589 } ] }
+```
+
+A brand's `id` is its name. Pass it as `brandId` when listing products.
+
+### UC-3 Search and product lists
+
+**Call, public:** `GET /catalog/products`. All filters are optional and can be combined:
+
+| Query | Meaning |
+|---|---|
+| `search` | Text in the name or description |
+| `categoryId` | Category ID |
+| `subcategoryId` | Subcategory ID |
+| `brandId` | Brand name from `GET /catalog/brands` |
+| `featured=true` | Featured only |
+| `page`, `limit` | Paging. `limit` defaults to 50, maximum 200 |
+
+```json
+GET /catalog/products?search=bulb&limit=2 → 200
+{ "success": true,
+  "data": [ { "id": 5, "sku": "LIGHT001", "name": "9W LED Bulb", "description": "9W LED bulb equivalent to 60W …",
+    "categoryId": 4, "categoryName": "Lighting", "subcategoryId": 10, "brandName": "BrightLED",
+    "imageUrl": "store/assets/catalog/…", "stockStatus": "in_stock", "minOrderQuantity": 1, "maxOrderQuantity": 50,
+    "featured": 1, "createdAt": "2026-01-16T18:30:00.000Z", "price": "149.00", "originalPrice": "199.00",
+    "unit": "unit", "stockQuantity": 500 } ],
+  "meta": { "page": 1, "limit": 2, "total": 2720, "totalPages": 1360 } }
+```
+
+**App rules:**
+- `price: null` means the product can't be bought. Show it as unavailable and block Add to cart.
+- `stockStatus: "out_of_stock"` or `stockQuantity: 0` means it can't be added either.
+
+### UC-4 Product detail and the price for a quantity
+
+**Calls, all public:**
+- `GET /catalog/products/:id`. This is the same product, plus `gallery` and its active `bulkTiers`.
+- `GET /pricing/calculate?productId=&quantity=` gives the exact price for a quantity, worked out from the product's own price.
+
+```json
+GET /catalog/products/5 → 200
+{ "success": true, "data": { "id": 5, "name": "9W LED Bulb", "price": "149.00", "originalPrice": "199.00",
+  "minOrderQuantity": 1, "maxOrderQuantity": 50, "stockQuantity": 500, "unit": "unit", "gallery": "",
+  "bulkTiers": [ { "id": 4, "minQty": 25, "maxQty": 99, "discountType": "percentage", "discountValue": "10.00",
+                   "terms": "Contractor box pack rate." } ] } }
+
+GET /pricing/calculate?productId=5&quantity=30 → 200
+{ "success": true, "data": { "basePrice": 149, "unitPrice": 134.1, "discountPercent": 10, "discountPerUnit": 14.9,
+  "subtotal": 4023, "totalSavings": 447,
+  "appliedTier": { "id": 4, "minQty": 25, "maxQty": 99, "discountValue": 10, "discountType": "percentage",
+                   "terms": "Contractor box pack rate." } } }
+```
+
+**Refusals:** `400` when `productId` or `quantity` isn't a whole number of at least 1. `404` with "That product isn't available to order right now." when it has no price.
+
+**Bulk prices:** a bulk price has a `discountType`:
+- `percentage`: `discountValue` is the percent off.
+- `fixed_price`: `discountValue` is the unit price in rupees.
+
+When several cover a quantity, the server uses the one with the lowest unit price. Use `/pricing/calculate` or the cart rather than choosing in the app. Any `basePrice` the app sends is ignored.
+
+### UC-5 Delivery pincode check
+
+**Call, public:** `GET /delivery/pincodes/:pincode`.
+
+```json
+GET /delivery/pincodes/201301 → 200
+{ "success": true, "data": { "pincode": "201301", "serviceable": true, "areaName": "Sector-62",
+  "message": "We deliver to Sector-62 (201301)." } }
+
+GET /delivery/pincodes/110001 → 200
+{ "success": true, "data": { "pincode": "110001", "serviceable": false, "areaName": null,
+  "message": "We don't deliver to 110001 yet." } }
+
+GET /delivery/pincodes/12 → 400
+{ "success": false, "error": "Enter a 6-digit pincode." }
+```
+
+Checkout checks the pincode again, so this is for showing the customer early.
+
+### UC-6 Guest cart
+
+The cart lives on the server for guests and signed-in customers alike. Its totals are what checkout charges.
+
+1. **Get the cart.** `GET /cart` with no token and no `x-session-id` creates a guest cart and returns its `sessionId`. Save it on the device. Every cart call after that sends `x-session-id: <sessionId>`.
+2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`.
+   - This sets the exact quantity; it doesn't add to it.
+   - `0` removes the line.
+   - Every answer is the whole priced cart.
+3. **Empty the cart.** `DELETE /cart`.
+
+```json
+PUT /cart/items/5  { "quantity": 30 }  → 200
+{ "success": true, "data": {
+  "id": 115, "sessionId": "86ba5845…",
+  "lines": [ { "productId": "5", "name": "9W LED Bulb", "brandName": "BrightLED", "categoryId": "4",
+    "imageUrl": "store/assets/catalog/…", "unit": "unit", "quantity": 30, "basePrice": 149, "unitPrice": 134.1,
+    "appliedTier": { "id": 4, "minQty": 25, "maxQty": 99, "discountValue": 10, "discountType": "percentage",
+                     "terms": "Contractor box pack rate." },
+    "lineTotal": 4023, "limits": { "min": 1, "max": 50, "stock": 500 }, "problem": null } ],
+  "totals": { "subtotal": 4023, "bulkSavings": 447, "delivery": 0, "tax": 724.14, "grandTotal": 4747.14 },
+  "canCheckout": true } }
+```
+
+**Refusals when setting a quantity:**
+
+| Status | `error` |
+|---|---|
+| 409 | `You can order up to 50 of "9W LED Bulb".` |
+| 409 | `Only 12 of "…" are in stock.` |
+| 409 | `"…" must be ordered in quantities of at least 5.` |
+| 409 | `"…" is not available to order right now.` (no price) or `"…" is out of stock.` |
+| 409 | `This product is no longer in the catalogue.` |
+| 400 | `Quantity must be a whole number of at least 1.` |
+
+**A line's `problem`:** a line already in the cart can go bad after a price or stock change.
+- `problem` is then `price_unavailable`, `out_of_stock` or `over_limit`, and the line is left out of `totals`.
+- `canCheckout` is false until the customer fixes or removes it.
+- Show `limits` so they can.
+
+### UC-7 Sign in with a one-time code
+
+1. `POST /auth/send-otp` with `{ "phone": "9876543210" }`.
+2. `POST /auth/verify-otp` with `{ "phone": "9876543210", "otp": "123456", "name": "Asha Verma", "email": "asha@example.com" }`. `name` and `email` are optional.
+
+```json
+POST /auth/send-otp → 200
+{ "success": true, "data": { "phone": "9876543210", "message": "OTP sent successfully to +91 9876543210",
+  "devOtp": "123456" }, "message": "OTP sent successfully to +91 9876543210" }
+
+POST /auth/verify-otp → 200
+{ "token": "eyJhbGciOi…", "user": { "id": "42", "name": "Asha Verma", "email": "asha@example.com",
+  "mobile": "9876543210", "deliveryLocation": { "pincode": "201301", "city": "Noida" } } }
+```
+
+**Refusals:**
+- `400` "Phone and OTP are required".
+- `401` "That code is wrong or has expired. Ask for a new one."
+
+**Notes:**
+- A code lasts 10 minutes.
+- Verifying a new phone number creates the customer.
+- `devOtp` only exists locally.
+- The local-only shortcut `POST /auth/login` with `{ "identifier": "9876543210" }` returns the same `{ token, user }` for an existing customer, with no code.
+
+**Profile:** `GET /auth/me` (signed in) returns:
+
+```json
+{ "id", "name", "email", "mobile", "createdAt", "deliveryLocation": { "pincode", "city" } }
+```
+
+### UC-8 Move the guest cart into the account after sign-in
+
+`POST /cart/merge`, signed in, with `{ "sessionId": "<the saved guest sessionId>" }`. The answer is the account's priced cart.
+
+**Rules:**
+- Where both carts have the product, the larger quantity is kept, limited to the maximum and the stock. Quantities aren't added together.
+- The guest cart is then closed, so forget the saved `sessionId`.
+- From now on, cart calls send the Bearer token and no `x-session-id`.
+
+### UC-9 Saved addresses (signed in)
+
+| Call | Body | Gives |
+|---|---|---|
+| `GET /auth/addresses` | | The list, default first |
+| `POST /auth/addresses` | `{ "label": "Home", "flatNo", "building", "area", "city", "pincode", "isDefault": true }` | The new address, 201. `flatNo`, `area`, `city` and `pincode` are required |
+| `PUT /auth/addresses/:id/default` | | Makes it the default |
+| `DELETE /auth/addresses/:id` | | Removes it |
+
+```json
+GET /auth/addresses → 200
+{ "success": true, "data": [ { "id": 7, "userId": 42, "label": "Home", "flatNo": "B-204", "building": "Lotus Towers",
+  "area": "Sector 62", "city": "Noida", "pincode": "201301", "lat": null, "lng": null, "isDefault": 1 } ] }
+```
+
+### UC-10 Checkout (cash on delivery)
+
+`POST /cart/checkout` with the cart's headers (Bearer token, or `x-session-id` for guests).
+
+| Field | Required | Notes |
+|---|---|---|
+| `expectedTotal` | **yes** | The `totals.grandTotal` the customer saw. A mismatch is refused, so they never pay a total they didn't see |
+| `cartId` | recommended | The `id` of the cart shown. With it, a retry after a timeout returns the same order instead of failing |
+| `addressId` | signed in | A saved address ID (use case 9) |
+| `shippingAddress` + `pincode` | guests, or no saved address | The full address text and its 6-digit pincode |
+| `guestName`, `guestPhone`, `guestEmail` | guests | Stored on the order |
+| `paymentMethod` | no | Only `"COD"`, which is the default |
+| `notes` | no | Free text |
+
+```json
+POST /cart/checkout
+{ "cartId": 115, "expectedTotal": 2710.46, "pincode": "201301",
+  "shippingAddress": "B-204 Lotus Towers, Sector 62, Noida 201301", "guestName": "Asha Verma", "paymentMethod": "COD" }
+
+→ 201 (a repeat for the same cart → 200, "Order already placed", same body)
+{ "success": true, "message": "Order placed", "data": {
+  "id": "12", "orderNumber": "TX-ORD-551492-390", "placedAt": "2026-10-23T10:32:31.000Z", "status": "confirmed",
+  "paymentStatus": "pending", "paymentMethod": "COD", "customerName": "Asha Verma",
+  "deliveryAddress": "B-204 Lotus Towers, Sector 62, Noida 201301",
+  "lines": [ { "productId": "5", "name": "9W LED Bulb", "unit": "unit", "quantity": 2, "unitPrice": 149, "lineTotal": 298 },
+             { "productId": "3", "name": "48\" Ceiling Fan", "unit": "unit", "quantity": 1, "unitPrice": 1999, "lineTotal": 1999 } ],
+  "totals": { "subtotal": 2297, "bulkSavings": 0, "delivery": 0, "tax": 413.46, "grandTotal": 2710.46 },
+  "total": 2710.46, "shippingCharges": 0 } }
+```
+
+**Refusals.** Nothing is ordered and the cart is unchanged:
+
+| Status | `error` | What the app does |
+|---|---|---|
+| 400 | `expectedTotal is required: the total shown to the customer.` | Send it |
+| 400 | `Only cash on delivery is available.` | Send `COD` |
+| 400 | `Your cart is empty.` | Back to the cart |
+| 409 | `Prices changed since you opened checkout. Check the new total and place the order again.` | Reload the cart, show the new total, ask again |
+| 409 | `We don't deliver to 110001 yet.` | Ask for another address |
+| 409 | A line's limit or stock sentence, as in use case 6 | Back to the cart |
+| 409 | `This cart was moved to your account. Open the cart again.` | Reload the cart with the token |
+| 503 | `We couldn't place your order. Your cart is unchanged.` | Offer a retry with the same `cartId` |
+
+**Effects:**
+- An order takes its stock at once and starts as `confirmed`.
+- **Guests:** if `guestPhone` is a 10-digit number with no account, a new customer is created for it. If the number already has an account, the order stays a guest order and the account isn't touched.
+
+### UC-11 My orders
+
+| Call | Notes |
+|---|---|
+| `GET /orders` | Signed in only; without a sign-in it's `401` "Sign in to see your orders." Returns the customer's own orders, newest first, each without `history`. Paging: `page`, `limit` (default 50, maximum 100); filter: `status` |
+| `GET /orders/:id` | The same order plus `history`. Someone else's order is `403` |
+
+```json
+GET /orders/5 → 200
+{ "success": true, "data": {
+  "id": 5, "orderNumber": "TX-ORD-303276-897", "userId": 42, "placedAt": "2026-10-16T22:01:43Z",
+  "status": "confirmed", "paymentStatus": "paid", "paymentMethod": "UPI",
+  "total": 265500, "subtotal": 225000, "taxTotal": 40500, "deliveryCharge": 0, "discountTotal": 0,
+  "deliveryAddress": "B-204 Lotus Towers, Sector 62, Noida 201301", "storeId": 1, "storeName": "Bhutani Tower Store",
+  "customerName": "Asha Verma", "customerMobile": "9876543210", "customerEmail": "asha@example.com",
+  "items": [ { "id": 19, "productId": 1, "variantId": 1, "name": "1.5 Ton Split AC", "sku": "AC001", "quantity": 5,
+               "unitPrice": 45000, "lineTotal": 225000, "unit": "unit" } ],
+  "history": [ { "id": 3, "status": "confirmed", "paymentStatus": "paid", "notes": "Please call upon arrival at gate 2",
+                 "date": "2026-10-15T18:30:00.000Z", "time": "22:01:43" } ] } }
+```
+
+Older imported orders can show other payment methods. A history `date` is a full timestamp, so read only its date part and pair it with `time`.
+
+**Statuses** come from staff in the portal: `pending`, `confirmed`, `processing`, `shipped`, `delivered`, `cancelled`.
+- Cancelled is final.
+- A delivered order can't be cancelled.
+- Customers can't cancel from the app yet; there is no endpoint for it.
+
+**Order again:** set each item's quantity in the cart with `PUT /cart/items/:productId` (use case 6). The cart applies today's prices and limits.
+
+---
+
+## 9. Calls the app should not use
+
+| Call | Why |
+|---|---|
+| `POST /orders`, `POST /cart/items`, `DELETE /cart/items/:id`, `GET /cart/summary` | Older forms kept for old clients. Use `POST /cart/checkout`, `PUT /cart/items/:productId` and `GET /cart` |
+| `POST /auth/login` | Local only (section 6) |
+| Anything under `/auth/admin`, `/access`, `/stores`, `/audit`, `/orders/stats`, `?all=true`, or any POST, PUT or DELETE on catalogue, CMS, pricing or delivery | Staff portal only; needs a staff sign-in |
+
+## 10. Must be fixed before the app goes live
+
+Each item was found while writing this guide. They are for the app team unless marked as server.
+
+- **Sign-in:** the app signs in with `POST /auth/login`, which production refuses. Move it to use case 7 (send and verify a code).
+- **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
+- **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
+- **Images:** product and category images are relative paths that no server hosts (section 5).
+- **Home:** the category shortcuts point at category IDs that don't exist in this catalogue. Banners can't open outside links yet (use case 1).
+- **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
+
+## 11. Troubleshooting
+
+| You see | Likely cause |
+|---|---|
+| App says "not connected" | `EXPO_PUBLIC_API_BASE_URL` is empty or Expo wasn't restarted with `-c` |
+| Requests time out from a phone | It used `localhost`; use the computer's LAN IP, same Wi-Fi, and allow Node through the firewall |
+| `/health` returns 503 or `"degraded"` | MySQL is stopped, the password in `server/.env` is wrong, or a database is missing |
+| `Database unavailable (…)` errors | Same as above |
+| Every product shows "unavailable" | It has no price. Give it one in the portal (Products → Edit) |
+| Checkout says "We don't deliver to …" | Add the pincode in the portal (Delivery pincodes) and link it to a store (Stores & groups) |
+| Sign-in token refused after restarting the API | `JWT_SECRET` changed. Sign in again |

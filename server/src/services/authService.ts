@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { userPool } from '../db/mysql.js';
 import { store } from '../db/store.js';
-import { getJwtSecret } from '../config/security.js';
+import { DEV_OTP, getJwtSecret, isDevCustomerLoginAllowed } from '../config/security.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
 const JWT_SECRET = getJwtSecret();
@@ -85,12 +85,13 @@ export class AuthService {
       });
     }
 
-    throw new Error('The mobile number or email entered is not registered');
+    throw Object.assign(new Error('The mobile number or email entered is not registered'), { statusCode: 404 });
   }
 
   static async sendOtp(phone: string, purpose: string = 'login', ipAddress: string = '127.0.0.1') {
     const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
-    const otp = process.env.NODE_ENV === 'production' ? String(Math.floor(100000 + Math.random() * 900000)) : '123456';
+    const devLogin = isDevCustomerLoginAllowed();
+    const otp = devLogin ? DEV_OTP : String(crypto.randomInt(100000, 1000000));
     const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
 
     try {
@@ -106,7 +107,7 @@ export class AuthService {
     return {
       phone: cleanPhone,
       message: `OTP sent successfully to +91 ${cleanPhone}`,
-      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+      devOtp: devLogin ? otp : undefined,
     };
   }
 
@@ -189,7 +190,7 @@ export class AuthService {
       [cleanPhone]
     );
 
-    const isDev = providedOtp === '123456';
+    const isDev = isDevCustomerLoginAllowed() && providedOtp === DEV_OTP;
     let valid = isDev;
 
     if (attempts.length > 0) {
@@ -200,7 +201,7 @@ export class AuthService {
     }
 
     if (!valid) {
-      throw new Error('Invalid or expired OTP code');
+      throw Object.assign(new Error('That code is wrong or has expired. Ask for a new one.'), { statusCode: 401 });
     }
 
     let [users] = await userPool.query<any[]>(
@@ -269,7 +270,7 @@ export class AuthService {
       [userId]
     );
 
-    if (users.length === 0) throw new Error('User not found');
+    if (users.length === 0) throw Object.assign(new Error('User not found'), { statusCode: 404 });
     const u = users[0];
 
     const [addrRows] = await userPool.query<any[]>(
@@ -307,7 +308,7 @@ export class AuthService {
     const { label = 'Home', flatNo, building, area, city, pincode, lat, lng, isDefault } = data;
 
     if (!flatNo || !area || !city || !pincode) {
-      throw new Error('flatNo, area, city, and pincode are required');
+      throw Object.assign(new Error('flatNo, area, city, and pincode are required'), { statusCode: 400 });
     }
 
     if (isDefault) {

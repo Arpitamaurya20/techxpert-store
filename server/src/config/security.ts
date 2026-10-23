@@ -39,6 +39,17 @@ export function isDevAdminAllowed(): boolean {
   return process.env.ALLOW_DEV_ADMIN === '1';
 }
 
+/** The one-time code every phone gets outside production; `send-otp` also returns it as `devOtp`. */
+export const DEV_OTP = '123456';
+
+/**
+ * Local customer sign-in shortcuts: the fixed code `DEV_OTP` and identifier-only `POST /auth/login`.
+ * Both let anyone sign in as any customer, so they are always off in production.
+ */
+export function isDevCustomerLoginAllowed(): boolean {
+  return !isProduction();
+}
+
 /**
  * Local-only opt-in to fall back to server/database.json when MySQL fails.
  * Default OFF so portal never silently serves seed catalog as live data.

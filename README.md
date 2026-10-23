@@ -50,19 +50,18 @@ npx expo start
 
 ### 🔌 Backend API Service (`server/`)
 
-The Node.js + Express backend service running on port 5001, providing catalog, auth, order, and CMS APIs for both the mobile app and management portal.
+The Node.js + Express backend service running on port 5001, providing catalog, auth, cart, order, and CMS APIs for both the mobile app and management portal. It needs MySQL with the `techxpertstore` and `homecare` databases.
 
 ```bash
 cd server
+cp .env.example .env   # set MYSQL_PASSWORD
 npm install
-npm run dev     # Starts server on http://localhost:5001
+npm run dev     # Starts server on http://localhost:5001 (also under /api)
 ```
 
-- Health & API Manifest: `http://localhost:5001/health`
-- Catalog Categories: `http://localhost:5001/catalog/categories`
-- Catalog Products: `http://localhost:5001/catalog/products`
-- Auth Login: `POST http://localhost:5001/auth/login`
-- Customer Orders: `http://localhost:5001/orders`
+- Health: `http://localhost:5001/health`
+- **Building the app against a local API:** [`docs/APP_API_GUIDE.md`](./docs/APP_API_GUIDE.md) covers getting the databases, pointing the app at the API, and every app flow with real requests and responses.
+- **Production:** [`docs/ROLLOUT.md`](./docs/ROLLOUT.md).
 
 ---
 
@@ -73,8 +72,10 @@ The web client provides real-time administrative control over inventory, orders,
 ```bash
 cd web
 npm install
-npm run dev     # Starts portal on http://localhost:5173
+VITE_API_BASE_URL=http://localhost:5001 npm run dev     # Starts portal on http://localhost:5173
 ```
+
+Local sign-in: `admin@techxpert.in` / `admin123` when the API has `ALLOW_DEV_ADMIN=1`.
 
 ---
 

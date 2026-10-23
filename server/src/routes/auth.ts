@@ -14,6 +14,7 @@ import {
 import { adminLoginRateLimit, passwordChangeRateLimit } from '../middleware/rateLimit.js';
 import { storeFilter } from '../utils/scope.js';
 import { clearAdminTokenCookie, setAdminTokenCookie } from '../utils/cookies.js';
+import { isDevCustomerLoginAllowed } from '../config/security.js';
 
 const router = Router();
 
@@ -34,10 +35,13 @@ async function staffProfile(staff: StaffIdentity) {
   };
 }
 
-// POST /auth/login - App mobile/email customer sign in
+// POST /auth/login - Local-only customer sign in by mobile/email, no code. Production uses send-otp + verify-otp.
 router.post(
   '/login',
   asyncHandler(async (req, res) => {
+    if (!isDevCustomerLoginAllowed()) {
+      return sendError(res, 403, 'Sign in with a one-time code: POST /auth/send-otp, then POST /auth/verify-otp.');
+    }
     const { identifier } = req.body;
     if (!identifier) return sendError(res, 400, 'Mobile number or email is required');
 
