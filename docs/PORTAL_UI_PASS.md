@@ -10,9 +10,9 @@ Make the merchandising portal (`web/`) a clear, trustworthy daily tool for staff
 - no invented values and no developer text;
 - the same tables, states and buttons on every screen.
 
-The look stays the same: colours, fonts and dark theme.
+Fonts and layout stay the same. The colours changed during U1 at the user's request: the dark theme was replaced by a light workspace in the logo colours (see Decisions).
 
-**Out of scope:** new features (order filters by store or date, bulk actions), tablet or phone layout, a visual redesign, and the phone app.
+**Out of scope:** new features (order filters by store or date, bulk actions), tablet or phone layout, layout redesigns, and the phone app.
 
 ## Decisions
 
@@ -21,8 +21,20 @@ The look stays the same: colours, fonts and dark theme.
 | Main aim | Trustworthy daily tool, same look |
 | API & Mobile Sync tab | Kept, only for super admin, renamed **Developer tools**. Removed from the role editor's module list. |
 | Order of work | U1 truth and wording, then U2 shared building blocks, then U3–U6 screens in batches |
+| Theme (added 23 Oct) | Light workspace in the logo colours: off-white page, white cards, ink text, Techxpert blue (`--accent`) as the one accent, red only for problems. Colours are tokens in `web/src/index.css`; screens use `var(--…)`, not hex. |
+| Toasts (added 23 Oct) | One `ToastProvider` (`ui/Toast.tsx`, `useToast()`): success, error and info tones, stacked, errors stay 8 s. Every save, delete, status change and failed load reports through it; form errors stay next to the field. |
+| Logo (added 23 Oct) | The logo image is the full wordmark, so the sidebar and sign-in show it once with "Store portal" under it, never a second "TECHXPERT" text. |
 
-## U1 — Truth and wording
+## U1 — Truth and wording — done 23 Oct 2026
+
+As built, beyond the list below:
+
+- The server no longer invents customer names or SKUs in order lists and detail; old orders that stored a placeholder such as "Valued Customer" read as "Not given". New orders store an empty name instead of a placeholder. Product-name fallbacks stay because the phone app drops unnamed lines.
+- Order detail shows the stored subtotal, bulk savings (already inside the subtotal), delivery, tax and total; the old ×0.82 / ×0.18 split is gone.
+- The calculator shows an error instead of a locally guessed price when the server can't answer.
+- Customers lost the invented "Identity Sync Rate 100%" card; Bulk Pricing lost "Calculation Engine: Real-time".
+- A failed load keeps the last data that loaded (counts no longer drop to 0) and names what failed in a toast. The server status re-checks every 30 s and says when it is back.
+- The sign-in hint with the local seed password shows only in development builds.
 
 No layout changes.
 
@@ -75,12 +87,12 @@ New pieces in `web/src/components/ui/`, alongside `Button`, `Modal`, `DataTable`
 | `PageIntro` | One sentence on what the screen is for, plus the screen's actions (Refresh, New…) | Per-screen `toolbar` + `hint` styles |
 | `Field` | Label, then input/select/textarea, then error text; one input style | Per-screen `label` / `input` / `error` styles; `alert` for validation |
 | `LoadState` | Loading, "Couldn't load X" + Retry, and empty with a next step | Ad-hoc loading and error text; silent blank screens |
-| `ConfirmDialog` | In-app confirm on `Modal`; says exactly what happens; red button when destructive | 8 `window.confirm` and 5 `alert` calls |
+| `ConfirmDialog` | In-app confirm on `Modal`; says exactly what happens; red button when destructive | 8 `window.confirm` calls (the `alert` calls became toasts in U1) |
 
 **Rules for every screen:**
 
 - Table headers in sentence case ("Order", "Customer", "Total").
-- Buttons: one orange primary per screen or modal; secondary for Edit; ghost for Refresh; red for destructive.
+- Buttons: one blue primary per screen or modal; secondary for Edit; ghost for Refresh; red for destructive.
 - Missing data: "Not given", muted.
 - Money: ₹ with Indian grouping. Dates: "23 Oct, 12:40".
 
@@ -100,7 +112,7 @@ Each batch moves its screens onto U2's pieces and rules, then gets a browser che
 | Batch | Screens | Also fix |
 |---|---|---|
 | U3 Daily operations | Orders, Customers, Dashboard | Order detail layout. Remove the database explainer panel on Customers. Dashboard figures in staff terms. |
-| U4 Catalogue | Products, Categories, Bulk Pricing | Category `alert` errors become field errors. Calculator uses `Field` / `LoadState`. |
+| U4 Catalogue | Products, Categories, Bulk Pricing | Category save errors (toasts since U1) move next to the fields. Calculator uses `Field` / `LoadState`. |
 | U5 Storefront | Campaign Banners, Homepage Sections | Banner editor `alert` / `confirm` replaced. Sections error state from U1 on `LoadState`. |
 | U6 Admin and shell | Stores & Groups, Audit Trail, Sign-in, Developer tools, sidebar, header | Audit entries read as staff sentences. |
 

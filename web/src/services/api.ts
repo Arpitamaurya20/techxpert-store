@@ -263,6 +263,14 @@ export const api = {
 
   // Bulk Pricing
   getBulkTiers: () => fetchApi<any[]>('/pricing/bulk-tiers'),
+  calculateBulkPrice: (productId: string | number, quantity: number, basePrice: number) =>
+    fetchApi<any>(
+      `/pricing/calculate?${new URLSearchParams({
+        productId: String(productId),
+        quantity: String(quantity),
+        basePrice: String(basePrice),
+      })}`
+    ),
   createBulkTier: (data: any) =>
     fetchApi<any>('/pricing/bulk-tiers', { method: 'POST', body: JSON.stringify(data) }),
   updateBulkTier: (id: string, data: any) =>

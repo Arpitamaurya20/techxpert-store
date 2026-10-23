@@ -52,7 +52,6 @@ JOIN (
   SELECT 'banners', 1, 1, 1 UNION ALL
   SELECT 'sections', 1, 1, 1 UNION ALL
   SELECT 'audit', 1, 0, 0 UNION ALL
-  SELECT 'api', 1, 0, 0 UNION ALL
   SELECT 'access', 1, 1, 1
 ) g
 WHERE r.Name = 'Store Admin';
@@ -69,8 +68,7 @@ JOIN (
   SELECT 'pricing', 1, 1, 0 UNION ALL
   SELECT 'banners', 1, 1, 0 UNION ALL
   SELECT 'sections', 1, 1, 0 UNION ALL
-  SELECT 'audit', 1, 0, 0 UNION ALL
-  SELECT 'api', 1, 0, 0
+  SELECT 'audit', 1, 0, 0
 ) g
 WHERE r.Name = 'Merchandiser';
 

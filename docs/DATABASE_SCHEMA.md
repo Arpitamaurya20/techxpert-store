@@ -350,7 +350,7 @@ CREATE TABLE techxpertstore.portal_roles (
 
 CREATE TABLE techxpertstore.portal_role_permissions (
   RoleID INT NOT NULL,              -- FK portal_roles.ID, cascade delete
-  Module VARCHAR(40) NOT NULL,      -- products, categories, orders, delivery, stores, customers, pricing, banners, sections, audit, api, access
+  Module VARCHAR(40) NOT NULL,      -- products, categories, orders, delivery, stores, customers, pricing, banners, sections, audit, access
   CanView TINYINT(1) NOT NULL DEFAULT 0,
   CanEdit TINYINT(1) NOT NULL DEFAULT 0,
   CanDelete TINYINT(1) NOT NULL DEFAULT 0,

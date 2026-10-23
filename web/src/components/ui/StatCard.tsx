@@ -17,7 +17,7 @@ export const StatCard: React.FC<StatItem> = ({
   label,
   value,
   icon,
-  iconColor = 'var(--brand-orange)',
+  iconColor = 'var(--accent)',
   subtext,
   trend,
 }) => {
@@ -31,8 +31,8 @@ export const StatCard: React.FC<StatItem> = ({
             <span
               style={{
                 ...styles.trend,
-                color: trend.isPositive ? '#10b981' : '#f43f5e',
-                background: trend.isPositive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(244, 63, 94, 0.1)',
+                color: trend.isPositive ? 'var(--success)' : 'var(--danger)',
+                background: trend.isPositive ? 'var(--success-soft)' : 'var(--danger-soft)',
               }}
             >
               {trend.value}
@@ -84,7 +84,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: '44px',
     height: '44px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(255, 255, 255, 0.04)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     display: 'flex',
     alignItems: 'center',
@@ -104,7 +104,7 @@ const styles: Record<string, React.CSSProperties> = {
   value: {
     fontSize: '1.45rem',
     fontWeight: 800,
-    color: '#fff',
+    color: 'var(--text-main)',
     lineHeight: 1.1,
     fontFamily: 'var(--font-display)',
   },

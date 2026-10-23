@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import type { Category, Subcategory } from '../types';
-import { Badge, Button, EmptyState, Modal, StatGrid } from './ui';
+import { Badge, Button, EmptyState, Modal, StatGrid, useToast } from './ui';
 import type { StatItem } from './ui';
 
 interface CategoryManagerProps {
@@ -64,6 +64,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
   canEdit = true,
   canDelete = true,
 }) => {
+  const toast = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -89,13 +90,13 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
         if (prev && (rows || []).some((c: Category) => String(c.id) === prev)) return prev;
         return rows?.[0] ? String(rows[0].id) : null;
       });
-    } catch (err) {
-      console.error('Failed loading categories', err);
+    } catch (err: any) {
+      toast.error(`Couldn't load categories: ${err.message}`);
       setCategories([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   const loadSubs = useCallback(async (categoryId: string | null) => {
     if (!categoryId) {
@@ -106,13 +107,13 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       setSubsLoading(true);
       const rows = await api.getSubcategories(categoryId);
       setSubcategories(rows || []);
-    } catch (err) {
-      console.error('Failed loading subcategories', err);
+    } catch (err: any) {
+      toast.error(`Couldn't load subcategories: ${err.message}`);
       setSubcategories([]);
     } finally {
       setSubsLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     loadCategories();
@@ -129,13 +130,13 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       label: 'Trade Categories',
       value: categories.length,
       icon: <Boxes size={20} />,
-      iconColor: 'var(--brand-orange)',
+      iconColor: 'var(--accent)',
     },
     {
       label: 'Subcategories (selected)',
       value: subcategories.length,
       icon: <FolderTree size={20} />,
-      iconColor: '#38bdf8',
+      iconColor: 'var(--info)',
     },
   ];
 
@@ -172,16 +173,18 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       if (editingCat) {
         await api.updateCategory(String(editingCat.id), payload);
         onAudit?.('Updated Category', `Updated "${payload.name}"`);
+        toast.success(`Category "${payload.name}" saved.`);
       } else {
         const created = await api.createCategory(payload);
         onAudit?.('Created Category', `Added "${payload.name}"`);
+        toast.success(`Category "${payload.name}" added.`);
         if (created?.id) setSelectedId(String(created.id));
       }
       setCatModalOpen(false);
       await loadCategories();
       onHierarchyChanged?.();
     } catch (err: any) {
-      window.alert(err.message || 'Failed to save category');
+      toast.error(`Couldn't save the category: ${err.message}`);
     } finally {
       setSavingCat(false);
     }
@@ -195,10 +198,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     try {
       await api.deleteCategory(String(cat.id));
       onAudit?.('Deleted Category', `Removed "${cat.name}"`);
+      toast.success(`Category "${cat.name}" removed.`);
       await loadCategories();
       onHierarchyChanged?.();
     } catch (err: any) {
-      window.alert(err.message || 'Failed to delete category');
+      toast.error(`Couldn't remove "${cat.name}": ${err.message}`);
     }
   };
 
@@ -235,15 +239,17 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       if (editingSub) {
         await api.updateSubcategory(String(editingSub.id), payload);
         onAudit?.('Updated Subcategory', `Updated "${payload.name}" under ${selected?.name}`);
+        toast.success(`Subcategory "${payload.name}" saved.`);
       } else {
         await api.createSubcategory(payload);
         onAudit?.('Created Subcategory', `Added "${payload.name}" under ${selected?.name}`);
+        toast.success(`Subcategory "${payload.name}" added under ${selected?.name}.`);
       }
       setSubModalOpen(false);
       await loadSubs(selectedId);
       onHierarchyChanged?.();
     } catch (err: any) {
-      window.alert(err.message || 'Failed to save subcategory');
+      toast.error(`Couldn't save the subcategory: ${err.message}`);
     } finally {
       setSavingSub(false);
     }
@@ -255,10 +261,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     try {
       await api.deleteSubcategory(String(sub.id));
       onAudit?.('Deleted Subcategory', `Removed "${sub.name}"`);
+      toast.success(`Subcategory "${sub.name}" removed.`);
       await loadSubs(selectedId);
       onHierarchyChanged?.();
     } catch (err: any) {
-      window.alert(err.message || 'Failed to delete subcategory');
+      toast.error(`Couldn't remove "${sub.name}": ${err.message}`);
     }
   };
 
@@ -268,8 +275,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
 
       <div style={styles.toolbar}>
         <p style={styles.hint}>
-          Hierarchy drives mobile Categories + product filters via{' '}
-          <code>GET /catalog/categories</code> and <code>/subcategories</code>.
+          These categories and subcategories are what customers browse and filter by in the app.
         </p>
         <Button
           variant="secondary"
@@ -339,7 +345,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
                         <Button
                           variant="ghost"
                           size="sm"
-                          icon={<Trash2 size={13} color="#f43f5e" />}
+                          icon={<Trash2 size={13} color="var(--danger)" />}
                           onClick={() => deleteCategory(cat)}
                         />
                       ) : null}
@@ -405,7 +411,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
                       <Button
                         variant="ghost"
                         size="sm"
-                        icon={<Trash2 size={13} color="#f43f5e" />}
+                        icon={<Trash2 size={13} color="var(--danger)" />}
                         onClick={() => deleteSubcategory(sub)}
                       />
                     ) : null}
@@ -608,7 +614,7 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
     fontSize: '0.95rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   list: {
     display: 'flex',
@@ -624,14 +630,14 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '10px 12px',
     borderRadius: 'var(--radius-md)',
     border: '1px solid transparent',
-    background: 'rgba(255,255,255,0.02)',
+    background: 'var(--tint-1)',
     cursor: 'pointer',
     color: 'inherit',
     width: '100%',
   },
   listItemActive: {
     background: 'var(--bg-surface-elevated)',
-    borderColor: 'rgba(249, 115, 22, 0.35)',
+    borderColor: 'var(--accent-border)',
   },
   subRow: {
     display: 'flex',
@@ -639,13 +645,13 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
     padding: '10px 12px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(255,255,255,0.02)',
+    background: 'var(--tint-1)',
     border: '1px solid var(--border-subtle)',
   },
   itemName: {
     fontSize: '0.88rem',
     fontWeight: 600,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   itemMeta: {
     fontSize: '0.72rem',
@@ -678,11 +684,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: '100%',
-    background: 'rgba(255, 255, 255, 0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '9px 14px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.86rem',
     outline: 'none',
   },

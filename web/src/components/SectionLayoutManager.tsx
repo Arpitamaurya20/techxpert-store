@@ -6,11 +6,16 @@ import {
   EyeOff,
   GripVertical,
   Info,
+  RefreshCw,
 } from 'lucide-react';
 import type { HomepageSection } from '../types';
+import { Button } from './ui';
 
 interface SectionLayoutManagerProps {
   sections: HomepageSection[];
+  /** Set when the list could not be loaded; nothing else is shown in its place. */
+  loadError?: string | null;
+  onRetry?: () => void;
   onToggleSection: (id: string) => void;
   onReorderSection: (id: string, direction: 'up' | 'down') => void;
   onResetDefaultOrder: () => void;
@@ -20,6 +25,8 @@ interface SectionLayoutManagerProps {
 
 export const SectionLayoutManager: React.FC<SectionLayoutManagerProps> = ({
   sections,
+  loadError,
+  onRetry,
   onToggleSection,
   onReorderSection,
   onResetDefaultOrder,
@@ -28,12 +35,24 @@ export const SectionLayoutManager: React.FC<SectionLayoutManagerProps> = ({
 }) => {
   const sortedSections = [...sections].sort((a, b) => a.position - b.position);
 
+  if (loadError) {
+    return (
+      <div style={styles.errorBox}>
+        <p style={{ margin: 0 }}>{loadError} Check the connection and try again.</p>
+        {onRetry ? (
+          <Button variant="secondary" size="sm" icon={<RefreshCw size={14} />} onClick={onRetry}>
+            Retry
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
-      {/* Informational banner from SRS */}
       <div style={styles.infoBanner}>
         <div style={styles.infoIconBox}>
-          <Info size={18} color="var(--brand-orange)" />
+          <Info size={18} color="var(--accent)" />
         </div>
         <div style={styles.infoText}>
           <strong>Phone home order.</strong> This list is the blocks the app can draw. Hidden
@@ -42,7 +61,7 @@ export const SectionLayoutManager: React.FC<SectionLayoutManagerProps> = ({
         </div>
         {canDelete ? (
           <button onClick={onResetDefaultOrder} style={styles.resetBtn}>
-            Reset to SRS Defaults
+            Reset to default layout
           </button>
         ) : null}
       </div>
@@ -55,7 +74,7 @@ export const SectionLayoutManager: React.FC<SectionLayoutManagerProps> = ({
             style={{
               ...styles.sectionRow,
               opacity: sec.enabled ? 1 : 0.6,
-              background: sec.enabled ? 'var(--bg-surface)' : 'rgba(19, 27, 46, 0.4)',
+              background: sec.enabled ? 'var(--bg-surface)' : 'var(--bg-surface-elevated)',
             }}
           >
             {/* Drag / Position indicator */}
@@ -86,10 +105,10 @@ export const SectionLayoutManager: React.FC<SectionLayoutManagerProps> = ({
                   onClick={() => onToggleSection(sec.id)}
                   style={{
                     ...styles.toggleBtn,
-                    color: sec.enabled ? '#10b981' : 'var(--text-dim)',
+                    color: sec.enabled ? 'var(--success)' : 'var(--text-dim)',
                     background: sec.enabled
-                      ? 'rgba(16, 185, 129, 0.12)'
-                      : 'rgba(255, 255, 255, 0.05)',
+                      ? 'var(--success-soft)'
+                      : 'var(--tint-2)',
                   }}
                   title={sec.enabled ? 'Hide Section' : 'Show Section'}
                 >
@@ -132,6 +151,18 @@ export const SectionLayoutManager: React.FC<SectionLayoutManagerProps> = ({
 };
 
 const styles: Record<string, React.CSSProperties> = {
+  errorBox: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '12px',
+    padding: '16px',
+    borderRadius: 'var(--radius-lg)',
+    border: '1px solid var(--danger-border)',
+    background: 'var(--danger-soft)',
+    color: 'var(--danger)',
+    fontSize: '0.88rem',
+  },
   container: {
     display: 'flex',
     flexDirection: 'column',
@@ -142,8 +173,8 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '14px',
     padding: '16px 20px',
-    background: 'rgba(249, 115, 22, 0.06)',
-    border: '1px solid rgba(249, 115, 22, 0.2)',
+    background: 'var(--accent-soft)',
+    border: '1px solid var(--accent-border)',
     borderRadius: 'var(--radius-lg)',
   },
   infoIconBox: {
@@ -191,7 +222,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-display)',
     fontWeight: 700,
     fontSize: '0.9rem',
-    color: 'var(--brand-orange)',
+    color: 'var(--accent)',
   },
   contentCol: {
     flex: 1,
@@ -208,13 +239,13 @@ const styles: Record<string, React.CSSProperties> = {
   sectionTitle: {
     fontSize: '0.95rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   typeTag: {
     fontSize: '0.7rem',
     fontFamily: 'monospace',
     color: 'var(--text-dim)',
-    background: 'rgba(255,255,255,0.04)',
+    background: 'var(--tint-2)',
     padding: '2px 6px',
     borderRadius: '4px',
   },

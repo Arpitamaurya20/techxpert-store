@@ -11,7 +11,6 @@ export const MODULES = [
   { key: 'banners', label: 'Banners', levels: ['view', 'edit', 'delete'] },
   { key: 'sections', label: 'Homepage sections', levels: ['view', 'edit', 'delete'] },
   { key: 'audit', label: 'Audit trail', levels: ['view'] },
-  { key: 'api', label: 'API & mobile sync', levels: ['view'] },
   { key: 'access', label: 'Roles & access', levels: ['view', 'edit', 'delete'] },
 ] as const satisfies readonly { key: string; label: string; levels: readonly Level[] }[];
 

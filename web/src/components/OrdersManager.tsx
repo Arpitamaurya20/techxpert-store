@@ -11,7 +11,15 @@ import {
 import { DataTable, StatGrid, Badge, Button, Modal } from './ui';
 import type { Column, StatItem } from './ui';
 
+const NotGiven: React.FC = () => (
+  <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontWeight: 400 }}>Not given</span>
+);
 
+const inr = (value: number) =>
+  `₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const isMoney = (value: unknown): value is number =>
+  value !== null && value !== undefined && Number.isFinite(Number(value));
 
 export interface OrderItem {
   id?: number;
@@ -35,10 +43,12 @@ export interface Order {
   paymentMethod?: string;
   items: OrderItem[];
   total: number;
-  subtotal?: number;
-  taxTotal?: number;
-  deliveryAddress?: string;
-  customerName?: string;
+  subtotal?: number | null;
+  taxTotal?: number | null;
+  deliveryCharge?: number | null;
+  discountTotal?: number | null;
+  deliveryAddress?: string | null;
+  customerName?: string | null;
   customerMobile?: string;
   customerEmail?: string;
   storeId?: number | null;
@@ -72,25 +82,25 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       label: 'Total Orders',
       value: orders.length,
       icon: <ShoppingBag size={20} />,
-      iconColor: '#38bdf8',
+      iconColor: 'var(--info)',
     },
     {
       label: 'Pending Fulfillment',
       value: pendingCount,
       icon: <Clock size={20} />,
-      iconColor: 'var(--brand-orange)',
+      iconColor: 'var(--accent)',
     },
     {
       label: 'Delivered & Completed',
       value: deliveredCount,
       icon: <CheckCircle2 size={20} />,
-      iconColor: '#10b981',
+      iconColor: 'var(--success)',
     },
     {
       label: 'Total Revenue Processed',
       value: `₹${totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
       icon: <IndianRupee size={20} />,
-      iconColor: '#a855f7',
+      iconColor: 'var(--violet)',
     },
   ];
 
@@ -118,7 +128,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       sortable: true,
       render: (o) => (
         <div>
-          <div style={{ fontWeight: 700, color: '#fff', fontSize: '0.88rem' }}>{o.orderNumber}</div>
+          <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.88rem' }}>{o.orderNumber}</div>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '2px' }}>
             {new Date(o.placedAt).toLocaleString([], {
               month: 'short',
@@ -132,15 +142,15 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
     },
     {
       key: 'customerName',
-      header: 'CUSTOMER (homecare)',
+      header: 'CUSTOMER',
       sortable: true,
       render: (o) => (
         <div>
-          <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.86rem' }}>
-            {o.customerName || 'Customer'}
+          <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.86rem' }}>
+            {o.customerName || <NotGiven />}
           </div>
           {o.customerMobile && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.76rem', color: 'var(--brand-orange)', marginTop: '2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.76rem', color: 'var(--accent)', marginTop: '2px' }}>
               <Phone size={11} />
               <span>+91 {o.customerMobile}</span>
             </div>
@@ -153,9 +163,9 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       header: 'DESTINATION',
       render: (o) => (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: '240px', lineHeight: 1.35 }}>
-          <MapPin size={13} color="#38bdf8" style={{ flexShrink: 0, marginTop: 2 }} />
+          <MapPin size={13} color="var(--info)" style={{ flexShrink: 0, marginTop: 2 }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {o.deliveryAddress || 'Standard Delivery Zone'}
+            {o.deliveryAddress || <NotGiven />}
           </span>
         </div>
       ),
@@ -165,7 +175,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       header: 'STORE',
       sortable: true,
       render: (o) => (
-        <span style={{ fontSize: '0.8rem', color: o.storeName ? '#fff' : 'var(--text-dim)' }}>
+        <span style={{ fontSize: '0.8rem', color: o.storeName ? 'var(--text-main)' : 'var(--text-dim)' }}>
           {o.storeName || 'Not recorded'}
         </span>
       ),
@@ -186,7 +196,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       align: 'right',
       render: (o) => (
         <div>
-          <div style={{ fontWeight: 700, color: '#10b981', fontFamily: 'monospace', fontSize: '0.94rem' }}>
+          <div style={{ fontWeight: 700, color: 'var(--success)', fontFamily: 'monospace', fontSize: '0.94rem' }}>
             ₹{Number(o.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
@@ -200,7 +210,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       header: 'ORDER STATUS',
       align: 'center',
       render: (o) => !canEdit ? (
-        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#fff', textTransform: 'capitalize' }}>
+        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-main)', textTransform: 'capitalize' }}>
           {String(o.status).replace(/_/g, ' ')}
         </span>
       ) : (
@@ -210,23 +220,23 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
           disabled={updatingId === String(o.id)}
           style={{
 
-              background: 'rgba(255, 255, 255, 0.05)',
+              background: 'var(--tint-2)',
               border: '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-sm)',
               padding: '4px 8px',
               fontSize: '0.78rem',
               fontWeight: 600,
-              color: '#fff',
+              color: 'var(--text-main)',
               outline: 'none',
               cursor: 'pointer',
             }}
           >
-            <option value="pending" style={{ background: '#0f172a' }}>Pending</option>
-            <option value="confirmed" style={{ background: '#0f172a' }}>Confirmed</option>
-            <option value="processing" style={{ background: '#0f172a' }}>Processing</option>
-            <option value="shipped" style={{ background: '#0f172a' }}>Shipped</option>
-            <option value="delivered" style={{ background: '#0f172a' }}>Delivered</option>
-            <option value="cancelled" style={{ background: '#0f172a' }}>Cancelled</option>
+            <option value="pending" style={{ background: 'var(--bg-surface)' }}>Pending</option>
+            <option value="confirmed" style={{ background: 'var(--bg-surface)' }}>Confirmed</option>
+            <option value="processing" style={{ background: 'var(--bg-surface)' }}>Processing</option>
+            <option value="shipped" style={{ background: 'var(--bg-surface)' }}>Shipped</option>
+            <option value="delivered" style={{ background: 'var(--bg-surface)' }}>Delivered</option>
+            <option value="cancelled" style={{ background: 'var(--bg-surface)' }}>Cancelled</option>
           </select>
         ),
       },
@@ -266,7 +276,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
               border: '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-md)',
               padding: '8px 12px',
-              color: '#fff',
+              color: 'var(--text-main)',
               fontSize: '0.84rem',
               outline: 'none',
               cursor: 'pointer',
@@ -304,7 +314,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
                 gap: '14px',
-                background: 'rgba(255, 255, 255, 0.03)',
+                background: 'var(--tint-1)',
                 padding: '16px',
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--border-subtle)',
@@ -312,21 +322,21 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
             >
               <div>
                 <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', fontWeight: 700 }}>
-                  CUSTOMER (homecare DB)
+                  Customer
                 </div>
-                <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem', marginTop: '4px' }}>
-                  {selectedOrder.customerName || 'Valued Customer'}
+                <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem', marginTop: '4px' }}>
+                  {selectedOrder.customerName || <NotGiven />}
                 </div>
-                <div style={{ fontSize: '0.82rem', color: 'var(--brand-orange)', marginTop: '2px' }}>
-                  +91 {selectedOrder.customerMobile || 'N/A'}
+                <div style={{ fontSize: '0.82rem', color: 'var(--accent)', marginTop: '2px' }}>
+                  {selectedOrder.customerMobile ? `+91 ${selectedOrder.customerMobile}` : <NotGiven />}
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', fontWeight: 700 }}>
-                  DELIVERY DESTINATION
+                  Delivery address
                 </div>
                 <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.4 }}>
-                  {selectedOrder.deliveryAddress || 'Standard Address'}
+                  {selectedOrder.deliveryAddress || <NotGiven />}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '6px' }}>
                   Store: {selectedOrder.storeName || 'not recorded'}
@@ -336,7 +346,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
 
             {/* Line Items List */}
             <div>
-              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#fff', marginBottom: '10px' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '10px' }}>
                 Order Items ({selectedOrder.items?.length || 0})
               </div>
               <div
@@ -355,17 +365,19 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
                       alignItems: 'center',
                       padding: '12px 16px',
                       borderBottom: idx < selectedOrder.items.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                      background: idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.01)',
+                      background: idx % 2 === 0 ? 'transparent' : 'var(--tint-1)',
                     }}
                   >
                     <div>
-                      <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.86rem' }}>{it.name}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.86rem' }}>{it.name}</div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '2px' }}>
-                        SKU: {it.sku || 'N/A'} • {it.quantity} × ₹{Number(it.unitPrice ?? 0)} {it.unit ? `per ${it.unit}` : ''}
+                        {it.sku ? `SKU ${it.sku} • ` : ''}
+                        {it.quantity} × {isMoney(it.unitPrice) ? inr(it.unitPrice) : 'price not recorded'}
+                        {it.unit ? ` per ${it.unit}` : ''}
                       </div>
                     </div>
-                    <div style={{ fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>
-                      ₹{Number(it.lineTotal ?? Number(it.unitPrice ?? 0) * it.quantity).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)', fontFamily: 'monospace' }}>
+                      {isMoney(it.lineTotal) ? inr(it.lineTotal) : <NotGiven />}
                     </div>
                   </div>
                 ))}
@@ -375,7 +387,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
             {/* Price Breakdown */}
             <div
               style={{
-                background: 'rgba(0, 0, 0, 0.2)',
+                background: 'var(--tint-2)',
                 padding: '14px 18px',
                 borderRadius: 'var(--radius-md)',
                 display: 'flex',
@@ -383,27 +395,39 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
                 gap: '8px',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                <span>Subtotal</span>
-                <span>₹{(selectedOrder.subtotal || selectedOrder.total * 0.82).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                <span>GST / Tax Total (18%)</span>
-                <span>₹{(selectedOrder.taxTotal || selectedOrder.total * 0.18).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
+              {[
+                { label: 'Subtotal', value: selectedOrder.subtotal },
+                ...(Number(selectedOrder.discountTotal) > 0
+                  ? [{ label: 'Bulk savings (included in subtotal)', value: selectedOrder.discountTotal }]
+                  : []),
+                { label: 'Delivery', value: selectedOrder.deliveryCharge },
+                { label: 'Tax', value: selectedOrder.taxTotal },
+              ].map((line) => (
+                <div
+                  key={line.label}
+                  style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: 'var(--text-muted)' }}
+                >
+                  <span>{line.label}</span>
+                  {isMoney(line.value) ? (
+                    <span>{inr(line.value)}</span>
+                  ) : (
+                    <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>Not recorded</span>
+                  )}
+                </div>
+              ))}
               <div
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   fontSize: '1.05rem',
                   fontWeight: 800,
-                  color: '#10b981',
+                  color: 'var(--success)',
                   borderTop: '1px solid var(--border-subtle)',
                   paddingTop: '8px',
                 }}
               >
-                <span>Grand Total</span>
-                <span>₹{Number(selectedOrder.total).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                <span>Total</span>
+                <span>{inr(selectedOrder.total)}</span>
               </div>
             </div>
           </div>

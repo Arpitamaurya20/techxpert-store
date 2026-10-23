@@ -9,7 +9,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { Product, Category } from '../types';
-import { DataTable, StatGrid, Badge, Button, Modal } from './ui';
+import { DataTable, StatGrid, Badge, Button, Modal, useToast } from './ui';
 import type { Column, StatItem } from './ui';
 import { api } from '../services/api';
 
@@ -61,6 +61,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
   canEdit = true,
   canDelete = true,
 }) => {
+  const toast = useToast();
   const [rows, setRows] = useState<Product[]>(seedProducts);
   const [total, setTotal] = useState(seedTotal || seedProducts.length);
   const [page, setPage] = useState(1);
@@ -93,12 +94,12 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
       setTotal(result.meta.total);
       setTotalPages(Math.max(1, result.meta.totalPages));
       onCatalogTotalChange?.(result.meta.total);
-    } catch (err) {
-      console.warn('Catalogue page load failed', err);
+    } catch (err: any) {
+      toast.error(`Couldn't load products: ${err.message}`);
     } finally {
       setListLoading(false);
     }
-  }, [page, debouncedSearch, selectedCategory, onCatalogTotalChange]);
+  }, [page, debouncedSearch, selectedCategory, onCatalogTotalChange, toast]);
 
   useEffect(() => {
     loadPage();
@@ -116,25 +117,25 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
       label: 'Active Catalogue SKUs',
       value: total >= 1000 ? `${(total / 1000).toFixed(total >= 10000 ? 0 : 1)}k`.replace(/\.0k$/, 'k') : total,
       icon: <Package size={20} />,
-      iconColor: '#38bdf8',
+      iconColor: 'var(--info)',
     },
     {
       label: 'Trade Categories',
       value: categories.length,
       icon: <Boxes size={20} />,
-      iconColor: 'var(--brand-orange)',
+      iconColor: 'var(--accent)',
     },
     {
       label: 'In-Stock (this page)',
       value: `${rows.length > 0 ? Math.round((inStockCount / rows.length) * 100) : 0}%`,
       icon: <CheckCircle2 size={20} />,
-      iconColor: '#10b981',
+      iconColor: 'var(--success)',
     },
     {
       label: 'Featured (this page)',
       value: featuredCount,
       icon: <Sparkles size={20} />,
-      iconColor: '#a855f7',
+      iconColor: 'var(--violet)',
     },
   ];
 
@@ -195,7 +196,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
               width: '42px',
               height: '42px',
               borderRadius: 'var(--radius-sm)',
-              background: '#1e293b',
+              background: 'var(--bg-surface-elevated)',
               border: '1px solid var(--border-subtle)',
               display: 'flex',
               alignItems: 'center',
@@ -218,9 +219,9 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
             )}
           </div>
           <div>
-            <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.88rem' }}>{p.name}</div>
+            <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>{p.name}</div>
             <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '2px' }}>
-              SKU: <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{p.sku || p.id}</span>
+              SKU: <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{p.sku || p.id}</span>
               {p.brandName && ` • Brand: ${p.brandName}`}
             </div>
           </div>
@@ -247,7 +248,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
           {p.price == null ? (
             <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>No price</div>
           ) : (
-            <div style={{ fontWeight: 700, color: '#10b981', fontFamily: 'monospace', fontSize: '0.94rem' }}>
+            <div style={{ fontWeight: 700, color: 'var(--success)', fontFamily: 'monospace', fontSize: '0.94rem' }}>
               ₹{Number(p.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
           )}
@@ -315,7 +316,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
         data={rows}
         columns={columns}
         keyExtractor={(p) => p.id}
-        searchPlaceholder="Search MySQL catalogue by title, SKU or brand…"
+        searchPlaceholder="Search products by name, SKU or brand…"
         loading={listLoading}
         emptyTitle="No products on this page"
         emptyDescription="Try another search, category, or page."
@@ -338,7 +339,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                 border: '1px solid var(--border-subtle)',
                 borderRadius: 'var(--radius-md)',
                 padding: '8px 12px',
-                color: '#fff',
+                color: 'var(--text-main)',
                 fontSize: '0.84rem',
                 outline: 'none',
                 cursor: 'pointer',
@@ -364,7 +365,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         title="Add Catalogue Product"
-        subtitle="Creates a SKU via POST /catalog/products (served to the mobile app)"
+        subtitle="Customers see it in the app while it is active"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setIsCreateOpen(false)}>
@@ -563,7 +564,7 @@ const modalStyles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '10px 12px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.9rem',
     outline: 'none',
     boxSizing: 'border-box',

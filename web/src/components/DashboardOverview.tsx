@@ -8,7 +8,6 @@ import {
   LayoutList,
   FolderTree,
   ArrowRight,
-  Radio,
 } from 'lucide-react';
 import { StatGrid } from './ui';
 import type { StatItem } from './ui';
@@ -17,7 +16,7 @@ import type { Banner, BulkPriceTier, Product } from '../types';
 
 interface DashboardOverviewProps {
   products: Product[];
-  /** MySQL catalogue size (meta.total); list in `products` is only the loaded page. */
+  /** Whole catalogue size (meta.total); `products` is only the loaded page. */
   catalogTotal?: number;
   orders: any[];
   users: any[];
@@ -25,7 +24,6 @@ interface DashboardOverviewProps {
   bulkTiers: BulkPriceTier[];
   sectionsCount: number;
   sectionsEnabled: number;
-  serverOnline: boolean;
   onNavigate: (tab: TabId) => void;
   /** Tiles and shortcuts only appear for modules the signed-in role can view. */
   canView: (tab: TabId) => boolean;
@@ -40,7 +38,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   bulkTiers,
   sectionsCount,
   sectionsEnabled,
-  serverOnline,
   onNavigate,
   canView,
 }) => {
@@ -54,67 +51,67 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const stats: (StatItem & { tab: TabId })[] = [
     {
       tab: 'catalog',
-      label: 'Catalogue SKUs',
-      value: skuTotal,
+      label: 'Products',
+      value: skuTotal.toLocaleString('en-IN'),
       icon: <Package size={20} />,
-      iconColor: '#38bdf8',
+      iconColor: 'var(--info)',
     },
     {
       tab: 'orders',
-      label: 'Open Orders',
-      value: pendingOrders || orders.length,
+      label: 'Open orders',
+      value: pendingOrders,
       icon: <ShoppingBag size={20} />,
-      iconColor: 'var(--brand-orange)',
+      iconColor: 'var(--accent)',
     },
     {
       tab: 'users',
-      label: 'Customers (homecare)',
+      label: 'Customers',
       value: users.length,
       icon: <Users size={20} />,
-      iconColor: '#a78bfa',
+      iconColor: 'var(--violet)',
     },
     {
       tab: 'banners',
-      label: 'Live Banners',
+      label: 'Live banners',
       value: publishedBanners,
       icon: <ImageIcon size={20} />,
-      iconColor: '#10b981',
+      iconColor: 'var(--success)',
     },
   ];
 
   const shortcuts: { tab: TabId; title: string; desc: string; icon: React.ReactNode }[] = [
     {
       tab: 'catalog',
-      title: 'Inventory Desk',
+      title: 'Products',
       desc:
         skuTotal > products.length
-          ? `${skuTotal.toLocaleString()} in MySQL · showing ${products.length} on desk`
-          : `${inStock}/${products.length || 0} SKUs in stock`,
-      icon: <Package size={18} color="#10b981" />,
+          ? `${skuTotal.toLocaleString('en-IN')} products`
+          : `${inStock} of ${products.length} in stock`,
+      icon: <Package size={18} color="var(--success)" />,
     },
     {
       tab: 'categories',
-      title: 'Categories & Subs',
-      desc: 'Trade hierarchy for mobile browse',
-      icon: <FolderTree size={18} color="var(--brand-orange)" />,
+      title: 'Categories',
+      desc: 'What customers browse in the app',
+      icon: <FolderTree size={18} color="var(--accent)" />,
     },
     {
       tab: 'banners',
       title: 'Campaign Banners',
       desc: `${publishedBanners} published · ${banners.length} total`,
-      icon: <ImageIcon size={18} color="#38bdf8" />,
+      icon: <ImageIcon size={18} color="var(--info)" />,
     },
     {
       tab: 'sections',
       title: 'Homepage Sections',
-      desc: `${sectionsEnabled}/${sectionsCount} visible on mobile home`,
-      icon: <LayoutList size={18} color="#a78bfa" />,
+      desc: `${sectionsEnabled} of ${sectionsCount} shown on the app home screen`,
+      icon: <LayoutList size={18} color="var(--violet)" />,
     },
     {
       tab: 'pricing',
-      title: 'Bulk Pricing Tiers',
-      desc: `${bulkTiers.length} contractor volume rules`,
-      icon: <Tag size={18} color="#eab308" />,
+      title: 'Bulk Pricing',
+      desc: `${bulkTiers.length} quantity discount ${bulkTiers.length === 1 ? 'rule' : 'rules'}`,
+      icon: <Tag size={18} color="var(--warning)" />,
     },
   ];
 
@@ -125,27 +122,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     <div style={styles.container}>
       <div style={styles.heroRow}>
         <div>
-          <h2 style={styles.heading}>Operations Dashboard</h2>
+          <h2 style={styles.heading}>Welcome back</h2>
           <p style={styles.sub}>
-            Live merchandising control plane for the Expo customer app — same APIs the mobile
-            client consumes for catalog, CMS, pricing, and orders.
+            Everything you change here reaches the customer app straight away: products, prices, banners,
+            the home screen, and orders.
           </p>
-        </div>
-        <div
-          style={{
-            ...styles.statusChip,
-            borderColor: serverOnline ? 'rgba(16,185,129,0.35)' : 'rgba(244,63,94,0.35)',
-            color: serverOnline ? '#10b981' : '#f43f5e',
-          }}
-        >
-          <Radio size={14} />
-          {serverOnline ? 'API online · :5001' : 'API offline'}
         </div>
       </div>
 
       {visibleStats.length > 0 ? <StatGrid items={visibleStats} /> : null}
 
-      {visibleShortcuts.length > 0 ? <div style={styles.sectionLabel}>Merchandising workflows</div> : null}
+      {visibleShortcuts.length > 0 ? <div style={styles.sectionLabel}>Go to</div> : null}
       <div style={styles.shortcutGrid}>
         {visibleShortcuts.map((item) => (
           <button key={item.tab} onClick={() => onNavigate(item.tab)} style={styles.shortcutCard}>
@@ -179,7 +166,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-display)',
     fontSize: '1.35rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
     marginBottom: '6px',
   },
   sub: {
@@ -187,17 +174,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-muted)',
     maxWidth: '640px',
     lineHeight: 1.55,
-  },
-  statusChip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '8px 14px',
-    borderRadius: 'var(--radius-full)',
-    border: '1px solid',
-    background: 'rgba(255,255,255,0.03)',
-    fontSize: '0.78rem',
-    fontWeight: 600,
   },
   sectionLabel: {
     fontSize: '0.72rem',
@@ -228,7 +204,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: '40px',
     height: '40px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(255,255,255,0.04)',
+    background: 'var(--tint-2)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -244,7 +220,7 @@ const styles: Record<string, React.CSSProperties> = {
   shortcutTitle: {
     fontSize: '0.92rem',
     fontWeight: 600,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   shortcutDesc: {
     fontSize: '0.78rem',

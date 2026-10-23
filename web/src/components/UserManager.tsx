@@ -3,15 +3,13 @@ import {
   Users,
   ShoppingBag,
   IndianRupee,
-  ShieldCheck,
   RefreshCw,
-  Database,
   Phone,
   Mail,
   MapPin,
 } from 'lucide-react';
 import { api } from '../services/api';
-import { DataTable, StatGrid, Badge, Button } from './ui';
+import { DataTable, StatGrid, Badge, Button, useToast } from './ui';
 import type { Column, StatItem } from './ui';
 
 
@@ -28,6 +26,7 @@ interface UserRecord {
 }
 
 export const UserManager: React.FC = () => {
+  const toast = useToast();
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -36,8 +35,8 @@ export const UserManager: React.FC = () => {
       setLoading(true);
       const res = await (api as any).getUsers();
       setUsers(res || []);
-    } catch (err) {
-      console.error('Failed fetching users from homecare', err);
+    } catch (err: any) {
+      toast.error(`Couldn't load customers: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -52,28 +51,22 @@ export const UserManager: React.FC = () => {
 
   const stats: StatItem[] = [
     {
-      label: 'Registered Customers (homecare)',
+      label: 'Customers',
       value: users.length,
       icon: <Users size={20} />,
-      iconColor: '#38bdf8',
+      iconColor: 'var(--info)',
     },
     {
-      label: 'Store Orders Placed (techxpertstore)',
+      label: 'Orders placed',
       value: totalOrders,
       icon: <ShoppingBag size={20} />,
-      iconColor: 'var(--brand-orange)',
+      iconColor: 'var(--accent)',
     },
     {
-      label: 'Gross Merchandise Value',
+      label: 'Total spent',
       value: `₹${totalGMV.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
       icon: <IndianRupee size={20} />,
-      iconColor: '#10b981',
-    },
-    {
-      label: 'Identity Sync Rate',
-      value: '100%',
-      icon: <ShieldCheck size={20} />,
-      iconColor: '#a855f7',
+      iconColor: 'var(--success)',
     },
   ];
 
@@ -84,7 +77,7 @@ export const UserManager: React.FC = () => {
       width: '90px',
       sortable: true,
       render: (u) => (
-        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#94a3b8' }}>
+        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--text-muted)' }}>
           #{u.id}
         </span>
       ),
@@ -102,11 +95,11 @@ export const UserManager: React.FC = () => {
                 width: '36px',
                 height: '36px',
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                background: 'var(--accent-soft)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#fff',
+                color: 'var(--accent)',
                 fontWeight: 700,
                 fontSize: '0.8rem',
                 flexShrink: 0,
@@ -115,8 +108,10 @@ export const UserManager: React.FC = () => {
               {initials}
             </div>
             <div>
-              <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.88rem' }}>
-                {u.name || 'Anonymous User'}
+              <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>
+                {u.name || (
+                  <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontWeight: 400 }}>Name not given</span>
+                )}
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                 Joined {new Date(u.createdAt).toLocaleDateString()}
@@ -132,8 +127,8 @@ export const UserManager: React.FC = () => {
       render: (u) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            <Phone size={12} color="var(--brand-orange)" />
-            <span>+91 {u.phone}</span>
+            <Phone size={12} color="var(--accent)" />
+            <span>{u.phone ? `+91 ${u.phone}` : 'Not given'}</span>
           </div>
           {u.email && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-dim)' }}>
@@ -146,11 +141,11 @@ export const UserManager: React.FC = () => {
     },
     {
       key: 'defaultAddress',
-      header: 'PRIMARY ADDRESS (homecare)',
+      header: 'SAVED ADDRESS',
       render: (u) =>
         u.defaultAddress ? (
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.82rem', color: '#cbd5e1', maxWidth: '280px', lineHeight: 1.35 }}>
-            <MapPin size={14} color="#38bdf8" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '280px', lineHeight: 1.35 }}>
+            <MapPin size={14} color="var(--info)" style={{ flexShrink: 0, marginTop: 2 }} />
             <span>{u.defaultAddress}</span>
           </div>
         ) : (
@@ -176,7 +171,7 @@ export const UserManager: React.FC = () => {
       sortable: true,
       align: 'right',
       render: (u) => (
-        <span style={{ fontWeight: 700, color: '#10b981', fontFamily: 'monospace', fontSize: '0.92rem' }}>
+        <span style={{ fontWeight: 700, color: 'var(--success)', fontFamily: 'monospace', fontSize: '0.92rem' }}>
           ₹{Number(u.totalSpent || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
         </span>
       ),
@@ -195,11 +190,10 @@ export const UserManager: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Cross-Database Architecture Banner */}
       <div
         style={{
-          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9))',
-          border: '1px solid rgba(56, 189, 248, 0.25)',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--info-border)',
           borderRadius: 'var(--radius-lg)',
           padding: '16px 20px',
           display: 'flex',
@@ -214,22 +208,22 @@ export const UserManager: React.FC = () => {
               width: '42px',
               height: '42px',
               borderRadius: '50%',
-              background: 'rgba(249, 115, 22, 0.15)',
-              border: '1px solid rgba(249, 115, 22, 0.3)',
+              background: 'var(--accent-soft)',
+              border: '1px solid var(--accent-border)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
             }}
           >
-            <Database size={20} color="var(--brand-orange)" />
+            <Users size={20} color="var(--accent)" />
           </div>
           <div>
-            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
-              Identity & Profile Core: <span style={{ color: '#60a5fa' }}>homecare</span> ⟷ Store Commerce: <span style={{ color: '#f59e0b' }}>techxpertstore</span>
+            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '3px' }}>
+              Customer accounts
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              All customer logins, phone OTP authentication and saved addresses live in <code>homecare.users</code> and <code>homecare.user_addresses</code>.
+              Everyone who has signed in on the app, with their saved address and store orders.
             </div>
           </div>
         </div>

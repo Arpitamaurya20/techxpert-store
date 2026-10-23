@@ -11,7 +11,7 @@ import {
 import type { BulkPriceTier, Product } from '../types';
 import { DataTable, StatGrid, Badge, Button, Modal } from './ui';
 import type { Column, StatItem } from './ui';
-
+import { api } from '../services/api';
 
 interface BulkPricingManagerProps {
   tiers: BulkPriceTier[];
@@ -37,6 +37,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || '1');
   const [calculatorQty, setCalculatorQty] = useState<number>(25);
   const [lastCalc, setCalcResult] = useState<any>(null);
+  const [calcError, setCalcError] = useState<string | null>(null);
 
   // New tier form state
   const [newTier, setNewTier] = useState<{
@@ -49,7 +50,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
     terms: string;
   }>({
     productId: products[0]?.id || '1',
-    productName: products[0]?.name || 'Construction Material',
+    productName: products[0]?.name || '',
     minQty: 10,
     maxQty: 49,
     discountType: 'percentage',
@@ -61,49 +62,26 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
   /** A product without a price has nothing to calculate; never show the previous product's figures. */
   const calcResult = selectedProduct?.price == null ? null : lastCalc;
 
-  // Fetch live discount calculation from backend API
   useEffect(() => {
     if (!selectedProduct) return;
     const basePrice = selectedProduct.price;
     if (basePrice == null) return;
-    fetch(
-      `http://localhost:5001/pricing/calculate?productId=${selectedProduct.id}&quantity=${calculatorQty}&basePrice=${basePrice}`
-    )
-      .then((res) => res.json())
+    let stale = false;
+    api
+      .calculateBulkPrice(selectedProduct.id, calculatorQty, basePrice)
       .then((data) => {
-        if (data.success && data.data) {
-          setCalcResult(data.data);
-        }
+        if (stale) return;
+        setCalcError(null);
+        setCalcResult(data);
       })
-      .catch(() => {
-        // Local calculation fallback
-        const applicableTier = tiers.find(
-          (t) =>
-            String(t.productId) === String(selectedProduct.id) &&
-            calculatorQty >= t.minQty &&
-            (!t.maxQty || calculatorQty <= t.maxQty)
-        );
-        const discountPerUnit = !applicableTier
-          ? 0
-          : applicableTier.discountType === 'fixed_price'
-            ? Math.max(basePrice - Number(applicableTier.discountValue), 0)
-            : (basePrice * Number(applicableTier.discountValue)) / 100;
-        const discountPct = applicableTier?.discountType === 'fixed_price'
-          ? basePrice > 0
-            ? Math.round((discountPerUnit / basePrice) * 1000) / 10
-            : 0
-          : applicableTier
-            ? Number(applicableTier.discountValue)
-            : 0;
-        setCalcResult({
-          basePrice,
-          unitPrice: basePrice - discountPerUnit,
-          discountPercent: discountPct,
-          totalSavings: discountPerUnit * calculatorQty,
-          subtotal: (basePrice - discountPerUnit) * calculatorQty,
-          appliedTier: applicableTier,
-        });
+      .catch((err) => {
+        if (stale) return;
+        setCalcResult(null);
+        setCalcError(err instanceof Error ? err.message : 'The server did not answer.');
       });
+    return () => {
+      stale = true;
+    };
   }, [selectedProductId, calculatorQty, selectedProduct, tiers]);
 
   const closeTierModal = () => {
@@ -115,7 +93,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
     setEditingTierId(null);
     setNewTier({
       productId: products[0]?.id || '1',
-      productName: products[0]?.name || 'Construction Material',
+      productName: products[0]?.name || '',
       minQty: 10,
       maxQty: 49,
       discountType: 'percentage',
@@ -164,28 +142,22 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
 
   const stats: StatItem[] = [
     {
-      label: 'Configured Volume Tiers',
+      label: 'Bulk price rules',
       value: tiers.length,
       icon: <Tag size={20} />,
-      iconColor: 'var(--brand-orange)',
+      iconColor: 'var(--accent)',
     },
     {
-      label: 'Average Contractor Savings',
+      label: 'Average % discount',
       value: avgDiscount == null ? '—' : `${avgDiscount}%`,
       icon: <TrendingDown size={20} />,
-      iconColor: '#10b981',
+      iconColor: 'var(--success)',
     },
     {
-      label: 'Covered High-Turnover SKUs',
+      label: 'Products with bulk prices',
       value: new Set(tiers.map((t) => t.productId)).size,
       icon: <Percent size={20} />,
-      iconColor: '#38bdf8',
-    },
-    {
-      label: 'Calculation Engine',
-      value: 'Real-time',
-      icon: <Calculator size={20} />,
-      iconColor: '#a855f7',
+      iconColor: 'var(--info)',
     },
   ];
 
@@ -196,7 +168,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
       sortable: true,
       render: (t) => (
         <div>
-          <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.88rem' }}>{t.productName}</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>{t.productName}</div>
           <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '2px' }}>
             ID: #{t.productId}
           </div>
@@ -246,7 +218,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              icon={<Trash2 size={14} color="#f43f5e" />}
+              icon={<Trash2 size={14} color="var(--danger)" />}
               onClick={() => onDeleteTier(t.id)}
             >
               Remove
@@ -265,7 +237,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
       {/* Interactive Volume Simulator */}
       <div
         style={{
-          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9))',
+          background: 'var(--bg-surface)',
           border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-lg)',
           padding: '20px 24px',
@@ -273,9 +245,9 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <Calculator size={20} color="var(--brand-orange)" />
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff', margin: 0 }}>
-            Contractor Volume Pricing Simulator (Live API /pricing/calculate)
+          <Calculator size={20} color="var(--accent)" />
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
+            Price check: what a customer pays for a quantity
           </h3>
         </div>
 
@@ -290,7 +262,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
                   style={styles.select}
                 >
                   {products.map((p) => (
-                    <option key={p.id} value={String(p.id)} style={{ background: '#0f172a' }}>
+                    <option key={p.id} value={String(p.id)} style={{ background: 'var(--bg-surface)' }}>
                       {p.name} (Base: ₹{p.price})
                     </option>
                   ))}
@@ -316,7 +288,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
               max="200"
               value={calculatorQty}
               onChange={(e) => setCalculatorQty(Number(e.target.value))}
-              style={{ width: '100%', accentColor: 'var(--brand-orange)', cursor: 'pointer' }}
+              style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer' }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '4px' }}>
               <span>1 unit (Retail)</span>
@@ -329,8 +301,8 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
           {/* Calculator Output */}
           <div
             style={{
-              background: 'rgba(0, 0, 0, 0.25)',
-              border: '1px solid rgba(249, 115, 22, 0.25)',
+              background: 'var(--tint-2)',
+              border: '1px solid var(--accent-border)',
               borderRadius: 'var(--radius-md)',
               padding: '16px 20px',
               display: 'flex',
@@ -338,22 +310,25 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
               gap: '8px',
             }}
           >
+            {calcError && selectedProduct?.price != null && (
+              <div role="alert" style={{ fontSize: '0.8rem', color: 'var(--danger)' }}>
+                Couldn't calculate this price: {calcError}
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
               <span>Base Retail Rate:</span>
               <span>{selectedProduct?.price == null ? 'No price yet' : `₹${calcResult?.basePrice || selectedProduct.price} / unit`}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
               <span>Volume Discount:</span>
-              <span style={{ color: '#10b981', fontWeight: 700 }}>
+              <span style={{ color: 'var(--success)', fontWeight: 700 }}>
                 {calcResult?.discountPercent || 0}% OFF
               </span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: '#fff', fontWeight: 600 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: 'var(--text-main)', fontWeight: 600 }}>
               <span>Contractor Unit Rate:</span>
-              <span style={{ color: 'var(--brand-orange)', fontWeight: 800, fontFamily: 'monospace' }}>
-                {selectedProduct?.price == null
-                  ? '—'
-                  : `₹${Number(calcResult?.unitPrice || selectedProduct.price).toFixed(2)}`}
+              <span style={{ color: 'var(--accent)', fontWeight: 800, fontFamily: 'monospace' }}>
+                {calcResult ? `₹${Number(calcResult.unitPrice).toFixed(2)}` : '—'}
               </span>
             </div>
             <div
@@ -362,19 +337,21 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
                 justifyContent: 'space-between',
                 fontSize: '1rem',
                 fontWeight: 800,
-                color: '#fff',
+                color: 'var(--text-main)',
                 borderTop: '1px solid var(--border-subtle)',
                 paddingTop: '8px',
                 marginTop: '4px',
               }}
             >
               <span>Total Payable ({calculatorQty} units):</span>
-              <span style={{ color: '#10b981', fontFamily: 'monospace' }}>
-                ₹{Number(calcResult?.subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              <span style={{ color: 'var(--success)', fontFamily: 'monospace' }}>
+                {calcResult
+                  ? `₹${Number(calcResult.subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                  : '—'}
               </span>
             </div>
             {Number(calcResult?.totalSavings || 0) > 0 && (
-              <div style={{ fontSize: '0.74rem', color: '#10b981', textAlign: 'right' }}>
+              <div style={{ fontSize: '0.74rem', color: 'var(--success)', textAlign: 'right' }}>
                 ✨ Contractor saves ₹{Number(calcResult?.totalSavings).toLocaleString('en-IN', { minimumFractionDigits: 2 })} on this order!
               </div>
             )}
@@ -441,7 +418,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
                   ? products
                   : [{ id: newTier.productId, name: newTier.productName || `Product ${newTier.productId}` }, ...products]
                 ).map((p) => (
-                  <option key={p.id} value={String(p.id)} style={{ background: '#0f172a' }}>
+                  <option key={p.id} value={String(p.id)} style={{ background: 'var(--bg-surface)' }}>
                     {p.name}
                   </option>
                 ))}
@@ -489,10 +466,10 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
                   }
                   style={styles.select}
                 >
-                  <option value="percentage" style={{ background: '#0f172a' }}>
+                  <option value="percentage" style={{ background: 'var(--bg-surface)' }}>
                     Percent off
                   </option>
-                  <option value="fixed_price" style={{ background: '#0f172a' }}>
+                  <option value="fixed_price" style={{ background: 'var(--bg-surface)' }}>
                     Fixed unit price (₹)
                   </option>
                 </select>
@@ -539,22 +516,22 @@ const styles: Record<string, React.CSSProperties> = {
   },
   select: {
     width: '100%',
-    background: 'rgba(255, 255, 255, 0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '9px 12px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.86rem',
     outline: 'none',
     cursor: 'pointer',
   },
   input: {
     width: '100%',
-    background: 'rgba(255, 255, 255, 0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '9px 14px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.86rem',
     outline: 'none',
   },

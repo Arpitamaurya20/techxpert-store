@@ -27,6 +27,11 @@ function storeClause(storeIds: number[] | null | undefined, params: any[]): stri
   return ` AND o.StoreID IN (?)`;
 }
 
+/** Older orders stored placeholders such as "Valued Customer"; staff should see that no name was given. */
+function givenName(name: unknown): string | null {
+  return AuthService.isPlaceholderName(name) ? null : String(name);
+}
+
 export class OrderService {
   static async getOrders(params: OrderFilterParams) {
     const limit = Math.min(Number(params.limit) || 50, 100);
@@ -76,10 +81,12 @@ export class OrderService {
           CAST(o.GrandTotal AS DOUBLE) as total,
           CAST(o.SubTotal AS DOUBLE) as subtotal,
           CAST(o.TaxTotal AS DOUBLE) as taxTotal,
+          CAST(o.ShippingCharges AS DOUBLE) as deliveryCharge,
+          CAST(o.DiscountTotal AS DOUBLE) as discountTotal,
           o.ShippingAddress as deliveryAddress,
           o.StoreID as storeId,
           st.StoreName as storeName,
-          COALESCE(u.full_name, o.GuestName, 'Valued Customer') as customerName,
+          COALESCE(NULLIF(u.full_name, ''), NULLIF(o.GuestName, '')) as customerName,
           COALESCE(u.phone, o.GuestPhone, '') as customerMobile,
           COALESCE(u.email, o.GuestEmail, '') as customerEmail
         FROM orders o
@@ -100,7 +107,7 @@ export class OrderService {
              oi.ProductID as productId,
              oi.VariantID as variantId,
              COALESCE(p.ProductName, 'Construction Material') as name,
-             COALESCE(p.ProductCode, 'SKU') as sku,
+             p.ProductCode as sku,
              oi.Quantity as quantity,
              CAST(oi.UnitPrice AS DOUBLE) as unitPrice,
              CAST(oi.LineTotal AS DOUBLE) as lineTotal,
@@ -112,6 +119,7 @@ export class OrderService {
           [order.id]
         );
         order.items = items;
+        order.customerName = givenName(order.customerName);
       }
 
       return {
@@ -183,10 +191,12 @@ export class OrderService {
          CAST(o.GrandTotal AS DOUBLE) as total,
          CAST(o.SubTotal AS DOUBLE) as subtotal,
          CAST(o.TaxTotal AS DOUBLE) as taxTotal,
+          CAST(o.ShippingCharges AS DOUBLE) as deliveryCharge,
+          CAST(o.DiscountTotal AS DOUBLE) as discountTotal,
          o.ShippingAddress as deliveryAddress,
          o.StoreID as storeId,
          st.StoreName as storeName,
-         COALESCE(o.GuestName, 'Valued Customer') as customerName,
+         NULLIF(o.GuestName, '') as customerName,
          COALESCE(o.GuestPhone, '') as customerMobile,
          COALESCE(o.GuestEmail, '') as customerEmail
        FROM orders o
@@ -203,7 +213,7 @@ export class OrderService {
            oi.ProductID as productId,
            oi.VariantID as variantId,
            COALESCE(p.ProductName, 'Construction Material') as name,
-           COALESCE(p.ProductCode, 'SKU') as sku,
+           p.ProductCode as sku,
            oi.Quantity as quantity,
            CAST(oi.UnitPrice AS DOUBLE) as unitPrice,
            CAST(oi.LineTotal AS DOUBLE) as lineTotal,
@@ -215,6 +225,7 @@ export class OrderService {
         [order.id]
       );
       order.items = items;
+      order.customerName = givenName(order.customerName);
     }
     return {
       orders,
@@ -236,10 +247,12 @@ export class OrderService {
            CAST(o.GrandTotal AS DOUBLE) as total,
            CAST(o.SubTotal AS DOUBLE) as subtotal,
            CAST(o.TaxTotal AS DOUBLE) as taxTotal,
+          CAST(o.ShippingCharges AS DOUBLE) as deliveryCharge,
+          CAST(o.DiscountTotal AS DOUBLE) as discountTotal,
            o.ShippingAddress as deliveryAddress,
            o.StoreID as storeId,
            st.StoreName as storeName,
-           COALESCE(u.full_name, o.GuestName, 'Valued Customer') as customerName,
+           COALESCE(NULLIF(u.full_name, ''), NULLIF(o.GuestName, '')) as customerName,
            COALESCE(u.phone, o.GuestPhone, '') as customerMobile,
            COALESCE(u.email, o.GuestEmail, '') as customerEmail
          FROM orders o
@@ -258,7 +271,7 @@ export class OrderService {
              oi.ProductID as productId,
              oi.VariantID as variantId,
              COALESCE(p.ProductName, 'Construction Material') as name,
-             COALESCE(p.ProductCode, 'SKU') as sku,
+             p.ProductCode as sku,
              oi.Quantity as quantity,
              CAST(oi.UnitPrice AS DOUBLE) as unitPrice,
              CAST(oi.LineTotal AS DOUBLE) as lineTotal,
@@ -270,6 +283,7 @@ export class OrderService {
           [order.id]
         );
         order.items = items;
+        order.customerName = givenName(order.customerName);
 
         const [history] = await storePool.query<any[]>(
           `SELECT ID as id, OrderStatus as status, PaymentStatus as paymentStatus, Notes as notes, CreatedDate as date, CreatedTime as time
@@ -353,7 +367,7 @@ export class OrderService {
         if (rows.length > 0) {
           const u = rows[0];
           const name = AuthService.isPlaceholderName(u.full_name)
-            ? guestInfo?.name || u.full_name || 'Customer'
+            ? guestInfo?.name || ''
             : u.full_name;
           const phone = u.phone || guestInfo?.phone || '';
           const email = u.email || guestInfo?.email || '';
@@ -374,7 +388,7 @@ export class OrderService {
     }
 
     return {
-      name: guestInfo?.name || 'Valued Customer',
+      name: guestInfo?.name || '',
       phone: guestInfo?.phone || '',
       email: guestInfo?.email || '',
     };

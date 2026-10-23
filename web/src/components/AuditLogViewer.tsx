@@ -25,11 +25,8 @@ export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Audit History & Deployment Trail</h2>
-          <p style={styles.subtitle}>
-            Persisted merchandising changes (MySQL <code>portal_audit_logs</code> or file-backed
-            fallback). Refresh keeps history.
-          </p>
+          <h2 style={styles.title}>Change history</h2>
+          <p style={styles.subtitle}>Every change staff made in this portal, newest first.</p>
         </div>
         <span style={styles.countPill}>{logs.length} entries</span>
       </div>
@@ -37,8 +34,8 @@ export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
       {logs.length === 0 ? (
         <EmptyState
           icon={<History size={28} />}
-          title="No audit entries yet"
-          description="Create or update a product, banner, price tier, or section — each change is recorded via POST /audit/logs."
+          title="No changes recorded yet"
+          description="When staff add or change a product, banner, price tier or section, it shows up here."
         />
       ) : (
         <div style={styles.timeline}>
@@ -68,7 +65,7 @@ export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
                 <p style={styles.detailsText}>{log.details}</p>
 
                 <div style={styles.userRow}>
-                  <User size={13} color="var(--brand-orange)" />
+                  <User size={13} color="var(--accent)" />
                   <span>{log.user}</span>
                 </div>
               </div>
@@ -96,7 +93,7 @@ const styles: Record<string, React.CSSProperties> = {
   title: {
     fontSize: '1.2rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   subtitle: {
     fontSize: '0.8rem',
@@ -107,7 +104,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.76rem',
     fontWeight: 600,
     color: 'var(--text-muted)',
-    background: 'rgba(255,255,255,0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-full)',
     padding: '6px 12px',
@@ -131,15 +128,15 @@ const styles: Record<string, React.CSSProperties> = {
     width: '12px',
     height: '12px',
     borderRadius: '50%',
-    background: 'var(--brand-orange)',
-    boxShadow: '0 0 10px rgba(249, 115, 22, 0.5)',
+    background: 'var(--accent)',
+    boxShadow: '0 0 10px var(--accent-border)',
     marginTop: '16px',
     flexShrink: 0,
   },
   line: {
     width: '2px',
     flex: 1,
-    background: 'rgba(255, 255, 255, 0.08)',
+    background: 'var(--tint-3)',
   },
   logCard: {
     background: 'var(--bg-surface)',
@@ -167,7 +164,7 @@ const styles: Record<string, React.CSSProperties> = {
   actionName: {
     fontSize: '0.95rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   timeInfo: {
     display: 'flex',

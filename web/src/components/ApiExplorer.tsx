@@ -132,7 +132,7 @@ export const ApiExplorer: React.FC = () => {
       {/* Mobile App Connection Banner */}
       <div style={styles.appConnectBanner}>
         <div style={styles.bannerIconBox}>
-          <Smartphone size={24} color="var(--brand-orange)" />
+          <Smartphone size={24} color="var(--accent)" />
         </div>
         <div style={styles.bannerInfo}>
           <h3 style={styles.bannerTitle}>Connect Mobile App (Expo / React Native)</h3>
@@ -148,7 +148,7 @@ export const ApiExplorer: React.FC = () => {
               }
               style={styles.copyBtn}
             >
-              {copiedText === 'env' ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+              {copiedText === 'env' ? <Check size={14} color="var(--success)" /> : <Copy size={14} />}
               <span>{copiedText === 'env' ? 'Copied' : 'Copy'}</span>
             </button>
           </div>
@@ -177,8 +177,8 @@ export const ApiExplorer: React.FC = () => {
                   <span
                     style={{
                       ...styles.methodPill,
-                      background: ep.method === 'GET' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                      color: ep.method === 'GET' ? '#38bdf8' : '#34d399',
+                      background: ep.method === 'GET' ? 'var(--info-soft)' : 'var(--success-soft)',
+                      color: ep.method === 'GET' ? 'var(--info)' : 'var(--success)',
                     }}
                   >
                     {ep.method}
@@ -195,7 +195,7 @@ export const ApiExplorer: React.FC = () => {
         <div style={styles.testConsole}>
           <div style={styles.consoleHeader}>
             <div style={styles.consoleTitle}>
-              <Server size={16} color="var(--brand-orange)" />
+              <Server size={16} color="var(--accent)" />
               <span>Interactive Request Runner</span>
             </div>
             <button
@@ -237,7 +237,7 @@ export const ApiExplorer: React.FC = () => {
                   }
                   style={styles.copySmallBtn}
                 >
-                  {copiedText === 'res' ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                  {copiedText === 'res' ? <Check size={12} color="var(--success)" /> : <Copy size={12} />}
                   <span>{copiedText === 'res' ? 'Copied' : 'Copy Response'}</span>
                 </button>
               )}
@@ -272,13 +272,13 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-start',
     gap: '18px',
     padding: '20px 24px',
-    background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.12), rgba(15, 23, 42, 0.6))',
-    border: '1px solid rgba(249, 115, 22, 0.3)',
+    background: 'var(--accent-soft)',
+    border: '1px solid var(--accent-border)',
     borderRadius: 'var(--radius-xl)',
   },
   bannerIconBox: {
     padding: '10px',
-    background: 'rgba(249, 115, 22, 0.15)',
+    background: 'var(--accent-soft)',
     borderRadius: 'var(--radius-md)',
   },
   bannerInfo: {
@@ -290,7 +290,7 @@ const styles: Record<string, React.CSSProperties> = {
   bannerTitle: {
     fontSize: '1.1rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   bannerDesc: {
     fontSize: '0.84rem',
@@ -304,13 +304,13 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: '6px',
   },
   envCode: {
-    background: '#090d16',
+    background: 'var(--bg-app)',
     border: '1px solid var(--border-medium)',
     padding: '8px 14px',
     borderRadius: 'var(--radius-md)',
     fontFamily: 'monospace',
     fontSize: '0.86rem',
-    color: 'var(--brand-orange)',
+    color: 'var(--accent)',
     fontWeight: 600,
   },
   copyBtn: {
@@ -340,7 +340,7 @@ const styles: Record<string, React.CSSProperties> = {
   colTitle: {
     fontSize: '0.9rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   epList: {
     display: 'flex',
@@ -360,9 +360,9 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'all var(--transition-fast)',
   },
   epCardActive: {
-    borderColor: 'var(--brand-orange)',
+    borderColor: 'var(--accent)',
     background: 'var(--bg-surface-elevated)',
-    boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+    boxShadow: '0 4px 14px var(--tint-3)',
   },
   epHeader: {
     display: 'flex',
@@ -380,7 +380,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
     fontSize: '0.84rem',
     fontWeight: 600,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   epDesc: {
     fontSize: '0.76rem',
@@ -406,7 +406,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
     fontSize: '1rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   runBtn: {
     display: 'flex',
@@ -428,12 +428,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
     fontWeight: 800,
     fontSize: '0.8rem',
-    color: 'var(--brand-orange)',
+    color: 'var(--accent)',
   },
   requestUrl: {
     fontFamily: 'monospace',
     fontSize: '0.84rem',
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   reqBodySection: {
     display: 'flex',
@@ -446,13 +446,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-muted)',
   },
   codeBlock: {
-    background: '#090d16',
+    background: 'var(--bg-app)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '12px',
     fontFamily: 'monospace',
     fontSize: '0.8rem',
-    color: '#38bdf8',
+    color: 'var(--info)',
     overflowX: 'auto',
   },
   responseSection: {
@@ -474,8 +474,8 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-muted)',
   },
   statusPill: {
-    background: 'rgba(16, 185, 129, 0.15)',
-    color: '#34d399',
+    background: 'var(--success-soft)',
+    color: 'var(--success)',
     padding: '2px 8px',
     borderRadius: 'var(--radius-full)',
     fontSize: '0.72rem',
@@ -492,7 +492,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   responseViewer: {
-    background: '#090d16',
+    background: 'var(--bg-app)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '16px',
@@ -503,7 +503,7 @@ const styles: Record<string, React.CSSProperties> = {
   resCode: {
     fontFamily: 'monospace',
     fontSize: '0.78rem',
-    color: '#e2e8f0',
+    color: 'var(--text-muted)',
     whiteSpace: 'pre-wrap',
   },
   emptyRes: {

@@ -66,8 +66,8 @@ const styles: Record<string, React.CSSProperties> = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    backdropFilter: 'blur(5px)',
+    backgroundColor: 'rgba(15, 35, 70, 0.38)',
+    backdropFilter: 'blur(3px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -76,14 +76,14 @@ const styles: Record<string, React.CSSProperties> = {
     animation: 'fadeIn 0.2s ease-out',
   },
   content: {
-    background: 'var(--bg-surface-elevated)',
+    background: 'var(--bg-surface)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-lg)',
     width: '100%',
     maxHeight: '90vh',
     display: 'flex',
     flexDirection: 'column',
-    boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6), 0 0 25px rgba(249, 115, 22, 0.1)',
+    boxShadow: 'var(--shadow-lg)',
     overflow: 'hidden',
   },
   header: {
@@ -97,7 +97,7 @@ const styles: Record<string, React.CSSProperties> = {
   title: {
     fontSize: '1.15rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
     margin: 0,
   },
   subtitle: {
@@ -107,7 +107,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 0,
   },
   closeBtn: {
-    background: 'rgba(255, 255, 255, 0.06)',
+    background: 'var(--tint-2)',
     border: 'none',
     color: 'var(--text-muted)',
     borderRadius: 'var(--radius-sm)',
@@ -126,7 +126,7 @@ const styles: Record<string, React.CSSProperties> = {
   footer: {
     padding: '16px 24px',
     borderTop: '1px solid var(--border-subtle)',
-    background: 'rgba(0, 0, 0, 0.2)',
+    background: 'var(--tint-2)',
     display: 'flex',
     justifyContent: 'flex-end',
     alignItems: 'center',

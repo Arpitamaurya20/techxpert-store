@@ -6,7 +6,6 @@ import {
   Image as ImageIcon,
   Code,
   History,
-  Server,
   LayoutDashboard,
   LayoutList,
   FolderTree,
@@ -36,7 +35,8 @@ interface SidebarProps {
   ordersCount?: number;
   productsCount?: number;
   usersCount?: number;
-  serverOnline: boolean;
+  /** null while the first check is running. */
+  serverOnline: boolean | null;
   adminName?: string;
   adminRole?: string;
   onLogout?: () => void;
@@ -47,11 +47,11 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onTabChange,
-  ordersCount = 3,
-  productsCount = 7,
-  usersCount = 7,
+  ordersCount,
+  productsCount,
+  usersCount,
   serverOnline,
-  adminName = 'Store Admin',
+  adminName = 'Staff',
   adminRole = 'No role',
   onLogout,
   visibleTabs,
@@ -65,59 +65,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
   type NavItem = { id: TabId; label: string; icon: React.ReactNode; badge?: string };
   const allNavItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
-    { id: 'catalog', label: 'Products & Inventory', icon: <Package size={18} />, badge: String(productsCount) },
-    { id: 'categories', label: 'Categories & Subs', icon: <FolderTree size={18} /> },
-    { id: 'orders', label: 'Orders & Fulfillment', icon: <ShoppingBag size={18} />, badge: String(ordersCount) },
+    { id: 'catalog', label: 'Products', icon: <Package size={18} />, badge: productsCount?.toLocaleString('en-IN') },
+    { id: 'categories', label: 'Categories', icon: <FolderTree size={18} /> },
+    { id: 'orders', label: 'Orders', icon: <ShoppingBag size={18} />, badge: ordersCount?.toLocaleString('en-IN') },
     { id: 'delivery', label: 'Delivery Pincodes', icon: <MapPin size={18} /> },
     { id: 'stores', label: 'Stores & Groups', icon: <Store size={18} /> },
-    { id: 'users', label: 'Customers (homecare)', icon: <Users size={18} />, badge: String(usersCount) },
-    { id: 'pricing', label: 'Bulk Pricing Rules', icon: <Tag size={18} /> },
+    { id: 'users', label: 'Customers', icon: <Users size={18} />, badge: usersCount?.toLocaleString('en-IN') },
+    { id: 'pricing', label: 'Bulk Pricing', icon: <Tag size={18} /> },
     { id: 'banners', label: 'Campaign Banners', icon: <ImageIcon size={18} /> },
     { id: 'sections', label: 'Homepage Sections', icon: <LayoutList size={18} /> },
-    { id: 'api', label: 'API & Mobile Sync', icon: <Code size={18} /> },
+    { id: 'api', label: 'Developer tools', icon: <Code size={18} /> },
     { id: 'audit', label: 'Audit Trail', icon: <History size={18} /> },
     { id: 'access', label: 'Roles & Access', icon: <ShieldCheck size={18} /> },
   ];
   const navItems = allNavItems.filter((item) => visibleTabs.includes(item.id));
+  const statusColor = serverOnline === null ? 'var(--text-dim)' : serverOnline ? 'var(--success)' : 'var(--danger)';
 
 
   return (
     <aside style={styles.sidebar}>
       {/* Brand Header */}
       <div style={styles.brandBox}>
-        <div style={styles.logoBadge}>
-          <img
-            src="/images/techxpert-logo.gif"
-            alt="Techxpert Logo"
-            style={styles.logoImg}
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-          <div style={styles.brandTextWrapper}>
-            <span style={styles.brandTitle}>TECHXPERT</span>
-            <span style={styles.brandSubtitle}>Admin & Operations</span>
-          </div>
-        </div>
+        <img src="/images/techxpert-logo.gif" alt="Techxpert" style={styles.logoImg} />
+        <span style={styles.brandSubtitle}>Store portal</span>
       </div>
 
-      {/* Backend API Status Pill */}
       <div style={styles.envContainer}>
         <div
           style={{
             ...styles.envPill,
-            borderColor: serverOnline ? 'rgba(16, 185, 129, 0.3)' : 'rgba(244, 63, 94, 0.3)',
+            borderColor:
+              serverOnline === null
+                ? 'var(--border-subtle)'
+                : serverOnline
+                  ? 'var(--success-border)'
+                  : 'var(--danger-border)',
           }}
         >
           <span
             style={{
               ...styles.envDot,
-              background: serverOnline ? '#10b981' : '#f43f5e',
-              boxShadow: serverOnline ? '0 0 8px #10b981' : '0 0 8px #f43f5e',
+              background: statusColor,
+              boxShadow: serverOnline === null ? 'none' : `0 0 8px ${statusColor}`,
             }}
           />
-          <span style={{ color: serverOnline ? '#10b981' : '#f43f5e', fontWeight: 600 }}>
-            {serverOnline ? 'Backend API: Connected' : 'Backend Offline'}
+          <span style={{ color: statusColor, fontWeight: 600 }}>
+            {serverOnline === null ? 'Checking…' : serverOnline ? 'Connected' : "Can't reach the server"}
           </span>
         </div>
       </div>
@@ -139,7 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span
                 style={{
                   ...styles.navIcon,
-                  color: isActive ? 'var(--brand-orange)' : 'var(--text-muted)',
+                  color: isActive ? 'var(--accent)' : 'var(--text-muted)',
                 }}
               >
                 {item.icon}
@@ -157,14 +150,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer Info */}
       <div style={styles.footer}>
-        <div style={styles.serverInfoCard}>
-          <div style={styles.serverRow}>
-            <Server size={14} color="var(--brand-orange)" />
-            <span style={styles.serverUrl}>http://localhost:5001</span>
-          </div>
-          <div style={styles.appSyncText}>Expo App Target: /catalog, /auth, /orders</div>
-        </div>
-
         <div style={styles.userCard}>
           <div style={styles.userAvatar}>{initials}</div>
           <div style={styles.userInfo}>
@@ -196,37 +181,25 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 20,
   },
   brandBox: {
-    padding: '24px 20px 16px',
-    borderBottom: '1px solid var(--border-subtle)',
-  },
-  logoBadge: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  },
-  logoImg: {
-    height: '38px',
-    borderRadius: '6px',
-    background: '#fff',
-    padding: '2px',
-  },
-  brandTextWrapper: {
     display: 'flex',
     flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '8px',
+    padding: '22px 22px 16px',
+    borderBottom: '1px solid var(--border-subtle)',
   },
-  brandTitle: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '1.05rem',
-    letterSpacing: '0.04em',
-    color: '#fff',
+  logoImg: {
+    display: 'block',
+    width: '176px',
+    maxWidth: '100%',
+    height: 'auto',
   },
   brandSubtitle: {
-    fontSize: '0.72rem',
-    color: 'var(--brand-orange)',
+    fontSize: '0.7rem',
+    color: 'var(--text-muted)',
     fontWeight: 600,
     textTransform: 'uppercase',
-    letterSpacing: '0.06em',
+    letterSpacing: '0.08em',
   },
   envContainer: {
     padding: '12px 20px',
@@ -235,7 +208,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    background: 'rgba(255, 255, 255, 0.04)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-full)',
     padding: '6px 12px',
@@ -274,15 +247,14 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'left',
     width: '100%',
     background: 'none',
-    border: 'none',
+    border: '1px solid transparent',
     cursor: 'pointer',
   },
   navBtnActive: {
-    background: 'var(--bg-surface-elevated)',
-    color: '#fff',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent)',
     fontWeight: 600,
-    border: '1px solid rgba(249, 115, 22, 0.25)',
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+    border: '1px solid var(--accent-border)',
   },
   navIcon: {
     display: 'flex',
@@ -295,14 +267,14 @@ const styles: Record<string, React.CSSProperties> = {
   navBadge: {
     padding: '2px 7px',
     borderRadius: 'var(--radius-full)',
-    background: 'rgba(255, 255, 255, 0.08)',
+    background: 'var(--tint-3)',
     fontSize: '0.7rem',
     fontWeight: 600,
     color: 'var(--text-muted)',
   },
   navBadgeActive: {
-    background: 'var(--brand-orange-light)',
-    color: 'var(--brand-orange)',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent)',
   },
   footer: {
     padding: '16px 16px 20px',
@@ -311,43 +283,19 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: '12px',
   },
-  serverInfoCard: {
-    background: 'rgba(255, 255, 255, 0.03)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '10px 12px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  serverRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  serverUrl: {
-    fontFamily: 'monospace',
-    fontSize: '0.74rem',
-    color: '#fff',
-    fontWeight: 600,
-  },
-  appSyncText: {
-    fontSize: '0.66rem',
-    color: 'var(--text-dim)',
-  },
   userCard: {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
     padding: '8px 10px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(255, 255, 255, 0.02)',
+    background: 'var(--tint-1)',
   },
   userAvatar: {
     width: '32px',
     height: '32px',
     borderRadius: '50%',
-    background: 'linear-gradient(135deg, #f97316, #d97706)',
+    background: 'var(--accent)',
     color: '#fff',
     fontWeight: 700,
     fontSize: '0.8rem',
@@ -361,7 +309,7 @@ const styles: Record<string, React.CSSProperties> = {
   userName: {
     fontSize: '0.82rem',
     fontWeight: 600,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   userRole: {
     fontSize: '0.7rem',
@@ -370,9 +318,9 @@ const styles: Record<string, React.CSSProperties> = {
   logoutBtn: {
     marginLeft: 'auto',
     flexShrink: 0,
-    background: 'rgba(244, 63, 94, 0.12)',
-    border: '1px solid rgba(244, 63, 94, 0.3)',
-    color: '#fda4af',
+    background: 'var(--danger-soft)',
+    border: '1px solid var(--danger-border)',
+    color: 'var(--danger)',
     borderRadius: 'var(--radius-sm)',
     padding: '4px 8px',
     fontSize: '0.68rem',

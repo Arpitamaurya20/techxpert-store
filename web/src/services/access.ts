@@ -13,7 +13,6 @@ export type ModuleKey =
   | 'banners'
   | 'sections'
   | 'audit'
-  | 'api'
   | 'access';
 
 export type ModuleGrant = { view: boolean; edit: boolean; delete: boolean };
@@ -21,8 +20,11 @@ export type Permissions = Partial<Record<ModuleKey, ModuleGrant>>;
 
 export type ModuleInfo = { key: ModuleKey; label: string; levels: Level[] };
 
-/** Which module decides whether a tab shows. Dashboard shows when any module does. */
-const TAB_MODULE: Record<Exclude<TabId, 'dashboard'>, ModuleKey> = {
+/**
+ * Which module decides whether a tab shows. Dashboard shows when any module does;
+ * Developer tools (`api`) only for super admin.
+ */
+const TAB_MODULE: Record<Exclude<TabId, 'dashboard' | 'api'>, ModuleKey> = {
   catalog: 'products',
   categories: 'categories',
   orders: 'orders',
@@ -32,7 +34,6 @@ const TAB_MODULE: Record<Exclude<TabId, 'dashboard'>, ModuleKey> = {
   pricing: 'pricing',
   banners: 'banners',
   sections: 'sections',
-  api: 'api',
   audit: 'audit',
   access: 'access',
 };
@@ -61,8 +62,9 @@ export function hasAnyAccess(permissions: Permissions | undefined): boolean {
   return Object.values(permissions ?? {}).some((grant) => grant?.view);
 }
 
-export function canOpenTab(permissions: Permissions | undefined, tab: TabId): boolean {
+export function canOpenTab(permissions: Permissions | undefined, tab: TabId, superAdmin = false): boolean {
   if (tab === 'dashboard') return hasAnyAccess(permissions);
+  if (tab === 'api') return superAdmin;
   return can(permissions, TAB_MODULE[tab], 'view');
 }
 
@@ -73,6 +75,6 @@ export function isWithin(role: Permissions, holder: Permissions | undefined): bo
   );
 }
 
-export function allowedTabs(permissions: Permissions | undefined): TabId[] {
-  return TAB_ORDER.filter((tab) => canOpenTab(permissions, tab));
+export function allowedTabs(permissions: Permissions | undefined, superAdmin = false): TabId[] {
+  return TAB_ORDER.filter((tab) => canOpenTab(permissions, tab, superAdmin));
 }

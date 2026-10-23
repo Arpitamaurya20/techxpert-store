@@ -164,7 +164,6 @@ export function DataTable<T extends Record<string, any>>({
           Showing <strong>{rangeStart}</strong>–
           <strong>{rangeEnd}</strong> of{' '}
           <strong>{totalItems.toLocaleString('en-IN')}</strong> items
-          {isServer ? ' (MySQL)' : ''}
         </div>
       </div>
 
@@ -202,7 +201,7 @@ export function DataTable<T extends Record<string, any>>({
                       {col.sortable && (
                         <span style={styles.sortIcon}>
                           {sortKey === col.key ? (
-                            sortDir === 'asc' ? <ArrowUp size={13} color="var(--brand-orange)" /> : <ArrowDown size={13} color="var(--brand-orange)" />
+                            sortDir === 'asc' ? <ArrowUp size={13} color="var(--accent)" /> : <ArrowDown size={13} color="var(--accent)" />
                           ) : (
                             <ArrowUpDown size={12} />
                           )}
@@ -342,7 +341,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-dim)',
     letterSpacing: '0.05em',
     borderBottom: '1px solid var(--border-subtle)',
-    background: 'rgba(0, 0, 0, 0.18)',
+    background: 'var(--tint-2)',
     userSelect: 'none',
   },
   sortIcon: {
@@ -365,7 +364,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     padding: '12px 20px',
     borderTop: '1px solid var(--border-subtle)',
-    background: 'rgba(0, 0, 0, 0.1)',
+    background: 'var(--tint-2)',
   },
   pageInfo: {
     fontSize: '0.82rem',
@@ -380,11 +379,11 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
-    background: 'rgba(255, 255, 255, 0.06)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '6px 12px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.8rem',
     fontWeight: 600,
   },

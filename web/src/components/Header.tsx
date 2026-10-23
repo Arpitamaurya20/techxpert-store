@@ -6,7 +6,8 @@ interface HeaderProps {
   subtitle: string;
   onRefresh: () => void;
   loading: boolean;
-  serverOnline: boolean;
+  /** null while the first check is running. */
+  serverOnline: boolean | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -26,17 +27,26 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Controls */}
       <div style={styles.actionsArea}>
-        {/* Backend API Status Badge */}
         <div
           style={{
             ...styles.syncStatus,
-            background: serverOnline ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)',
-            borderColor: serverOnline ? 'rgba(16, 185, 129, 0.25)' : 'rgba(244, 63, 94, 0.25)',
-            color: serverOnline ? '#10b981' : '#f43f5e',
+            background:
+              serverOnline === null
+                ? 'var(--tint-2)'
+                : serverOnline
+                  ? 'var(--success-soft)'
+                  : 'var(--danger-soft)',
+            borderColor:
+              serverOnline === null
+                ? 'var(--border-subtle)'
+                : serverOnline
+                  ? 'var(--success-border)'
+                  : 'var(--danger-border)',
+            color: serverOnline === null ? 'var(--text-muted)' : serverOnline ? 'var(--success)' : 'var(--danger)',
           }}
         >
           {serverOnline ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
-          <span>{serverOnline ? 'Backend Online (Port 5001)' : 'Connecting to API...'}</span>
+          <span>{serverOnline === null ? 'Checking…' : serverOnline ? 'Connected' : "Can't reach the server"}</span>
         </div>
 
         {/* Reload Data Button */}
@@ -44,10 +54,10 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onRefresh}
           disabled={loading}
           style={styles.refreshBtn}
-          title="Refresh Data from API"
+          title="Load the latest data"
         >
           <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-          <span>Sync Data</span>
+          <span>Refresh</span>
         </button>
       </div>
     </header>
@@ -62,7 +72,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    background: 'rgba(13, 19, 34, 0.8)',
+    background: 'rgba(255, 255, 255, 0.92)',
     backdropFilter: 'blur(12px)',
     position: 'sticky',
     top: 0,
@@ -76,7 +86,7 @@ const styles: Record<string, React.CSSProperties> = {
   title: {
     fontSize: '1.35rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   subtitle: {
     fontSize: '0.8rem',

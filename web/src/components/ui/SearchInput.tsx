@@ -43,7 +43,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
         style={{
           background: 'transparent',
           border: 'none',
-          color: '#fff',
+          color: 'var(--text-main)',
           fontSize: '0.86rem',
           outline: 'none',
           width: '100%',

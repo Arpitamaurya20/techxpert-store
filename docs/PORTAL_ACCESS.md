@@ -39,8 +39,9 @@ Nothing here changes the Homecare database. `homecare.admin_users` stays the log
 | `banners` | Campaign Banners | ✓ | create, edit, publish, upload, reorder | delete |
 | `sections` | Homepage Sections | ✓ | show/hide, reorder | reset to defaults |
 | `audit` | Audit Trail | list | — | — |
-| `api` | API & Mobile Sync | ✓ | — | — |
 | `access` | Roles & Access | roles and staff | create/edit roles, assign staff | delete role |
+
+The **Developer tools** tab (endpoint tester, phone app connection) is not a module: only super admin sees it. The former `api` module was removed on 23 Oct 2026; any stored `api` rows are ignored.
 
 The Dashboard shows to anyone with at least one module, and only shows tiles for modules they can view. Catalogue, banners, sections and tier reads stay public because the phone uses them; only the staff-only reads (orders, customers, audit, delivery list) are gated.
 

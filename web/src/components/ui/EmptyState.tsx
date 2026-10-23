@@ -39,7 +39,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           width: '56px',
           height: '56px',
           borderRadius: '50%',
-          background: 'rgba(255, 255, 255, 0.04)',
+          background: 'var(--tint-2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -49,7 +49,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       >
         {icon || <PackageOpen size={28} />}
       </div>
-      <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff', margin: '0 0 6px 0' }}>
+      <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)', margin: '0 0 6px 0' }}>
         {title}
       </h4>
       <p

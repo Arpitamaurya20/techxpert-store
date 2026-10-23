@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import type { Banner, BannerStatus, CtaType } from '../types';
 import { api, resolvePortalAsset } from '../services/api';
-import { StatGrid, Badge, Button, Modal } from './ui';
+import { StatGrid, Badge, Button, Modal, useToast } from './ui';
 import type { StatItem, BadgeVariant } from './ui';
 
 interface BannerCMSProps {
@@ -162,7 +162,7 @@ const BannerImagePreview: React.FC<{
         style={{
           position: 'relative',
           height,
-          background: '#0f172a',
+          background: 'var(--bg-surface)',
           borderRadius: 'var(--radius-md)',
           overflow: 'hidden',
           border: '1px solid var(--border-subtle)',
@@ -196,13 +196,13 @@ const BannerImagePreview: React.FC<{
         <div style={styles.urlStatusRow}>
           {validShape && !failed ? (
             <>
-              <CheckCircle2 size={13} color="#10b981" />
-              <span style={{ color: '#10b981' }}>Preview OK — image loads</span>
+              <CheckCircle2 size={13} color="var(--success)" />
+              <span style={{ color: 'var(--success)' }}>Preview OK — image loads</span>
             </>
           ) : (
             <>
-              <AlertCircle size={13} color="#f59e0b" />
-              <span style={{ color: '#f59e0b' }}>
+              <AlertCircle size={13} color="var(--warning)" />
+              <span style={{ color: 'var(--warning)' }}>
                 {!validShape ? 'Fix URL format before publish' : 'Broken or unreachable image'}
               </span>
             </>
@@ -222,6 +222,7 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
   onReorder,
   onStatusChange,
 }) => {
+  const toast = useToast();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [editingBanner, setEditingBanner] = useState<Banner | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -239,25 +240,25 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
       label: 'Campaign Banners',
       value: banners.length,
       icon: <ImageIcon size={20} />,
-      iconColor: 'var(--brand-orange)',
+      iconColor: 'var(--accent)',
     },
     {
       label: 'Published on Mobile App',
       value: activeCount,
       icon: <Play size={20} />,
-      iconColor: '#10b981',
+      iconColor: 'var(--success)',
     },
     {
       label: 'Scheduled Campaigns',
       value: scheduledCount,
       icon: <Calendar size={20} />,
-      iconColor: '#38bdf8',
+      iconColor: 'var(--info)',
     },
     {
       label: 'Draft / Paused',
       value: draftCount + banners.filter((b) => b.status === 'paused').length,
       icon: <Pause size={20} />,
-      iconColor: '#f59e0b',
+      iconColor: 'var(--warning)',
     },
   ];
 
@@ -419,12 +420,12 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
 
                 <div style={styles.metaRow}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <MapPin size={12} color="var(--brand-orange)" />
+                    <MapPin size={12} color="var(--accent)" />
                     <span>{banner.locationScope || 'All zones'}</span>
                   </div>
                   {formatWindow(banner) && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Calendar size={12} color="var(--brand-orange)" />
+                      <Calendar size={12} color="var(--accent)" />
                       <span>{formatWindow(banner)}</span>
                     </div>
                   )}
@@ -480,8 +481,8 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
                               onClick={() => {
                                 const errors = validateBanner({ ...banner, status: 'published' });
                                 if (errors.length > 0) {
-                                  window.alert(
-                                    `Cannot publish "${banner.title}":\n\n• ${errors.join('\n• ')}\n\nOpen Edit to fix image URL / CTA first.`
+                                  toast.error(
+                                    `Can't publish "${banner.title}" yet: ${errors.join('; ')}. Open Edit to fix it.`
                                   );
                                   return;
                                 }
@@ -505,7 +506,7 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
                         <Button
                           variant="ghost"
                           size="sm"
-                          icon={<Trash2 size={13} color="#f43f5e" />}
+                          icon={<Trash2 size={13} color="var(--danger)" />}
                           onClick={() => {
                             if (window.confirm(`Delete banner "${banner.title}"?`)) {
                               onDeleteBanner(banner.id);
@@ -548,7 +549,7 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
           <form onSubmit={handleSaveModal} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {showErrors.length > 0 && (
               <div style={styles.errorBox}>
-                <AlertCircle size={16} color="#f43f5e" />
+                <AlertCircle size={16} color="var(--danger)" />
                 <ul style={styles.errorList}>
                   {showErrors.map((err) => (
                     <li key={err}>{err}</li>
@@ -583,7 +584,7 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
                   : 'JPEG, PNG, or WebP, up to 2 MB. The banner keeps the stored address.'}
               </p>
               {uploadError && (
-                <p style={{ ...styles.hint, color: '#f43f5e' }}>{uploadError}</p>
+                <p style={{ ...styles.hint, color: 'var(--danger)' }}>{uploadError}</p>
               )}
             </div>
 
@@ -597,7 +598,7 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
                   ...styles.input,
                   borderColor:
                     triedSave && !isImageUrl(editingBanner.imageUrl)
-                      ? 'rgba(244, 63, 94, 0.6)'
+                      ? 'var(--danger-border)'
                       : 'var(--border-subtle)',
                 }}
                 placeholder="https://cdn.example.com/hero.jpg or /images/home-banner.jpg"
@@ -651,16 +652,16 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
                   }
                   style={{ ...styles.select, width: '100%' }}
                 >
-                  <option value="draft" style={{ background: '#0f172a' }}>
+                  <option value="draft" style={{ background: 'var(--bg-surface)' }}>
                     Draft
                   </option>
-                  <option value="scheduled" style={{ background: '#0f172a' }}>
+                  <option value="scheduled" style={{ background: 'var(--bg-surface)' }}>
                     Scheduled
                   </option>
-                  <option value="published" style={{ background: '#0f172a' }}>
+                  <option value="published" style={{ background: 'var(--bg-surface)' }}>
                     Published
                   </option>
-                  <option value="paused" style={{ background: '#0f172a' }}>
+                  <option value="paused" style={{ background: 'var(--bg-surface)' }}>
                     Paused
                   </option>
                 </select>
@@ -710,16 +711,16 @@ export const BannerCMS: React.FC<BannerCMSProps> = ({
                   }
                   style={{ ...styles.select, width: '100%' }}
                 >
-                  <option value="category" style={{ background: '#0f172a' }}>
+                  <option value="category" style={{ background: 'var(--bg-surface)' }}>
                     Category
                   </option>
-                  <option value="product" style={{ background: '#0f172a' }}>
+                  <option value="product" style={{ background: 'var(--bg-surface)' }}>
                     Product
                   </option>
-                  <option value="deals" style={{ background: '#0f172a' }}>
+                  <option value="deals" style={{ background: 'var(--bg-surface)' }}>
                     Deals rail
                   </option>
-                  <option value="external" style={{ background: '#0f172a' }}>
+                  <option value="external" style={{ background: 'var(--bg-surface)' }}>
                     External URL
                   </option>
                 </select>
@@ -777,18 +778,18 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '8px 12px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.84rem',
     outline: 'none',
     cursor: 'pointer',
   },
   input: {
     width: '100%',
-    background: 'rgba(255, 255, 255, 0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '9px 14px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.86rem',
     outline: 'none',
   },
@@ -810,8 +811,8 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 1,
   },
   posPill: {
-    background: 'rgba(0, 0, 0, 0.7)',
-    color: '#fff',
+    background: 'var(--tint-3)',
+    color: 'var(--text-main)',
     fontSize: '0.72rem',
     fontWeight: 700,
     padding: '2px 8px',
@@ -827,7 +828,7 @@ const styles: Record<string, React.CSSProperties> = {
   cardTitle: {
     fontSize: '1rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
     margin: '0 0 4px 0',
   },
   cardSub: {
@@ -873,13 +874,13 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-start',
     padding: '12px 14px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(244, 63, 94, 0.1)',
-    border: '1px solid rgba(244, 63, 94, 0.35)',
+    background: 'var(--danger-soft)',
+    border: '1px solid var(--danger-border)',
   },
   errorList: {
     margin: 0,
     paddingLeft: '18px',
-    color: '#fda4af',
+    color: 'var(--danger)',
     fontSize: '0.82rem',
     lineHeight: 1.5,
   },

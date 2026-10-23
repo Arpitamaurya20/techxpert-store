@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar, type TabId } from './components/Sidebar';
 import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
@@ -23,10 +23,10 @@ import {
   saveSession,
   type PortalSession,
 } from './services/session';
-import { INITIAL_SECTIONS } from './data/mockData';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
 import type { NewProductInput } from './components/CatalogOverview';
-import { CheckCircle2, ShieldOff, X } from 'lucide-react';
+import { ShieldOff } from 'lucide-react';
+import { useToast } from './components/ui';
 
 function getTabFromHash(): TabId {
   if (typeof window === 'undefined') return 'dashboard';
@@ -39,8 +39,9 @@ export function App() {
   const [authChecking, setAuthChecking] = useState<boolean>(() => Boolean(loadSession()));
   const [activeTab, setActiveTabState] = useState<TabId>(() => getTabFromHash());
   const [loading, setLoading] = useState<boolean>(true);
-  const [serverOnline, setServerOnline] = useState<boolean>(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  /** null until the first health check answers. */
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
+  const toast = useToast();
 
   const handleTabChange = useCallback((tab: TabId) => {
     setActiveTabState(tab);
@@ -57,13 +58,21 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
+  /** A wrong password is also a 401; only a real session ending deserves a toast. */
+  const signedIn = useRef(false);
+  useEffect(() => {
+    signedIn.current = Boolean(session);
+  }, [session]);
+
   useEffect(() => {
     setUnauthorizedHandler(() => {
       clearSession();
+      if (signedIn.current) toast.info('Your session ended. Sign in again to continue.');
+      signedIn.current = false;
       setSession(null);
     });
     return () => setUnauthorizedHandler(null);
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     if (!session?.admin?.id) {
@@ -109,6 +118,7 @@ export function App() {
     clearSession();
     setSession(null);
     handleTabChange('dashboard');
+    toast.info('You are signed out.');
   };
 
   if (authChecking) {
@@ -144,8 +154,6 @@ export function App() {
       setLoading={setLoading}
       serverOnline={serverOnline}
       setServerOnline={setServerOnline}
-      toastMessage={toastMessage}
-      setToastMessage={setToastMessage}
     />
   );
 }
@@ -159,8 +167,6 @@ function PortalApp({
   setLoading,
   serverOnline,
   setServerOnline,
-  toastMessage,
-  setToastMessage,
 }: {
   session: PortalSession;
   onLogout: () => void;
@@ -168,13 +174,12 @@ function PortalApp({
   setActiveTab: (t: TabId) => void;
   loading: boolean;
   setLoading: (v: boolean) => void;
-  serverOnline: boolean;
+  serverOnline: boolean | null;
   setServerOnline: (v: boolean) => void;
-  toastMessage: string | null;
-  setToastMessage: (v: string | null) => void;
 }) {
+  const toast = useToast();
   const permissions = session.admin.permissions;
-  const tabs = allowedTabs(permissions);
+  const tabs = allowedTabs(permissions, session.admin.role === 'super_admin');
   const currentTab: TabId | undefined = tabs.includes(activeTab) ? activeTab : tabs[0];
 
   useEffect(() => {
@@ -190,13 +195,9 @@ function PortalApp({
   const [users, setUsers] = useState<any[]>([]);
   const [bulkTiers, setBulkTiers] = useState<BulkPriceTier[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
-  const [sections, setSections] = useState<HomepageSection[]>(INITIAL_SECTIONS);
+  const [sections, setSections] = useState<HomepageSection[]>([]);
+  const [sectionsError, setSectionsError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3800);
-  };
 
   const addAuditLog = (action: string, entity: AuditLog['entity'], details: string) => {
     const actor = `${session.admin.name} (${session.admin.storeRole ?? 'no role'})`;
@@ -239,13 +240,21 @@ function PortalApp({
         // L1: do not leave a fake row if persist failed
         setAuditLogs((prev) => prev.filter((l) => l.id !== optimisticId));
         console.warn('Failed to persist audit log', err);
-        showToast('Audit log could not be saved — change still applied, trail incomplete');
+        toast.error('The change was saved, but it could not be added to the audit trail.');
       });
   };
 
   // Fetch all data from live backend
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (announce = false) => {
     if (!hasAnyAccess(permissions)) return;
+    const failed: string[] = [];
+    /** A failed piece resolves to undefined so the screen keeps the last data that did load. */
+    const soft = <T,>(request: Promise<T>, what: string): Promise<T | undefined> =>
+      request.catch(() => {
+        failed.push(what);
+        return undefined;
+      });
+    const skip = Promise.resolve(undefined);
     try {
       setLoading(true);
       const [
@@ -257,42 +266,74 @@ function PortalApp({
         bannersData,
         sectionsData,
         auditData,
+        healthy,
       ] = await Promise.all([
-        api.getProducts({ page: 1, limit: 100 }).catch(() => ({ products: [], meta: { total: 0 } })),
-        api.getCategories().catch(() => []),
-        can(permissions, 'orders', 'view') ? api.getOrders().catch(() => []) : Promise.resolve([]),
-        can(permissions, 'customers', 'view') ? api.getUsers().catch(() => []) : Promise.resolve([]),
-        api.getBulkTiers().catch(() => []),
-        api.getBanners().catch(() => []),
-        api.getSections().catch(() => INITIAL_SECTIONS),
-        can(permissions, 'audit', 'view') ? api.getAuditLogs(100).catch(() => []) : Promise.resolve([]),
+        soft(api.getProducts({ page: 1, limit: 100 }), 'products'),
+        soft(api.getCategories(), 'categories'),
+        can(permissions, 'orders', 'view') ? soft(api.getOrders(), 'orders') : skip,
+        can(permissions, 'customers', 'view') ? soft(api.getUsers(), 'customers') : skip,
+        soft(api.getBulkTiers(), 'bulk pricing'),
+        soft(api.getBanners(), 'banners'),
+        soft(api.getSections(), 'homepage sections'),
+        can(permissions, 'audit', 'view') ? soft(api.getAuditLogs(100), 'audit trail') : skip,
+        api
+          .getHealth()
+          .then(() => true)
+          .catch(() => false),
       ]);
 
-      setProducts(prodsData.products || []);
-      setCatalogTotal(Number(prodsData.meta?.total) || (prodsData.products || []).length);
-      setCategories(catsData);
-      setOrders(ordersData);
-      setUsers(usersData);
-      setBulkTiers(tiersData);
-      setBanners(bannersData);
-      if (Array.isArray(sectionsData) && sectionsData.length > 0) {
+      if (prodsData) {
+        setProducts(prodsData.products || []);
+        setCatalogTotal(Number(prodsData.meta?.total) || (prodsData.products || []).length);
+      }
+      if (catsData) setCategories(catsData);
+      if (ordersData) setOrders(ordersData);
+      if (usersData) setUsers(usersData);
+      if (tiersData) setBulkTiers(tiersData);
+      if (bannersData) setBanners(bannersData);
+      if (Array.isArray(sectionsData)) {
         setSections(sectionsData as HomepageSection[]);
+        setSectionsError(null);
+      } else {
+        setSectionsError("Couldn't load homepage sections.");
       }
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
-      setServerOnline(true);
+      setServerOnline(healthy);
+      if (!healthy) {
+        toast.error("Can't reach the server. What you see may be out of date; press Refresh to try again.");
+      } else if (failed.length) {
+        toast.error(`Couldn't load ${failed.join(', ')}. Press Refresh to try again.`);
+      } else if (announce) {
+        toast.success('Everything is up to date.');
+      }
     } catch (err: any) {
       console.error('Failed to load from backend API', err);
       setServerOnline(false);
+      toast.error("Can't reach the server. Press Refresh to try again.");
     } finally {
       setLoading(false);
     }
-  }, [permissions, setLoading, setServerOnline]);
+  }, [permissions, setLoading, setServerOnline, toast]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      api
+        .getHealth()
+        .then(() => true)
+        .catch(() => false)
+        .then((healthy) => {
+          if (healthy && serverOnline === false) toast.success('Connected to the server again.');
+          if (healthy !== serverOnline) setServerOnline(healthy);
+        });
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [serverOnline, setServerOnline, toast]);
 
   // Product Actions
   const handleUpdateProduct = async (updated: Product) => {
@@ -316,9 +357,9 @@ function PortalApp({
         'product',
         `Adjusted ${updated.name}: ₹${updated.price}, Stock: ${updated.stockQuantity} units`
       );
-      showToast(`Product "${updated.name}" updated on backend!`);
+      toast.success(`"${updated.name}" saved.`);
     } catch (err: any) {
-      showToast(`Failed to update product: ${err.message}`);
+      toast.error(`Couldn't save "${updated.name}": ${err.message}`);
     }
   };
 
@@ -344,9 +385,9 @@ function PortalApp({
       setProducts((prev) => [product, ...prev]);
       setCatalogTotal((n) => n + 1);
       addAuditLog('Created Material SKU', 'product', `Added ${product.name} at ₹${product.price}`);
-      showToast(`Product "${product.name}" created.`);
+      toast.success(`"${product.name}" added to products.`);
     } catch (err: any) {
-      showToast(`Failed to create product: ${err.message}`);
+      toast.error(`Couldn't add the product: ${err.message}`);
       throw err;
     }
   };
@@ -358,9 +399,9 @@ function PortalApp({
       setProducts((prev) => prev.filter((p) => p.id !== id));
       setCatalogTotal((n) => Math.max(0, n - 1));
       addAuditLog('Deleted Material SKU', 'product', `Removed ${removed?.name || id}`);
-      showToast(removed ? `"${removed.name}" removed from catalogue.` : 'Product removed.');
+      toast.success(removed ? `"${removed.name}" removed from products.` : 'Product removed.');
     } catch (err: any) {
-      showToast(`Failed to delete product: ${err.message}`);
+      toast.error(`Couldn't remove the product: ${err.message}`);
       throw err;
     }
   };
@@ -377,9 +418,9 @@ function PortalApp({
         'order',
         `Order ${orderId} marked as ${status}`
       );
-      showToast(`Order status updated to "${status.replace(/_/g, ' ')}"`);
+      toast.success(`Order marked as ${status.replace(/_/g, ' ')}.`);
     } catch (err: any) {
-      showToast(`Failed to update status: ${err.message}`);
+      toast.error(`Couldn't change the order status: ${err.message}`);
     }
   };
 
@@ -393,9 +434,9 @@ function PortalApp({
         'bulk_tier',
         `Added ${newTier.discountValue}% tier for ${newTier.productName}`
       );
-      showToast(`Bulk pricing tier added for ${newTier.productName}!`);
+      toast.success(`Bulk price added for ${newTier.productName || 'the product'}.`);
     } catch (err: any) {
-      showToast(`Failed to save bulk tier: ${err.message}`);
+      toast.error(`Couldn't add the bulk price: ${err.message}`);
     }
   };
 
@@ -418,9 +459,9 @@ function PortalApp({
         'bulk_tier',
         `Updated ${tier.productName || tier.productId}: ${tier.minQty}+ at ${tier.discountValue}`
       );
-      showToast(`Bulk tier updated for ${tier.productName || 'product'}.`);
+      toast.success(`Bulk price saved for ${tier.productName || 'the product'}.`);
     } catch (err: any) {
-      showToast(`Failed to update bulk tier: ${err.message}`);
+      toast.error(`Couldn't save the bulk price: ${err.message}`);
     }
   };
 
@@ -429,9 +470,9 @@ function PortalApp({
       await api.deleteBulkTier(id);
       setBulkTiers((prev) => prev.filter((t) => t.id !== id));
       addAuditLog('Deleted Bulk Tier', 'bulk_tier', `Removed tier rule ${id}`);
-      showToast('Bulk pricing tier removed from backend.');
+      toast.success('Bulk price removed.');
     } catch (err: any) {
-      showToast(`Failed to delete tier: ${err.message}`);
+      toast.error(`Couldn't remove the bulk price: ${err.message}`);
     }
   };
 
@@ -448,9 +489,9 @@ function PortalApp({
         setBanners((prev) => [...prev, resultBanner]);
       }
       addAuditLog('Saved Campaign Banner', 'banner', `Saved "${banner.title}"`);
-      showToast(`Banner "${banner.title}" saved successfully!`);
+      toast.success(`Banner "${banner.title}" saved.`);
     } catch (err: any) {
-      showToast(`Failed to save banner: ${err.message}`);
+      toast.error(`Couldn't save the banner: ${err.message}`);
     }
   };
 
@@ -459,9 +500,9 @@ function PortalApp({
       await api.deleteBanner(id);
       setBanners((prev) => prev.filter((b) => b.id !== id));
       addAuditLog('Deleted Banner', 'banner', `Removed banner ${id}`);
-      showToast('Banner removed.');
+      toast.success('Banner removed.');
     } catch (err: any) {
-      showToast(`Failed to delete banner: ${err.message}`);
+      toast.error(`Couldn't remove the banner: ${err.message}`);
     }
   };
 
@@ -480,9 +521,14 @@ function PortalApp({
     sorted[targetIndex].position = currentPos;
 
     setBanners([...sorted]);
-    await api.updateBanner(sorted[index].id, { position: targetPos });
-    await api.updateBanner(sorted[targetIndex].id, { position: currentPos });
-    showToast('Banner order updated.');
+    try {
+      await api.updateBanner(sorted[index].id, { position: targetPos });
+      await api.updateBanner(sorted[targetIndex].id, { position: currentPos });
+      toast.success('Banner order saved.');
+    } catch (err: any) {
+      toast.error(`Couldn't save the banner order: ${err.message}`);
+      loadData();
+    }
   };
 
   const handleStatusChangeBanner = async (id: string, newStatus: Banner['status']) => {
@@ -495,7 +541,7 @@ function PortalApp({
             (banner.imageUrl.startsWith('/') || /^https?:\/\//i.test(banner.imageUrl));
           const ctaOk = Boolean(banner.ctaLabel?.trim());
           if (!imageOk || !ctaOk || !banner.title?.trim()) {
-            showToast('Cannot publish: fix title, image URL, and CTA first.');
+            toast.error("Can't publish yet: the banner needs a title, an image and a button label.");
             return;
           }
         }
@@ -504,9 +550,9 @@ function PortalApp({
       setBanners((prev) =>
         prev.map((b) => (b.id === id ? { ...b, status: newStatus } : b))
       );
-      showToast(`Banner marked as ${newStatus}`);
+      toast.success(newStatus === 'draft' ? 'Banner moved back to draft.' : `Banner ${newStatus}.`);
     } catch (err: any) {
-      showToast(`Failed to update banner status: ${err.message}`);
+      toast.error(`Couldn't change the banner: ${err.message}`);
     }
   };
 
@@ -523,10 +569,10 @@ function PortalApp({
         'section',
         `${current.title} set to ${nextEnabled ? 'visible' : 'hidden'}`
       );
-      showToast(`Section "${current.title}" ${nextEnabled ? 'shown' : 'hidden'} on mobile home.`);
+      toast.success(`"${current.title}" is now ${nextEnabled ? 'shown' : 'hidden'} on the app home screen.`);
     } catch (err: any) {
       setSections((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: current.enabled } : s)));
-      showToast(`Failed to update section: ${err.message}`);
+      toast.error(`Couldn't change "${current.title}": ${err.message}`);
     }
   };
 
@@ -549,9 +595,9 @@ function PortalApp({
         { id: sorted[targetIndex].id, position: sorted[targetIndex].position },
       ]);
       addAuditLog('Reordered Homepage Sections', 'section', `Moved "${sorted[index].title}" ${direction}`);
-      showToast('Homepage section order updated.');
+      toast.success('Homepage section order saved.');
     } catch (err: any) {
-      showToast(`Failed to reorder sections: ${err.message}`);
+      toast.error(`Couldn't save the section order: ${err.message}`);
       loadData();
     }
   };
@@ -559,31 +605,31 @@ function PortalApp({
   const handleResetSections = async () => {
     try {
       const reset = await api.resetSections();
-      setSections(Array.isArray(reset) && reset.length ? (reset as HomepageSection[]) : INITIAL_SECTIONS);
-      addAuditLog('Reset Homepage Layout', 'section', 'Restored SRS default section order and visibility');
-      showToast('Homepage sections reset to SRS defaults.');
+      if (Array.isArray(reset) && reset.length) setSections(reset as HomepageSection[]);
+      else await loadData();
+      addAuditLog('Reset Homepage Layout', 'section', 'Restored the default section order and visibility');
+      toast.success('Homepage sections reset to the default layout.');
     } catch (err: any) {
-      setSections(INITIAL_SECTIONS);
-      showToast(`Reset locally (API: ${err.message})`);
+      toast.error(`Couldn't reset the homepage sections: ${err.message}`);
     }
   };
 
   const titles: Record<TabId, { title: string; subtitle: string }> = {
     dashboard: {
-      title: 'Store Operations Dashboard',
-      subtitle: 'KPI overview and shortcuts into catalog, CMS, pricing, and fulfillment workflows',
+      title: 'Dashboard',
+      subtitle: 'Today at a glance, with shortcuts to the screens you use most',
     },
     catalog: {
-      title: 'Products & Inventory Management',
-      subtitle: 'Live construction materials inventory, selling units, and base prices served via GET /catalog/products',
+      title: 'Products',
+      subtitle: 'What customers can buy in the app: names, selling units, prices and stock',
     },
     categories: {
-      title: 'Categories & Subcategories',
-      subtitle: 'Maintain the trade hierarchy the mobile Categories tab and product filters consume',
+      title: 'Categories',
+      subtitle: 'The categories and subcategories customers browse in the app',
     },
     orders: {
-      title: 'Orders & Fulfillment Desk',
-      subtitle: 'Real-time order pipeline from customer mobile app and contractor procurement desk',
+      title: 'Orders',
+      subtitle: 'Orders placed in the app, and where each one is in fulfilment',
     },
     delivery: {
       title: 'Delivery Pincodes',
@@ -594,28 +640,28 @@ function PortalApp({
       subtitle: 'Which store serves which pincode, and the zones, areas and clusters they sit in',
     },
     users: {
-      title: 'Customer Directory & Accounts (homecare DB)',
-      subtitle: 'Customer identities, registered delivery locations and spend metrics synced from homecare.users and techxpertstore',
+      title: 'Customers',
+      subtitle: 'People who signed up in the app, their saved addresses and what they have ordered',
     },
     pricing: {
-      title: 'Bulk Pricing Rules & Tier Precedence',
-      subtitle: 'Wholesale quantity thresholds and volume discount calculation rules',
+      title: 'Bulk Pricing',
+      subtitle: 'Discounts for buying larger quantities',
     },
     banners: {
-      title: 'Campaign & Hero Carousel Banners',
-      subtitle: 'Promotional banners for the mobile app home screen served via GET /cms/banners',
+      title: 'Campaign Banners',
+      subtitle: 'The promotional banners on the app home screen',
     },
     sections: {
-      title: 'Homepage Section Layout',
-      subtitle: 'Toggle and reorder mobile home modules via GET/PUT /cms/sections — no app release required',
+      title: 'Homepage Sections',
+      subtitle: 'Which blocks the app home screen shows, and in what order. Changes appear without an app update',
     },
     api: {
-      title: 'Backend API & Mobile App Integration',
-      subtitle: 'Interactive endpoint tester and configuration guide for the Expo React Native app',
+      title: 'Developer tools',
+      subtitle: 'For developers: test server endpoints and connect the phone app (super admin only)',
     },
     audit: {
-      title: 'Audit Log & Change Trail',
-      subtitle: 'Operational logs of product, pricing, and fulfillment changes',
+      title: 'Audit Trail',
+      subtitle: 'Who changed what in the portal, and when',
     },
     access: {
       title: 'Roles & Access',
@@ -641,17 +687,6 @@ function PortalApp({
 
   return (
     <div style={styles.appContainer}>
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div style={styles.toast}>
-          <CheckCircle2 size={18} color="#10b981" />
-          <span style={styles.toastText}>{toastMessage}</span>
-          <button onClick={() => setToastMessage(null)} style={styles.toastClose}>
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
       {/* Left Sidebar */}
       <Sidebar
         activeTab={currentTab}
@@ -671,7 +706,7 @@ function PortalApp({
         <Header
           title={titles[currentTab].title}
           subtitle={titles[currentTab].subtitle}
-          onRefresh={loadData}
+          onRefresh={() => loadData(true)}
           loading={loading}
           serverOnline={serverOnline}
         />
@@ -687,7 +722,6 @@ function PortalApp({
               bulkTiers={bulkTiers}
               sectionsCount={sections.length}
               sectionsEnabled={sections.filter((s) => s.enabled).length}
-              serverOnline={serverOnline}
               onNavigate={setActiveTab}
               canView={(tab) => tabs.includes(tab)}
             />
@@ -730,7 +764,6 @@ function PortalApp({
               canManage={can(permissions, 'delivery', 'edit')}
               canSeeStores={can(permissions, 'stores', 'view')}
               onAudit={(action, details) => addAuditLog(action, 'delivery', details)}
-              onToast={showToast}
             />
           )}
 
@@ -738,7 +771,6 @@ function PortalApp({
             <StoreTreeManager
               canEdit={can(permissions, 'stores', 'edit')}
               canDelete={can(permissions, 'stores', 'delete')}
-              onToast={showToast}
             />
           )}
 
@@ -773,6 +805,8 @@ function PortalApp({
           {currentTab === 'sections' && (
             <SectionLayoutManager
               sections={sections}
+              loadError={sectionsError}
+              onRetry={() => loadData(true)}
               onToggleSection={handleToggleSection}
               onReorderSection={handleReorderSection}
               canEdit={can(permissions, 'sections', 'edit')}
@@ -790,7 +824,6 @@ function PortalApp({
               permissions={permissions}
               canEdit={can(permissions, 'access', 'edit')}
               canDelete={can(permissions, 'access', 'delete')}
-              onToast={showToast}
             />
           )}
         </main>
@@ -820,26 +853,6 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     margin: '0 auto',
   },
-  toast: {
-    position: 'fixed',
-    bottom: '24px',
-    right: '24px',
-    background: '#131b2e',
-    border: '1px solid #10b981',
-    borderRadius: 'var(--radius-lg)',
-    padding: '12px 18px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(16, 185, 129, 0.2)',
-    zIndex: 999,
-    animation: 'fadeIn 0.25s ease-out',
-  },
-  toastText: {
-    fontSize: '0.86rem',
-    fontWeight: 600,
-    color: '#fff',
-  },
   noAccess: {
     minHeight: '100vh',
     width: '100%',
@@ -854,7 +867,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   noAccessTitle: {
     margin: 0,
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '1.2rem',
     fontWeight: 700,
   },
@@ -870,16 +883,10 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px 16px',
     borderRadius: 'var(--radius-md)',
     border: '1px solid var(--border-subtle)',
-    background: 'rgba(255,255,255,0.06)',
-    color: '#fff',
+    background: 'var(--tint-2)',
+    color: 'var(--text-main)',
     fontWeight: 600,
     cursor: 'pointer',
-  },
-  toastClose: {
-    color: 'var(--text-muted)',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
   },
 };
 

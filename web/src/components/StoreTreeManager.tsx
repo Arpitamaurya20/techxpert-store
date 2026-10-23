@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FolderPlus, MapPin, Network, Pencil, Plus, Power, RefreshCw, Store, Trash2, Unlink } from 'lucide-react';
 import { api, type StoreGroup, type StorePincodeLink, type StoreSummary, type StoreTree } from '../services/api';
 import { groupAndBelow, groupPath } from '../services/storeTree';
-import { Badge, Button, EmptyState, Modal, StatGrid } from './ui';
+import { Badge, Button, EmptyState, Modal, StatGrid, useToast } from './ui';
 import type { StatItem } from './ui';
 
 interface StoreTreeManagerProps {
@@ -10,7 +10,6 @@ interface StoreTreeManagerProps {
   canEdit: boolean;
   /** Stores delete: delete empty groups, deactivate stores. */
   canDelete: boolean;
-  onToast?: (message: string) => void;
 }
 
 type GroupDraft = { id: number | null; name: string; kind: string; parentId: number | null };
@@ -26,7 +25,8 @@ type StoreDraft = {
 
 const TOP = '';
 
-export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, canDelete, onToast }) => {
+export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, canDelete }) => {
+  const toast = useToast();
   const [tree, setTree] = useState<StoreTree | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -88,13 +88,13 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
     );
 
   const stats: StatItem[] = [
-    { label: 'Stores', value: stores.filter((s) => s.active).length, icon: <Store size={20} />, iconColor: '#10b981' },
-    { label: 'Groups', value: groups.length, icon: <Network size={20} />, iconColor: 'var(--brand-orange)' },
+    { label: 'Stores', value: stores.filter((s) => s.active).length, icon: <Store size={20} />, iconColor: 'var(--success)' },
+    { label: 'Groups', value: groups.length, icon: <Network size={20} />, iconColor: 'var(--accent)' },
     {
       label: 'Pincodes served',
       value: stores.reduce((sum, s) => sum + s.pincodeCount, 0),
       icon: <MapPin size={20} />,
-      iconColor: '#3b82f6',
+      iconColor: 'var(--accent)',
     },
   ];
 
@@ -126,10 +126,10 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
       if (body.name.length < 2) throw new Error('Give the group a name of at least 2 characters.');
       if (groupDraft.id == null) {
         await api.createStoreGroup(body);
-        onToast?.(`Group "${body.name}" created.`);
+        toast.success(`Group "${body.name}" created.`);
       } else {
         await api.updateStoreGroup(groupDraft.id, body);
-        onToast?.(`Group "${body.name}" saved.`);
+        toast.success(`Group "${body.name}" saved.`);
       }
       setGroupDraft(null);
       await load();
@@ -150,11 +150,11 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
       if (storeDraft.id == null) {
         if (!/^[1-9]\d{5}$/.test(storeDraft.pincode)) throw new Error("Enter the store's own 6-digit pincode.");
         const created = await api.createStore({ ...details, pincode: storeDraft.pincode });
-        onToast?.(`Store "${created.name}" (${created.code}) created. Link the pincodes it serves on the right.`);
+        toast.success(`Store "${created.name}" (${created.code}) created. Link the pincodes it serves on the right.`);
         setSelectedStoreId(created.id);
       } else {
         await api.updateStore(storeDraft.id, details);
-        onToast?.(`Store "${name}" saved.`);
+        toast.success(`Store "${name}" saved.`);
       }
       setStoreDraft(null);
       await load();
@@ -164,10 +164,10 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
     if (!window.confirm(`Delete the group "${group.name}"?`)) return;
     try {
       await api.deleteStoreGroup(group.id);
-      onToast?.(`Group "${group.name}" deleted.`);
+      toast.success(`Group "${group.name}" deleted.`);
       await load();
     } catch (err: any) {
-      onToast?.(err.message || 'Could not delete this group');
+      toast.error(err.message || 'Could not delete this group');
     }
   };
 
@@ -175,10 +175,10 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
     if (!active && !window.confirm(`Deactivate "${store.name}"? It must not serve any pincode.`)) return;
     try {
       await api.updateStore(store.id, { active });
-      onToast?.(active ? `"${store.name}" reactivated.` : `"${store.name}" deactivated.`);
+      toast.success(active ? `"${store.name}" reactivated.` : `"${store.name}" deactivated.`);
       await load();
     } catch (err: any) {
-      onToast?.(err.message || 'Could not change this store');
+      toast.error(err.message || 'Could not change this store');
     }
   };
 
@@ -194,7 +194,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
       setLinkError(null);
       setLinks(await api.linkStorePincode(selectedStore.id, pin));
       setLinkInput('');
-      onToast?.(`${selectedStore.name} now serves ${pin}.`);
+      toast.success(`${selectedStore.name} now serves ${pin}.`);
       await load();
     } catch (err: any) {
       setLinkError(err.message || 'Could not link this pincode');
@@ -208,10 +208,10 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
     }
     try {
       setLinks(await api.unlinkStorePincode(selectedStore.id, row.pincodeId));
-      onToast?.(`${row.pincode} is no longer served by ${selectedStore.name}.`);
+      toast.success(`${row.pincode} is no longer served by ${selectedStore.name}.`);
       await load();
     } catch (err: any) {
-      onToast?.(err.message || 'Could not unlink this pincode');
+      toast.error(err.message || 'Could not unlink this pincode');
     }
   };
 
@@ -237,11 +237,11 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
         marginLeft: depth * 20,
         cursor: 'pointer',
         opacity: store.active ? 1 : 0.55,
-        borderColor: store.id === selectedStoreId ? 'var(--brand-orange)' : 'var(--border-subtle)',
+        borderColor: store.id === selectedStoreId ? 'var(--accent)' : 'var(--border-subtle)',
       }}
       onClick={() => setSelectedStoreId(store.id)}
     >
-      <Store size={15} color="#10b981" />
+      <Store size={15} color="var(--success)" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={styles.name}>
           {store.name}
@@ -261,7 +261,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
   const renderGroup = (group: StoreGroup, depth: number): React.ReactNode => (
     <React.Fragment key={`g${group.id}`}>
       <div style={{ ...styles.row, marginLeft: depth * 20 }}>
-        <Network size={15} color="var(--brand-orange)" />
+        <Network size={15} color="var(--accent)" />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={styles.name}>
             {group.name}
@@ -301,7 +301,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
           <Button
             variant="ghost"
             size="sm"
-            icon={<Trash2 size={13} color="#f43f5e" />}
+            icon={<Trash2 size={13} color="var(--danger)" />}
             title="Delete (only when empty)"
             onClick={() => deleteGroup(group)}
           />
@@ -414,7 +414,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
                     <Button
                       variant="ghost"
                       size="sm"
-                      icon={<Power size={13} color="#f43f5e" />}
+                      icon={<Power size={13} color="var(--danger)" />}
                       title="Deactivate"
                       onClick={() => setStoreActive(selectedStore, false)}
                     />
@@ -706,7 +706,7 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
     fontSize: '0.98rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   subTitle: {
     margin: '6px 0 0',
@@ -725,7 +725,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '10px',
     padding: '9px 12px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(255,255,255,0.02)',
+    background: 'var(--tint-1)',
     border: '1px solid var(--border-subtle)',
   },
   name: {
@@ -734,7 +734,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
     fontSize: '0.9rem',
     fontWeight: 600,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   meta: {
     fontSize: '0.78rem',
@@ -745,7 +745,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
     fontSize: '0.9rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
     width: '70px',
   },
   form: {
@@ -768,11 +768,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: '100%',
-    background: 'rgba(255, 255, 255, 0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '9px 14px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.86rem',
     outline: 'none',
   },
@@ -784,7 +784,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   error: {
     margin: 0,
-    color: '#f87171',
+    color: 'var(--danger)',
     fontSize: '0.82rem',
   },
 };

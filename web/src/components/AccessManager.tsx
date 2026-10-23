@@ -3,7 +3,7 @@ import { MapPin, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Users } from 'luc
 import { api, type PortalRole, type ScopeNode, type StaffMember, type StoreTree } from '../services/api';
 import { can, isWithin, type Level, type ModuleInfo, type Permissions } from '../services/access';
 import { groupAndBelow } from '../services/storeTree';
-import { Badge, Button, EmptyState, Modal, StatGrid } from './ui';
+import { Badge, Button, EmptyState, Modal, StatGrid, useToast } from './ui';
 import type { StatItem } from './ui';
 
 interface AccessManagerProps {
@@ -11,7 +11,6 @@ interface AccessManagerProps {
   permissions: Permissions;
   canEdit: boolean;
   canDelete: boolean;
-  onToast?: (message: string) => void;
 }
 
 type RoleDraft = { id: number | null; name: string; description: string; permissions: Permissions };
@@ -39,7 +38,8 @@ function summary(role: PortalRole, modules: ModuleInfo[]): string {
   return parts.length ? parts.join(' · ') : 'No modules';
 }
 
-export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEdit, canDelete, onToast }) => {
+export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEdit, canDelete }) => {
+  const toast = useToast();
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [roles, setRoles] = useState<PortalRole[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -76,12 +76,12 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
 
   const activeStaff = staff.filter((s) => s.active);
   const stats: StatItem[] = [
-    { label: 'Roles', value: roles.length, icon: <ShieldCheck size={20} />, iconColor: 'var(--brand-orange)' },
+    { label: 'Roles', value: roles.length, icon: <ShieldCheck size={20} />, iconColor: 'var(--accent)' },
     {
       label: 'Active staff with a role',
       value: `${activeStaff.filter((s) => s.roleId || s.isSuperAdmin).length} / ${activeStaff.length}`,
       icon: <Users size={20} />,
-      iconColor: '#10b981',
+      iconColor: 'var(--success)',
     },
   ];
 
@@ -131,10 +131,10 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
       const body = { name, description: draft.description.trim(), permissions: draft.permissions };
       if (draft.id == null) {
         await api.createAccessRole(body);
-        onToast?.(`Role "${name}" created.`);
+        toast.success(`Role "${name}" created.`);
       } else {
         await api.updateAccessRole(draft.id, body);
-        onToast?.(`Role "${name}" saved. Staff holding it see the change on their next action.`);
+        toast.success(`Role "${name}" saved. Staff holding it see the change on their next action.`);
       }
       setDraft(null);
       await load();
@@ -149,10 +149,10 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
     if (!window.confirm(`Delete the role "${role.name}"?`)) return;
     try {
       await api.deleteAccessRole(role.id);
-      onToast?.(`Role "${role.name}" deleted.`);
+      toast.success(`Role "${role.name}" deleted.`);
       await load();
     } catch (err: any) {
-      onToast?.(err.message || 'Could not delete this role');
+      toast.error(err.message || 'Could not delete this role');
     }
   };
 
@@ -162,11 +162,11 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
       setBusyStaffId(member.id);
       const saved = await api.assignStaffRole(member.id, roleId);
       setStaff((prev) => prev.map((s) => (s.id === member.id ? saved : s)));
-      onToast?.(roleId == null ? `${member.name} no longer has portal access.` : `${member.name} now has "${saved.roleName}".`);
+      toast.success(roleId == null ? `${member.name} no longer has portal access.` : `${member.name} now has "${saved.roleName}".`);
       const roleData = await api.getAccessRoles();
       setRoles(roleData.roles);
     } catch (err: any) {
-      onToast?.(err.message || `Could not change ${member.name}'s role`);
+      toast.error(err.message || `Could not change ${member.name}'s role`);
     } finally {
       setBusyStaffId(null);
     }
@@ -204,7 +204,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
       setPlacesError(null);
       const saved = await api.setStaffScope(places.member.id, { all: places.all, nodes: places.all ? [] : nodes });
       setStaff((prev) => prev.map((s) => (s.id === saved.id ? saved : s)));
-      onToast?.(`${saved.name} now covers: ${placesLabel(saved)}.`);
+      toast.success(`${saved.name} now covers: ${placesLabel(saved)}.`);
       setPlaces(null);
     } catch (err: any) {
       setPlacesError(err.message || 'Could not save these places');
@@ -249,7 +249,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
             disabled={covered}
             onChange={() => togglePlace(node)}
           />
-          <span style={{ color: '#fff' }}>{label}</span>
+          <span style={{ color: 'var(--text-main)' }}>{label}</span>
           <span style={styles.count}>{covered ? 'covered by a group above' : hint}</span>
         </label>
       );
@@ -326,7 +326,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
                   <Button
                     variant="ghost"
                     size="sm"
-                    icon={<Trash2 size={13} color="#f43f5e" />}
+                    icon={<Trash2 size={13} color="var(--danger)" />}
                     disabled={role.staffCount > 0}
                     title={role.staffCount > 0 ? 'Move everyone off this role before deleting it' : 'Delete role'}
                     onClick={() => removeRole(role)}
@@ -508,7 +508,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
                 disabled={!tree?.wholeCompany && !places.all}
                 onChange={() => setPlaces({ ...places, all: !places.all })}
               />
-              <span style={{ color: '#fff', fontWeight: 600 }}>Whole company</span>
+              <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>Whole company</span>
               <span style={styles.count}>
                 {tree && !tree.wholeCompany ? 'only whole-company staff can give this' : 'every store, now and later'}
               </span>
@@ -568,7 +568,7 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
     fontSize: '0.98rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   list: {
     display: 'flex',
@@ -581,7 +581,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '12px',
     padding: '10px 12px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(255,255,255,0.02)',
+    background: 'var(--tint-1)',
     border: '1px solid var(--border-subtle)',
   },
   name: {
@@ -590,7 +590,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
     fontSize: '0.9rem',
     fontWeight: 600,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   count: {
     fontSize: '0.74rem',
@@ -609,11 +609,11 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.4,
   },
   select: {
-    background: 'rgba(255, 255, 255, 0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '7px 10px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.84rem',
     minWidth: '200px',
   },
@@ -630,11 +630,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: '100%',
-    background: 'rgba(255, 255, 255, 0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '9px 14px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.86rem',
     outline: 'none',
   },
@@ -652,9 +652,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   td: {
     fontSize: '0.84rem',
-    color: '#fff',
+    color: 'var(--text-main)',
     padding: '7px 8px',
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
+    borderBottom: '1px solid var(--tint-2)',
   },
   dash: {
     color: 'var(--text-dim)',
@@ -683,7 +683,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   error: {
     margin: 0,
-    color: '#f87171',
+    color: 'var(--danger)',
     fontSize: '0.82rem',
   },
 };

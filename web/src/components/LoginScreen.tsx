@@ -51,30 +51,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
     <div style={styles.page}>
       <div style={styles.panel}>
         <div style={styles.brand}>
-          <img
-            src="/images/techxpert-logo.gif"
-            alt="Techxpert"
-            style={styles.logo}
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-          <div>
-            <div style={styles.brandTitle}>TECHXPERT</div>
-            <div style={styles.brandSub}>Store Admin Portal</div>
-          </div>
+          <img src="/images/techxpert-logo.gif" alt="Techxpert" style={styles.logo} />
+          <div style={styles.brandSub}>Store portal</div>
         </div>
 
         <h1 style={styles.heading}>Staff sign-in</h1>
         <p style={styles.copy}>
-          Authenticate against <code>homecare.admin_users</code>. Session is stored in an HttpOnly
-          cookie.
+          Sign in with your staff account.
         </p>
 
         <form onSubmit={handleSubmit} style={styles.form}>
           {error && (
             <div style={styles.errorBox}>
-              <AlertCircle size={16} color="#f43f5e" />
+              <AlertCircle size={16} color="var(--danger)" />
               <span>{error}</span>
             </div>
           )}
@@ -116,10 +105,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
           </Button>
         </form>
 
-        <p style={styles.devHint}>
-          Local seed (opt-in): set <code>ALLOW_DEV_ADMIN=1</code> on the API, then{' '}
-          <strong>admin@techxpert.in</strong> / <strong>admin123</strong>. Disabled in production.
-        </p>
+        {import.meta.env.DEV && (
+          <p style={styles.devHint}>
+            Local seed (opt-in): set <code>ALLOW_DEV_ADMIN=1</code> on the API, then{' '}
+            <strong>admin@techxpert.in</strong> / <strong>admin123</strong>. Disabled in production.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -134,7 +125,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     padding: '24px',
     background:
-      'radial-gradient(ellipse at top left, rgba(249,115,22,0.12), transparent 45%), var(--bg-app)',
+      'radial-gradient(ellipse at top left, var(--accent-soft), transparent 45%), var(--bg-app)',
   },
   panel: {
     width: '100%',
@@ -147,36 +138,32 @@ const styles: Record<string, React.CSSProperties> = {
   },
   brand: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    marginBottom: '28px',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '10px',
+    paddingBottom: '20px',
+    marginBottom: '24px',
+    borderBottom: '1px solid var(--border-subtle)',
   },
   logo: {
-    height: '40px',
-    borderRadius: '6px',
-    background: '#fff',
-    padding: '2px',
-  },
-  brandTitle: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    color: '#fff',
-    fontSize: '1.05rem',
+    display: 'block',
+    width: '210px',
+    maxWidth: '100%',
+    height: 'auto',
   },
   brandSub: {
-    fontSize: '0.72rem',
-    color: 'var(--brand-orange)',
+    fontSize: '0.74rem',
+    color: 'var(--text-muted)',
     fontWeight: 600,
     textTransform: 'uppercase',
-    letterSpacing: '0.06em',
+    letterSpacing: '0.08em',
   },
   heading: {
     margin: '0 0 8px',
     fontSize: '1.35rem',
     fontFamily: 'var(--font-display)',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
   },
   copy: {
     margin: '0 0 22px',
@@ -200,7 +187,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    background: 'rgba(255,255,255,0.04)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '0 12px',
@@ -210,7 +197,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     border: 'none',
     outline: 'none',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.9rem',
     padding: '12px 0',
   },
@@ -220,9 +207,9 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
     padding: '10px 12px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(244,63,94,0.1)',
-    border: '1px solid rgba(244,63,94,0.35)',
-    color: '#fda4af',
+    background: 'var(--danger-soft)',
+    border: '1px solid var(--danger-border)',
+    color: 'var(--danger)',
     fontSize: '0.82rem',
   },
   devHint: {

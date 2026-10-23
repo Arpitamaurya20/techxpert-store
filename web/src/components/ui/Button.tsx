@@ -14,20 +14,20 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
   primary: {
-    background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+    background: 'var(--accent)',
     color: '#fff',
-    border: 'none',
-    boxShadow: '0 2px 10px rgba(249, 115, 22, 0.3)',
+    border: '1px solid var(--accent)',
+    boxShadow: '0 1px 2px var(--accent-border)',
   },
   secondary: {
-    background: 'rgba(255, 255, 255, 0.08)',
-    color: '#fff',
-    border: '1px solid var(--border-subtle)',
+    background: 'var(--bg-surface)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--border-medium)',
   },
   outline: {
     background: 'transparent',
-    color: 'var(--brand-orange)',
-    border: '1px solid rgba(249, 115, 22, 0.4)',
+    color: 'var(--accent)',
+    border: '1px solid var(--accent-border)',
   },
   ghost: {
     background: 'transparent',
@@ -35,9 +35,9 @@ const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
     border: 'none',
   },
   danger: {
-    background: 'rgba(239, 68, 68, 0.15)',
-    color: '#ef4444',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
+    background: 'var(--danger-soft)',
+    color: 'var(--danger)',
+    border: '1px solid var(--danger-border)',
   },
 };
 
@@ -81,7 +81,6 @@ export const Button: React.FC<ButtonProps> = ({
     cursor: disabled || loading ? 'not-allowed' : 'pointer',
     opacity: disabled || loading ? 0.6 : 1,
     transition: 'all var(--transition-fast)',
-    outline: 'none',
     ...variantStyles[variant],
     ...sizeStyles[size],
     ...style,

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { MapPin, PauseCircle, PlayCircle, Plus, RefreshCw } from 'lucide-react';
 import { api, type DeliveryPincode, type StoreTree } from '../services/api';
-import { Badge, Button, EmptyState, StatGrid } from './ui';
+import { Badge, Button, EmptyState, StatGrid, useToast } from './ui';
 import type { StatItem } from './ui';
 
 interface DeliveryPincodeManagerProps {
@@ -10,7 +10,6 @@ interface DeliveryPincodeManagerProps {
   /** Stores view: lets the add form offer your stores. */
   canSeeStores: boolean;
   onAudit?: (action: string, details: string) => void;
-  onToast?: (message: string) => void;
 }
 
 const NO_STORE = '';
@@ -19,8 +18,8 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
   canManage,
   canSeeStores,
   onAudit,
-  onToast,
 }) => {
+  const toast = useToast();
   const [rows, setRows] = useState<DeliveryPincode[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -59,8 +58,8 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
 
   const activeCount = rows.filter((row) => row.active).length;
   const stats: StatItem[] = [
-    { label: 'Delivering to', value: activeCount, icon: <MapPin size={20} />, iconColor: '#10b981' },
-    { label: 'Paused', value: rows.length - activeCount, icon: <PauseCircle size={20} />, iconColor: '#f59e0b' },
+    { label: 'Delivering to', value: activeCount, icon: <MapPin size={20} />, iconColor: 'var(--success)' },
+    { label: 'Paused', value: rows.length - activeCount, icon: <PauseCircle size={20} />, iconColor: 'var(--warning)' },
   ];
 
   const add = async (event: React.FormEvent) => {
@@ -90,7 +89,7 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
         'Added Delivery Pincode',
         `${created.pincode} (${created.areaName})${created.storeName ? ` served by ${created.storeName}` : ', no store yet'}`
       );
-      onToast?.(
+      toast.success(
         created.storeName
           ? `${created.storeName} now delivers to ${created.pincode}.`
           : `${created.pincode} added. Orders stay refused until a store serves it.`
@@ -108,9 +107,9 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
       const saved = await api.setDeliveryPincodeActive(row.id, !row.active);
       setRows((prev) => prev.map((r) => (r.id === row.id ? saved : r)));
       onAudit?.(saved.active ? 'Resumed Delivery Pincode' : 'Paused Delivery Pincode', `${saved.pincode} (${saved.areaName})`);
-      onToast?.(saved.active ? `Delivery to ${saved.pincode} resumed.` : `Delivery to ${saved.pincode} paused.`);
+      toast.success(saved.active ? `Delivery to ${saved.pincode} resumed.` : `Delivery to ${saved.pincode} paused.`);
     } catch (err: any) {
-      onToast?.(`Failed to update ${row.pincode}: ${err.message}`);
+      toast.error(`Couldn't change ${row.pincode}: ${err.message}`);
     } finally {
       setBusyId(null);
     }
@@ -274,11 +273,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: '100%',
-    background: 'rgba(255, 255, 255, 0.05)',
+    background: 'var(--tint-2)',
     border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius-md)',
     padding: '9px 14px',
-    color: '#fff',
+    color: 'var(--text-main)',
     fontSize: '0.86rem',
     outline: 'none',
   },
@@ -293,14 +292,14 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '12px',
     padding: '10px 12px',
     borderRadius: 'var(--radius-md)',
-    background: 'rgba(255,255,255,0.02)',
+    background: 'var(--tint-1)',
     border: '1px solid var(--border-subtle)',
   },
   pin: {
     fontFamily: 'monospace',
     fontSize: '0.92rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--text-main)',
     width: '80px',
   },
   area: {
@@ -325,7 +324,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   error: {
     margin: 0,
-    color: '#f87171',
+    color: 'var(--danger)',
     fontSize: '0.82rem',
   },
 };
