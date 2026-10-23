@@ -2,7 +2,7 @@
 
 As of **23 Oct 2026**. One page that says what was built, why, by which files, and what comes next. Detail lives in the linked docs; this file points to them.
 
-**State of the repo:** committed on `main` (not pushed) as four commits on top of `1df128a`: `feef46e` server, `8092aa6` portal, `68923f1` phone app, then docs. All database proof was run against the **local** MySQL (`homecare` + `techxpertstore` on localhost), not production.
+**State of the repo:** pushed to GitHub as four commits on top of `1df128a` (`feef46e` server, `8092aa6` portal, `68923f1` phone app, `d698a52` docs), which are on both `main` and `develop`. From here all work is committed on **`develop`**; `main` moves only when asked. All database proof was run against the **local** MySQL (`homecare` + `techxpertstore` on localhost), not production.
 
 ---
 
@@ -150,7 +150,7 @@ Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices,
 - **Not device-tested:** S1–S3 proven over HTTP and the local DB only; the device run is with the app team.
 - **Ops:** admin login rate limit is in-memory (single node); `JWT_SECRET` and `CORS_ORIGINS` must be set in production (the API refuses to start otherwise).
 - **Portal lint:** `set-state-in-effect` warnings on screens that load data on open (existing pattern, now also in `App.tsx` and `AccessManager.tsx`).
-- **Not pushed:** the four commits are local on `main`. Unused Vite template files (`web/src/App.css`, `web/src/assets/`, `web/public/icons.svg`, `web/public/favicon.svg`) were left out on purpose.
+- **Branching:** work goes on `develop` (see `AGENTS.md`). Unused Vite template files (`web/src/App.css`, `web/src/assets/`, `web/public/icons.svg`, `web/public/favicon.svg`) were left out on purpose.
 
 ---
 
