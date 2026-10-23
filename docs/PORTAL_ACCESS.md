@@ -7,9 +7,10 @@ Two phases. Each is finished and verified before the next starts.
 | Phase | What | Status |
 |-------|------|--------|
 | **A1** | Store roles with per-module View / Edit / Delete; assign a role to existing staff; portal shows only what the role allows | **Done** (local DB + browser proof, 23 Oct 2026) |
-| **A2** | Stores and the pincodes they serve, a free tree of groups above stores, staff scope, orders tagged with a store and filtered by scope | Decided, not designed in detail |
+| **A2** | Stores and the pincodes they serve, a free tree of groups above stores, staff scope, orders tagged with a store and filtered by scope | Done (23 Oct 2026) |
+| **A3** | Store-owned staff accounts: the portal stops using Homecare's `admin_users` logins | Planned (23 Oct 2026); see [A3](#a3--store-owned-staff-accounts) |
 
-Nothing here changes the Homecare database. `homecare.admin_users` stays the login table; its `role` column is read for one thing only: `super_admin` always has full access.
+Nothing here changes the Homecare database. Until A3, `homecare.admin_users` is the login table; its `role` column is read for one thing only: `super_admin` always has full access. A3 replaces it with a store-side table.
 
 ---
 
@@ -482,4 +483,99 @@ Rules enforced in UI and server:
 2. Restart the API.
 3. In the portal: link pincodes to stores before enabling A2 scope for any staff member — otherwise scoped staff will see zero orders.
 4. Assign staff scope as needed.
+
+---
+
+## A3 — Store-owned staff accounts
+
+### Why
+
+Roles & Access lists every row of `homecare.admin_users`, and any active Homecare login can sign in to the store portal. Those logins were made for Homecare: lead managers, ticketing agents, and state managers. `portal_access.sql` also copied store roles from Homecare roles: Admin became Store Admin, and test-up and test-mumbai became Merchandiser.
+
+Decided 23 Oct 2026:
+
+- The store owns its staff logins.
+- The portal stops reading `homecare.admin_users`.
+- The copied roles are removed.
+- Homecare is not changed.
+
+### Decisions
+
+| Question | Answer |
+|---|---|
+| Login table | `techxpertstore.portal_staff`. Its IDs start at 1001 so they never look like the old Homecare admin IDs already stored in `CreatedBy` / `UpdatedBy`. |
+| Homecare logins | Can no longer sign in to the portal. Nothing in Homecare changes. |
+| First super admin | `IsSuperAdmin` flag on a store account. Created once with `npm run staff:bootstrap`, which asks for name, email and password in the terminal and never logs the password. The portal UI cannot make super admins in A3. |
+| Local dev seed | `ALLOW_DEV_ADMIN=1` with `admin@techxpert.in` / `admin123` keeps working locally as a super admin with id 1. Never in production. |
+| Sessions | Tokens carry `staffId` plus audience `store-portal`. Tokens with only `adminId` are refused: old store sessions, and Homecare tokens if the JWT secret is ever shared. Everyone signs in once more after the switch. |
+| Adding staff | Needs Access **edit**. The adder enters name and work email. The portal generates a 12-character temporary password, shown once with Copy. The person must change it at first sign-in. No email is sent (out of scope). |
+| Reset password | Access **edit**. Same flow: a new temporary password is shown once. The person's current sessions end, because tokens issued before `PasswordChangedAt` are refused. |
+| Deactivate / reactivate | Access **delete**. You can't deactivate yourself or a super admin. The person is refused on their next request. Nothing is deleted, and the audit history keeps their name. |
+| Own password | Any signed-in staff member can use **Change password** (current, then new; at least 10 characters). |
+| Hierarchy | Same rules as A1 and A2: you can only add, reset or deactivate someone whose role and places are within yours. |
+| Existing copied roles | Removed: the `portal_staff_roles` and `portal_staff_scope` rows for Homecare ids 2, 3 and 4. The two copy `INSERT`s are dropped from `portal_access.sql`. |
+
+### Table and migration (`server/sql/portal_staff.sql`)
+
+```sql
+CREATE TABLE techxpertstore.portal_staff (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Name VARCHAR(120) NOT NULL,
+  Email VARCHAR(190) NOT NULL,            -- stored lower-case
+  PasswordHash VARCHAR(100) NOT NULL,     -- bcrypt
+  IsSuperAdmin TINYINT(1) NOT NULL DEFAULT 0,
+  IsActive TINYINT(1) NOT NULL DEFAULT 1,
+  MustChangePassword TINYINT(1) NOT NULL DEFAULT 1,
+  PasswordChangedAt TIMESTAMP NULL,
+  LastLoginAt TIMESTAMP NULL,
+  CreatedBy INT NULL, CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedBy INT NULL, UpdatedAt TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_portal_staff_email (Email)
+) AUTO_INCREMENT = 1001;
+```
+
+The migration then:
+
+1. Deletes every `portal_staff_scope` and `portal_staff_roles` row. They all point at Homecare admin IDs.
+2. Renames `AdminID` to `StaffID` in both tables.
+3. Adds foreign keys to `portal_staff (ID)`.
+
+It never writes to `homecare`.
+
+### API
+
+| Endpoint | Change |
+|---|---|
+| `POST /auth/admin/login` | Checks `portal_staff`. The response adds `mustChangePassword`. |
+| `GET /auth/admin/me` | Reads `portal_staff`. |
+| `POST /auth/admin/password` | New. `{ current, next }` for yourself. Clears `MustChangePassword`. |
+| `GET /access/staff` | `portal_staff` only. |
+| `POST /access/staff` | New. `{ name, email }` returns `{ staff, temporaryPassword }`. Needs Access edit. |
+| `PATCH /access/staff/:id` | New. `{ name?, active? }`. Changing the name needs edit; deactivating needs delete. |
+| `POST /access/staff/:id/reset-password` | New. Returns `{ temporaryPassword }`. Needs Access edit. |
+| Role and places endpoints | Unchanged, except that ids are now `portal_staff` ids. |
+
+### Portal
+
+- **Roles & Access, Staff panel:**
+  - **Add staff** opens a name + email form. The temporary-password dialog then shows the password once, with Copy.
+  - Each row adds **Reset password** and **Deactivate** (confirm dialog). Inactive rows get **Reactivate**.
+  - The "Staff logins come from the shared admin accounts" text goes.
+- **First sign-in:** when `mustChangePassword` is set, a Change password screen appears before the portal.
+- **Sidebar footer:** a Change password entry.
+
+### Phases
+
+| Phase | What | Check |
+|---|---|---|
+| **S1** | SQL migration, bootstrap script, auth and access services on `portal_staff`, new endpoints, server tests | Server tsc and tests; scripted checks: a Homecare login is refused, a store login works, an old `adminId` token is refused |
+| **S2** | Portal: Staff panel actions, temporary-password dialog, first-sign-in and Change password screens | Web tsc, oxlint, browser check: add, sign in, forced change, reset, deactivate |
+| **S3** | Docs (`DATABASE_SCHEMA`, `ARCHITECTURE`, `WEB_SPEC`, this file) and rollout notes | Docs match the code |
+
+### Production rollout order
+
+1. Run `server/sql/portal_staff.sql`.
+2. Run `npm run staff:bootstrap` on the server to create the real super admin.
+3. Restart the API. Everyone signs in again.
+4. The super admin adds store staff in Roles & Access and gives them roles and places.
 
