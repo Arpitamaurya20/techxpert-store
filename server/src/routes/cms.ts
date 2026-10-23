@@ -126,7 +126,7 @@ router.post(
   requirePermission('sections', 'delete'),
   asyncHandler(async (_req, res) => {
     const sections = await CmsService.resetSections();
-    return sendSuccess(res, sections, 'Homepage sections reset to SRS defaults');
+    return sendSuccess(res, sections, 'Home screen sections reset to the defaults');
   })
 );
 

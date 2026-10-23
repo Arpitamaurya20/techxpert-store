@@ -119,7 +119,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 71 unit tests: `cartRules`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 84 unit tests, including `cartRules`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -132,6 +132,8 @@ Run in this order on production (all applied to the local DB already). See [`ser
 3. `server/sql/shop_s3_checkout.sql`
 4. `server/sql/portal_access.sql`
 5. `server/sql/portal_scope.sql`: before restarting the API on the A2 code. With more than one store, link every active pincode to a store first, or it stops.
+6. `server/sql/portal_staff.sql`: before restarting the API on the A3 code. Back up `portal_staff_roles` and `portal_staff_scope` first; it empties them and has no undo.
+7. `npm run staff:bootstrap` once, for the first super admin. Then deploy the API and portal together.
 
 Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 
@@ -143,7 +145,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 |---|---|---|---|
 | 1 | Restart the API on :5001 on the new code (portal needs `/me` permissions) | ops | **Done** locally (restarted 23 Oct 11:52; `/api/access/*` answers) |
 | 2 | Device run of shop S1–S3 | **app team** (outside this track); `app/` screens Cart, Checkout | guest cart, merge, pincode, order, repeat-tap all behave as in `SHOP_TRACK.md` |
-| 3 | P11 staging desk proof | `server/src/scripts/deskProof.ts`, `WEB_SPEC.md` P11 note | `npm run proof:desk` exits 0 |
+| 3 | P11 staging desk proof | `server/src/scripts/deskProof.ts`, `WEB_SPEC.md` P11 note | `npm run proof:desk` exits 0. **Rehearsed locally 23 Oct:** exits 0 after real desk changes, 1 when they differ; Merchandiser sees no delete or reset control. The staging run waits for a staging API |
 | 4 | **A2 detailed design**, agreed before build | `docs/PORTAL_ACCESS.md` §A2 (design + review R1–R9) | **Done** — D1–D4 answered 23 Oct |
 | 5 | A2 build: pincode → store, group tree, staff scope, store on each order, scoped orders / pincodes / customers | `server/sql/portal_scope.sql`, `scope.ts`, `storeTreeService.ts`, `routes/stores.ts`, `accessService.ts`, `deliveryAreaService.ts`, `orderService.ts`, `StoreTreeManager.tsx`, `AccessManager.tsx` | **Done** on `develop` 23 Oct: 71/71 unit tests, 61/61 HTTP checks, browser check; local API on :5001 needs a restart to run it |
 | 6 | Portal UI/UX pass: truth and wording (U1), shared building blocks (U2), screens in batches (U3–U6) | [`PORTAL_UI_PASS.md`](./PORTAL_UI_PASS.md); `web/src/components/*` | U1 done 23 Oct, with toasts, light theme in the logo colours and the logo fix; U2 done 23 Oct (shared pieces; Delivery Pincodes and Roles & Access moved onto them); U3 done 23 Oct (Orders, Customers, Dashboard); U4 done 23 Oct (Products, Categories, Bulk Pricing; adding categories and subcategories fixed on the server); U5 done 23 Oct (Campaign Banners, Homepage Sections); U6 done 23 Oct (Stores & groups, Audit trail, Sign-in, Developer tools, sidebar, header). **Done** |

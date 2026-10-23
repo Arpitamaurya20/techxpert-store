@@ -8,8 +8,8 @@ export const MODULES = [
   { key: 'stores', label: 'Stores & groups', levels: ['view', 'edit', 'delete'] },
   { key: 'customers', label: 'Customers', levels: ['view'] },
   { key: 'pricing', label: 'Bulk pricing', levels: ['view', 'edit', 'delete'] },
-  { key: 'banners', label: 'Banners', levels: ['view', 'edit', 'delete'] },
-  { key: 'sections', label: 'Homepage sections', levels: ['view', 'edit', 'delete'] },
+  { key: 'banners', label: 'Campaign banners', levels: ['view', 'edit', 'delete'] },
+  { key: 'sections', label: 'Home screen sections', levels: ['view', 'edit', 'delete'] },
   { key: 'audit', label: 'Audit trail', levels: ['view'] },
   { key: 'access', label: 'Roles & access', levels: ['view', 'edit', 'delete'] },
 ] as const satisfies readonly { key: string; label: string; levels: readonly Level[] }[];

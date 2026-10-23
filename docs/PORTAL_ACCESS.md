@@ -42,8 +42,8 @@ Nothing here changes the Homecare database. The store keeps its own staff list (
 | `delivery` | Delivery Pincodes | list | add, pause, resume | — |
 | `customers` | Customers | list | — | — |
 | `pricing` | Bulk Pricing Rules | ✓ | create, edit tier | delete tier |
-| `banners` | Campaign Banners | ✓ | create, edit, publish, upload, reorder | delete |
-| `sections` | Homepage Sections | ✓ | show/hide, reorder | reset to defaults |
+| `banners` | Campaign banners | ✓ | create, edit, publish, upload, reorder | delete |
+| `sections` | Home screen sections | ✓ | show/hide, reorder | reset to defaults |
 | `audit` | Audit Trail | list | — | — |
 | `access` | Roles & Access | roles and staff | create/edit roles, assign staff | delete role |
 

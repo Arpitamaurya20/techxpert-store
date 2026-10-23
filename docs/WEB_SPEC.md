@@ -115,6 +115,16 @@ Staging proof, after the API is restarted on the new code:
    It exits 0 when the phone would see that banner and not the paused one, the home blocks start in that order, and the product carries that tier. Otherwise it lists what differs.
 3. Sign in as a Merchandiser and confirm no delete or reset control appears.
 
+**Local rehearsal, 23 Oct 2026** (no staging API exists yet). Run against the local API on the current `develop` code:
+
+- **Desk changes in the portal:** a test banner published, a second published then paused, the product rail moved above the category grid, and 500+ at 20% added on the 9W LED Bulb (product 5).
+- **Passing run:** `PROOF_API=http://localhost:5099 PROOF_BANNER="P11 proof banner" PROOF_HIDDEN_BANNER="P11 paused banner" PROOF_SECTIONS=hero_carousel,product_rail,category_grid PROOF_PRODUCT=5 PROOF_TIER=500:20 npm run proof:desk` exited 0.
+- **Failing run:** with a paused banner, the old order and a wrong discount, it exited 1 and listed all three differences.
+- **Merchandiser check:** a temporary store login with the Merchandiser role signed in and changed its temporary password. It saw no Roles & access or Developer tools. On Products, Categories, Bulk pricing, Campaign banners, Home screen sections, Delivery pincodes, Stores & groups and Orders there was no delete, remove, reset or deactivate control. Edit controls were there where the role allows editing.
+- **Undone afterwards:** both test banners deleted, the home order and the bulk prices back as before (checked on the public API), and the test login switched off and then deleted by email.
+
+The staging run itself is still to do once a staging API exists.
+
 `npm test` in `server/` runs the unit tests for banner windows, homepage blocks, stock split, banner upload, and this check.
 
 ### P10 note
