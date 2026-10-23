@@ -19,6 +19,7 @@ import { isBannerLive } from '../services/bannerLive';
 /** Which pieces have loaded at least once; until then their figures read "—", never 0. */
 export interface LoadedPieces {
   products: boolean;
+  categories: boolean;
   orders: boolean;
   users: boolean;
   banners: boolean;

@@ -183,6 +183,50 @@ Each batch moves its screens onto U2's pieces and rules, then gets a browser che
     - Dashboard.
     - With the API stopped: "Couldn't load orders/customers" with Retry, and "—" everywhere. Retry recovers once the API is back.
 
+### U4 — Catalogue — done 23 Oct 2026
+
+- **Forms say what's wrong where it's wrong.** Products, categories, subcategories and bulk prices check their fields before sending and show each problem under the field. A refusal from the server stays in the open form ("Not saved: …") instead of a toast that disappears. The `App.tsx` save handlers no longer show their own error toast; they reject so the form can.
+- **Products:**
+  - The figures read "—" until loaded. While searching, the first figure is "Products matching".
+  - A product with no price reads "No price, can't be sold" instead of ₹0.
+  - Stock is a badge: Out of stock / N left / N in stock.
+  - Add product starts on "Choose a category" instead of quietly picking the first one.
+  - Editing can't remove a price (the server can't either), and the form says so. A blank brand keeps the old one, and the hint says so.
+  - Saving a product with no price no longer turns it into ₹0.
+  - Remove asks first and says what happens: gone from the app at once, orders untouched, can't be brought back from the portal.
+- **Categories:**
+  - Each panel has its own `LoadState`, and a failed reload keeps the last list.
+  - Rows are one select button plus labelled edit and remove buttons, no longer a button inside a button.
+  - A taken short code shows under the Short code field.
+  - A newly added category is selected and scrolled into view.
+  - "Add subcategory" is secondary, so the screen has one blue button.
+  - Remove asks first, for both categories and subcategories.
+- **Bulk Pricing:**
+  - The table shows the product the bulk price really applies to, from the catalogue. The name copied onto the bulk price row could be wrong: three rows said "Heavy Duty Copper Cable" but apply to a removed product, and two said "Commercial Ceiling Downlight" but apply to the 9W LED Bulb.
+  - Rows for a removed product say they never apply.
+  - "Products with a bulk price" counts live products only.
+  - The note can be cleared.
+  - The form checks quantities (up-to at least from), percent (1–90) and fixed price (less than the normal price).
+- **Price check:**
+  - It lists products with a bulk price first.
+  - It asks the server, with `Field` and `LoadState`.
+  - It shows normal price, bulk price applied, unit price and total.
+  - It no longer looks chosen while nothing is selected.
+  - It runs once per change.
+- **Server fixes found by the browser check:**
+  - Adding a category always failed: `CreatedDate` has no default, so it is now set on insert.
+  - Adding a subcategory always failed: `sub_categories.ID` has no `AUTO_INCREMENT` in the live DB, so the ID is now `MAX(ID)+1` under a named lock, as for stores.
+  - A taken code now gives 409 "That short code is already used…" instead of "Database unavailable…".
+  - Bulk prices come back with the catalogue's product name, SKU, live flag and price. New ones check the product exists and copy its real name instead of "Construction Product".
+  - `DATABASE_SCHEMA.md` now matches the real category tables.
+- **Checked:**
+  - Web tsc and oxlint (only the existing warnings); server tsc; 84 server tests.
+  - In the browser:
+    - Products: list, Add and Edit validation, Remove confirm then Cancel.
+    - Categories: a real add of a category and a subcategory, a taken code, removing both through the confirms. The two test rows were then deleted by ID.
+    - Bulk Pricing: price check, form validation, Remove confirm then Cancel.
+    - With the API stopped: "Couldn't load …" with Retry and "—", and the forms show "Not saved: Can't reach the server." Retry recovers once the API is back.
+
 ## Done when
 
 - Every screen uses `PageIntro`, `LoadState` and `ConfirmDialog` (where it deletes or deactivates), and follows the rules above.

@@ -146,7 +146,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 3 | P11 staging desk proof | `server/src/scripts/deskProof.ts`, `WEB_SPEC.md` P11 note | `npm run proof:desk` exits 0 |
 | 4 | **A2 detailed design**, agreed before build | `docs/PORTAL_ACCESS.md` §A2 (design + review R1–R9) | **Done** — D1–D4 answered 23 Oct |
 | 5 | A2 build: pincode → store, group tree, staff scope, store on each order, scoped orders / pincodes / customers | `server/sql/portal_scope.sql`, `scope.ts`, `storeTreeService.ts`, `routes/stores.ts`, `accessService.ts`, `deliveryAreaService.ts`, `orderService.ts`, `StoreTreeManager.tsx`, `AccessManager.tsx` | **Done** on `develop` 23 Oct: 71/71 unit tests, 61/61 HTTP checks, browser check; local API on :5001 needs a restart to run it |
-| 6 | Portal UI/UX pass: truth and wording (U1), shared building blocks (U2), screens in batches (U3–U6) | [`PORTAL_UI_PASS.md`](./PORTAL_UI_PASS.md); `web/src/components/*` | U1 done 23 Oct, with toasts, light theme in the logo colours and the logo fix; U2 done 23 Oct (shared pieces; Delivery Pincodes and Roles & Access moved onto them); U3 done 23 Oct (Orders, Customers, Dashboard); U4 next |
+| 6 | Portal UI/UX pass: truth and wording (U1), shared building blocks (U2), screens in batches (U3–U6) | [`PORTAL_UI_PASS.md`](./PORTAL_UI_PASS.md); `web/src/components/*` | U1 done 23 Oct, with toasts, light theme in the logo colours and the logo fix; U2 done 23 Oct (shared pieces; Delivery Pincodes and Roles & Access moved onto them); U3 done 23 Oct (Orders, Customers, Dashboard); U4 done 23 Oct (Products, Categories, Bulk Pricing; adding categories and subcategories fixed on the server); U5 next |
 | 7 | Production rollout | SQL in §5, then API deploy, then phone build | — |
 
 Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices, notifications.
@@ -158,6 +158,7 @@ Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices,
 - **Few orderable products:** 110,100 of 110,106 active products have no active price; four priced products (IDs 4, 6, 7, 8) have no variant. Shown honestly as unavailable; merchandisers must add price/variant.
 - **Phone sign-in is memory-only:** after an app restart the customer sees the guest cart until signing in again.
 - **Stock mismatch for multi-variant products:** the shop sells the first variant only.
+- **Bulk prices on a removed product:** bulk prices 1–3 belong to product 1 (1.5 Ton Split AC), which was removed, so they never apply. The portal marks them; a merchandiser should remove or re-point them.
 - **Not device-tested:** S1–S3 proven over HTTP and the local DB only; the device run is with the app team.
 - **Ops:** admin login rate limit is in-memory (single node); `JWT_SECRET` and `CORS_ORIGINS` must be set in production (the API refuses to start otherwise).
 - **Portal lint:** `set-state-in-effect` warnings on screens that load data on open (existing pattern, now also in `App.tsx`, `AccessManager.tsx` and `StoreTreeManager.tsx`).

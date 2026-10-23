@@ -1,17 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Package,
-  Boxes,
-  CheckCircle2,
-  Edit2,
-  Sparkles,
-  Plus,
-  Trash2,
-} from 'lucide-react';
+import { Package, Boxes, Edit2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import type { Product, Category } from '../types';
-import { DataTable, StatGrid, Badge, Button, Modal, useToast } from './ui';
+import {
+  DataTable,
+  StatGrid,
+  Badge,
+  Button,
+  Field,
+  FormError,
+  LoadState,
+  Modal,
+  NotGiven,
+  PageIntro,
+  useConfirm,
+} from './ui';
 import type { Column, StatItem } from './ui';
 import { api } from '../services/api';
+import { inr } from '../services/format';
 
 export type NewProductInput = {
   name: string;
@@ -25,55 +30,103 @@ export type NewProductInput = {
 };
 
 const PAGE_SIZE = 50;
+const ALL = 'all';
 
 interface CatalogOverviewProps {
-  /** Seed / fallback rows until first server page loads */
+  /** First page from the shell's load, shown until this screen's own page arrives. */
   products: Product[];
   catalogTotal?: number;
   onCatalogTotalChange?: (total: number) => void;
   categories: Category[];
-  onUpdateProduct: (product: Product) => void;
-  onCreateProduct: (product: NewProductInput) => Promise<void> | void;
-  onDeleteProduct: (id: string) => Promise<void> | void;
+  categoriesLoaded: boolean;
+  /** Rejects when the server refuses, so the form can stay open and say why. */
+  onUpdateProduct: (product: Product) => Promise<void>;
+  onCreateProduct: (product: NewProductInput) => Promise<void>;
+  onDeleteProduct: (id: string) => Promise<void>;
   canEdit?: boolean;
   canDelete?: boolean;
 }
 
-const emptyCreateForm = (categories: Category[]): NewProductInput => ({
-  name: '',
-  categoryId: categories[0] ? String(categories[0].id) : '',
-  price: 0,
-  unit: '1 unit',
-  stockQuantity: 100,
-  description: '',
-  sku: '',
-  brandName: '',
+/** Form values are kept as typed text so a half-typed number is never silently turned into 0. */
+interface ProductForm {
+  name: string;
+  categoryId: string;
+  price: string;
+  stock: string;
+  unit: string;
+  sku: string;
+  brandName: string;
+  description: string;
+}
+
+type FormErrors = Partial<Record<keyof ProductForm | 'form', string>>;
+
+const formFor = (product: Product | null): ProductForm => ({
+  name: product?.name ?? '',
+  categoryId: product ? String(product.categoryId ?? '') : '',
+  price: product?.price != null ? String(product.price) : '',
+  stock: product ? String(product.stockQuantity ?? 0) : '',
+  unit: product?.unit ?? '',
+  sku: product?.sku ?? '',
+  brandName: product?.brandName ?? '',
+  description: product?.description ?? '',
 });
+
+/** Mirrors the server: a price, once set, can be changed but not removed, and must be more than ₹0. */
+function checkForm(form: ProductForm, editing: Product | null): FormErrors {
+  const errors: FormErrors = {};
+  if (form.name.trim().length < 2) errors.name = 'Enter the product name customers will see.';
+  if (!editing && !form.categoryId) errors.categoryId = 'Choose a category.';
+  const price = form.price.trim();
+  const needsPrice = !editing || editing.price != null;
+  if (price === '') {
+    if (needsPrice) {
+      errors.price = editing ? "A price can be changed but not removed. Enter the new price." : 'Enter the selling price.';
+    }
+  } else if (!(Number(price) > 0)) {
+    errors.price = 'Enter a price of more than ₹0.';
+  }
+  const stock = form.stock.trim();
+  if (stock === '' || !Number.isInteger(Number(stock)) || Number(stock) < 0) {
+    errors.stock = 'Enter a whole number, 0 or more.';
+  }
+  if (!form.unit.trim()) errors.unit = 'Enter the selling unit, e.g. "50 kg bag".';
+  return errors;
+}
+
+const stockBadge = (p: Product) => {
+  const qty = Number(p.stockQuantity ?? 0);
+  if (p.stockStatus === 'out_of_stock' || qty <= 0) return <Badge variant="danger" size="sm">Out of stock</Badge>;
+  if (p.stockStatus === 'low_stock') return <Badge variant="warning" size="sm">{qty.toLocaleString('en-IN')} left</Badge>;
+  return <Badge variant="success" size="sm">{qty.toLocaleString('en-IN')} in stock</Badge>;
+};
 
 export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
   products: seedProducts,
   catalogTotal: seedTotal,
   onCatalogTotalChange,
   categories,
+  categoriesLoaded,
   onUpdateProduct,
   onCreateProduct,
   onDeleteProduct,
   canEdit = true,
   canDelete = true,
 }) => {
-  const toast = useToast();
+  const { confirm, dialog } = useConfirm();
   const [rows, setRows] = useState<Product[]>(seedProducts);
   const [total, setTotal] = useState(seedTotal || seedProducts.length);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>(ALL);
   const [listLoading, setListLoading] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState<NewProductInput>(() => emptyCreateForm(categories));
-  const [saving, setSaving] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [pageLoaded, setPageLoaded] = useState(seedProducts.length > 0);
+  /** `null` editing with the form open means "add". */
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Product | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -88,18 +141,20 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
         page,
         limit: PAGE_SIZE,
         search: debouncedSearch || undefined,
-        categoryId: selectedCategory === 'all' ? undefined : selectedCategory,
+        categoryId: selectedCategory === ALL ? undefined : selectedCategory,
       });
       setRows(result.products as Product[]);
       setTotal(result.meta.total);
       setTotalPages(Math.max(1, result.meta.totalPages));
-      onCatalogTotalChange?.(result.meta.total);
+      setListError(null);
+      setPageLoaded(true);
+      if (!debouncedSearch && selectedCategory === ALL) onCatalogTotalChange?.(result.meta.total);
     } catch (err: any) {
-      toast.error(`Couldn't load products: ${err.message}`);
+      setListError(err.message || "The server didn't answer.");
     } finally {
       setListLoading(false);
     }
-  }, [page, debouncedSearch, selectedCategory, onCatalogTotalChange, toast]);
+  }, [page, debouncedSearch, selectedCategory, onCatalogTotalChange]);
 
   useEffect(() => {
     loadPage();
@@ -109,76 +164,52 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
     setPage(1);
   }, [debouncedSearch, selectedCategory]);
 
-  const inStockCount = rows.filter((p) => p.stockStatus === 'in_stock').length;
-  const featuredCount = rows.filter((p) => p.featured).length;
+  const filtering = Boolean(debouncedSearch) || selectedCategory !== ALL;
 
   const stats: StatItem[] = [
     {
-      label: 'Active Catalogue SKUs',
-      value: total >= 1000 ? `${(total / 1000).toFixed(total >= 10000 ? 0 : 1)}k`.replace(/\.0k$/, 'k') : total,
+      label: filtering ? 'Products matching' : 'Products',
+      value: pageLoaded ? total.toLocaleString('en-IN') : '—',
       icon: <Package size={20} />,
       iconColor: 'var(--info)',
     },
     {
-      label: 'Trade Categories',
-      value: categories.length,
+      label: 'Categories',
+      value: categoriesLoaded ? categories.length : '—',
       icon: <Boxes size={20} />,
       iconColor: 'var(--accent)',
     },
-    {
-      label: 'In-Stock (this page)',
-      value: `${rows.length > 0 ? Math.round((inStockCount / rows.length) * 100) : 0}%`,
-      icon: <CheckCircle2 size={20} />,
-      iconColor: 'var(--success)',
-    },
-    {
-      label: 'Featured (this page)',
-      value: featuredCount,
-      icon: <Sparkles size={20} />,
-      iconColor: 'var(--violet)',
-    },
   ];
 
-  const handleSaveEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (editingProduct) {
-      onUpdateProduct(editingProduct);
-      setEditingProduct(null);
-      loadPage();
-    }
+  const openAdd = () => {
+    setEditing(null);
+    setFormOpen(true);
   };
 
-  const openCreate = () => {
-    setCreateForm(emptyCreateForm(categories));
-    setIsCreateOpen(true);
+  const openEdit = (product: Product) => {
+    setEditing(product);
+    setFormOpen(true);
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!createForm.name.trim() || !createForm.categoryId || createForm.price < 0) return;
-    try {
-      setSaving(true);
-      await onCreateProduct({
-        ...createForm,
-        name: createForm.name.trim(),
-        sku: createForm.sku?.trim() || undefined,
-        brandName: createForm.brandName?.trim() || undefined,
-      });
-      setIsCreateOpen(false);
-      setPage(1);
-      await loadPage();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async (product: Product) => {
-    const ok = window.confirm(`Remove "${product.name}" from the catalogue? (soft-delete on server)`);
+  const remove = async (product: Product) => {
+    const ok = await confirm({
+      title: `Remove "${product.name}"?`,
+      message: (
+        <>
+          It disappears from the app and from this list straight away. Orders already placed are not changed. The
+          portal can't bring a removed product back.
+        </>
+      ),
+      confirmLabel: 'Remove product',
+      destructive: true,
+    });
     if (!ok) return;
     try {
       setDeletingId(product.id);
       await onDeleteProduct(product.id);
       await loadPage();
+    } catch {
+      // The shell already reported it in a toast.
     } finally {
       setDeletingId(null);
     }
@@ -187,28 +218,15 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
   const columns: Column<Product>[] = [
     {
       key: 'name',
-      header: 'MATERIAL / SKU',
+      header: 'Product',
       sortable: true,
       render: (p) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div
-            style={{
-              width: '42px',
-              height: '42px',
-              borderRadius: 'var(--radius-sm)',
-              background: 'var(--bg-surface-elevated)',
-              border: '1px solid var(--border-subtle)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden',
-              flexShrink: 0,
-            }}
-          >
+          <div style={styles.thumb}>
             {p.imageUrl ? (
               <img
                 src={p.imageUrl}
-                alt={p.name}
+                alt=""
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
@@ -218,11 +236,11 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
               <Package size={18} color="var(--text-dim)" />
             )}
           </div>
-          <div>
-            <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>{p.name}</div>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '2px' }}>
-              SKU: <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{p.sku || p.id}</span>
-              {p.brandName && ` • Brand: ${p.brandName}`}
+          <div style={{ minWidth: 0 }}>
+            <div style={styles.strong}>{p.name}</div>
+            <div style={styles.small}>
+              {p.sku ? <>SKU <span style={styles.mono}>{p.sku}</span></> : <NotGiven label="No SKU" />}
+              {p.brandName ? ` · ${p.brandName}` : ''}
             </div>
           </div>
         </div>
@@ -230,56 +248,39 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
     },
     {
       key: 'categoryName',
-      header: 'CATEGORY',
+      header: 'Category',
       render: (p) => {
-        const cat = categories.find((c) => String(c.id) === String(p.categoryId));
-        return (
-          <Badge variant="neutral">{cat?.name || p.categoryName || 'General Materials'}</Badge>
-        );
+        const name = categories.find((c) => String(c.id) === String(p.categoryId))?.name || p.categoryName;
+        return name ? <Badge variant="neutral" size="sm">{name}</Badge> : <NotGiven label="No category" />;
       },
     },
     {
       key: 'price',
-      header: 'BASE PRICE',
+      header: 'Price',
       sortable: true,
       align: 'right',
-      render: (p) => (
-        <div>
-          {p.price == null ? (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>No price</div>
-          ) : (
-            <div style={{ fontWeight: 700, color: 'var(--success)', fontFamily: 'monospace', fontSize: '0.94rem' }}>
-              ₹{Number(p.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-          )}
-          {p.originalPrice && (
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textDecoration: 'line-through' }}>
-              MRP ₹{Number(p.originalPrice).toLocaleString('en-IN')}
-            </div>
-          )}
-        </div>
-      ),
+      render: (p) =>
+        p.price == null ? (
+          <NotGiven label="No price, can't be sold" />
+        ) : (
+          <div>
+            <div style={styles.money}>{inr(p.price)}</div>
+            {p.originalPrice && Number(p.originalPrice) > Number(p.price) ? (
+              <div style={styles.mrp}>MRP {inr(p.originalPrice)}</div>
+            ) : null}
+          </div>
+        ),
     },
     {
       key: 'unit',
-      header: 'UNIT / PACKAGING',
-      render: (p) => (
-        <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{p.unit || 'unit'}</span>
-      ),
+      header: 'Sold as',
+      render: (p) => (p.unit ? <span style={styles.muted}>{p.unit}</span> : <NotGiven />),
     },
     {
       key: 'stockStatus',
-      header: 'STOCK LEVEL',
+      header: 'Stock',
       align: 'center',
-      render: (p) => (
-        <Badge variant={p.stockStatus === 'in_stock' ? 'success' : 'danger'} dot>
-          {p.stockQuantity !== undefined
-            ? `${p.stockQuantity} in stock`
-            : p.stockStatus === 'in_stock'
-              ? 'In Stock'
-              : 'Out of Stock'}
-        </Badge>
-      ),
+      render: stockBadge,
     },
     {
       key: 'actions',
@@ -288,7 +289,13 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
       render: (p) => (
         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
           {canEdit ? (
-            <Button variant="ghost" size="sm" icon={<Edit2 size={14} />} onClick={() => setEditingProduct({ ...p })}>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Edit2 size={14} />}
+              onClick={() => openEdit(p)}
+              aria-label={`Edit ${p.name}`}
+            >
               Edit
             </Button>
           ) : null}
@@ -296,11 +303,12 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              icon={<Trash2 size={14} />}
-              disabled={deletingId === p.id}
-              onClick={() => handleDelete(p)}
+              icon={<Trash2 size={14} color="var(--danger)" />}
+              loading={deletingId === p.id}
+              onClick={() => remove(p)}
+              aria-label={`Remove ${p.name}`}
             >
-              {deletingId === p.id ? '…' : 'Delete'}
+              Remove
             </Button>
           ) : null}
         </div>
@@ -310,264 +318,297 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <StatGrid items={stats} />
+      <StatGrid items={stats} columns={2} />
 
-      <DataTable<Product>
-        data={rows}
-        columns={columns}
-        keyExtractor={(p) => p.id}
-        searchPlaceholder="Search products by name, SKU or brand…"
-        loading={listLoading}
-        emptyTitle="No products on this page"
-        emptyDescription="Try another search, category, or page."
-        serverList={{
-          search,
-          onSearchChange: setSearch,
-          page,
-          totalPages,
-          total,
-          pageSize: PAGE_SIZE,
-          onPageChange: setPage,
-        }}
-        extraControls={
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                padding: '8px 12px',
-                color: 'var(--text-main)',
-                fontSize: '0.84rem',
-                outline: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              <option value="all">All Categories</option>
-              {categories.map((c) => (
-                <option key={c.id} value={String(c.id)}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+      <PageIntro
+        actions={
+          <>
+            <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={loadPage} disabled={listLoading}>
+              Refresh
+            </Button>
             {canEdit ? (
-              <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={openCreate}>
-                Add Product
+              <Button size="sm" icon={<Plus size={14} />} onClick={openAdd}>
+                Add product
               </Button>
             ) : null}
-          </div>
-        }
-      />
-
-      <Modal
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        title="Add Catalogue Product"
-        subtitle="Customers see it in the app while it is active"
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setIsCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={saving || !createForm.name.trim() || !createForm.categoryId}
-              onClick={handleCreate}
-            >
-              {saving ? 'Creating…' : 'Create Product'}
-            </Button>
           </>
         }
       >
-        <form onSubmit={handleCreate} style={modalStyles.form}>
-          <div>
-            <label style={modalStyles.label}>Product Name</label>
-            <input
-              type="text"
-              value={createForm.name}
-              onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-              style={modalStyles.input}
-              placeholder="e.g. UltraTech OPC 53 Grade Cement 50kg"
-              required
-            />
-          </div>
-          <div>
-            <label style={modalStyles.label}>Category</label>
+        Search looks through every product, {PAGE_SIZE} to a page. Customers can't buy a product until it has a
+        price.
+        {canEdit ? '' : ' Your role can see products but not change them.'}
+      </PageIntro>
+
+      <LoadState
+        loading={listLoading}
+        error={listError}
+        what="products"
+        onRetry={loadPage}
+        isEmpty={rows.length === 0 && !filtering}
+        empty={{
+          icon: <Package size={22} />,
+          title: 'No products yet',
+          description: canEdit
+            ? 'Add the first product; customers can buy it once it has a price and stock.'
+            : 'Products appear here once someone with products edit access adds them.',
+          actionLabel: canEdit ? 'Add product' : undefined,
+          onAction: canEdit ? openAdd : undefined,
+        }}
+      >
+        <DataTable<Product>
+          data={rows}
+          columns={columns}
+          keyExtractor={(p) => p.id}
+          searchPlaceholder="Search products by name, SKU or brand…"
+          loading={listLoading}
+          emptyTitle="No products match"
+          emptyDescription="Try another search or category."
+          serverList={{
+            search,
+            onSearchChange: setSearch,
+            page,
+            totalPages,
+            total,
+            pageSize: PAGE_SIZE,
+            onPageChange: setPage,
+          }}
+          extraControls={
             <select
-              value={createForm.categoryId}
-              onChange={(e) => setCreateForm({ ...createForm, categoryId: e.target.value })}
-              style={modalStyles.input}
-              required
+              className="tx-input"
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              aria-label="Show products in category"
+              style={{ width: 'auto' }}
             >
+              <option value={ALL}>All categories</option>
               {categories.map((c) => (
                 <option key={c.id} value={String(c.id)}>
                   {c.name}
                 </option>
               ))}
             </select>
-          </div>
-          <div style={modalStyles.row}>
-            <div style={{ flex: 1 }}>
-              <label style={modalStyles.label}>Price (₹)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={createForm.price}
-                onChange={(e) => setCreateForm({ ...createForm, price: Number(e.target.value) })}
-                style={modalStyles.input}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={modalStyles.label}>Stock Qty</label>
-              <input
-                type="number"
-                min={0}
-                value={createForm.stockQuantity}
-                onChange={(e) => setCreateForm({ ...createForm, stockQuantity: Number(e.target.value) })}
-                style={modalStyles.input}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={modalStyles.label}>Unit</label>
-              <input
-                type="text"
-                value={createForm.unit}
-                onChange={(e) => setCreateForm({ ...createForm, unit: e.target.value })}
-                style={modalStyles.input}
-                placeholder="50 kg bag"
-              />
-            </div>
-          </div>
-          <div>
-            <label style={modalStyles.label}>Brand</label>
-            <input
-              type="text"
-              value={createForm.brandName || ''}
-              onChange={(e) => setCreateForm({ ...createForm, brandName: e.target.value })}
-              style={modalStyles.input}
-              placeholder="e.g. UltraTech"
-            />
-          </div>
-          <div>
-            <label style={modalStyles.label}>Description</label>
-            <textarea
-              value={createForm.description}
-              onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
-              style={{ ...modalStyles.input, minHeight: 72, resize: 'vertical' }}
-            />
-          </div>
-        </form>
-      </Modal>
+          }
+        />
+      </LoadState>
 
-      <Modal
-        isOpen={!!editingProduct}
-        onClose={() => setEditingProduct(null)}
-        title="Edit Product"
-        subtitle={editingProduct?.sku || editingProduct?.id}
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setEditingProduct(null)}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" onClick={handleSaveEdit}>
-              Save Changes
-            </Button>
-          </>
-        }
-      >
-        {editingProduct && (
-          <form onSubmit={handleSaveEdit} style={modalStyles.form}>
-            <div>
-              <label style={modalStyles.label}>Name</label>
-              <input
-                type="text"
-                value={editingProduct.name}
-                onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
-                style={modalStyles.input}
-              />
-            </div>
-            <div style={modalStyles.row}>
-              <div style={{ flex: 1 }}>
-                <label style={modalStyles.label}>Price (₹)</label>
-                <input
-                  type="number"
-                  value={editingProduct.price ?? ''}
-                  placeholder="No price yet"
-                  onChange={(e) =>
-                    setEditingProduct({ ...editingProduct, price: e.target.value === '' ? null : Number(e.target.value) })
-                  }
-                  style={modalStyles.input}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={modalStyles.label}>Stock Qty</label>
-                <input
-                  type="number"
-                  value={editingProduct.stockQuantity ?? 0}
-                  onChange={(e) =>
-                    setEditingProduct({ ...editingProduct, stockQuantity: Number(e.target.value) })
-                  }
-                  style={modalStyles.input}
-                />
-              </div>
-            </div>
-            <div>
-              <label style={modalStyles.label}>Packaging Unit</label>
-              <input
-                type="text"
-                value={editingProduct.unit || ''}
-                onChange={(e) => setEditingProduct({ ...editingProduct, unit: e.target.value })}
-                style={modalStyles.input}
-                placeholder="e.g. 50 kg bag, coil, meter"
-              />
-            </div>
-            <div>
-              <label style={modalStyles.label}>Brand</label>
-              <input
-                type="text"
-                value={editingProduct.brandName || ''}
-                onChange={(e) => setEditingProduct({ ...editingProduct, brandName: e.target.value })}
-                style={modalStyles.input}
-              />
-            </div>
-            <div>
-              <label style={modalStyles.label}>Description</label>
-              <textarea
-                value={editingProduct.description || ''}
-                onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })}
-                style={{ ...modalStyles.input, minHeight: 72, resize: 'vertical' }}
-              />
-            </div>
-          </form>
-        )}
-      </Modal>
+      {formOpen ? (
+        <ProductFormDialog
+          key={editing?.id ?? 'new'}
+          editing={editing}
+          categories={categories}
+          onClose={() => setFormOpen(false)}
+          onSave={async (form) => {
+            if (editing) {
+              await onUpdateProduct({
+                ...editing,
+                name: form.name.trim(),
+                price: form.price.trim() === '' ? editing.price : Number(form.price),
+                stockQuantity: Number(form.stock),
+                unit: form.unit.trim(),
+                brandName: form.brandName.trim() || editing.brandName,
+                description: form.description.trim(),
+              });
+            } else {
+              await onCreateProduct({
+                name: form.name.trim(),
+                categoryId: form.categoryId,
+                price: Number(form.price),
+                stockQuantity: Number(form.stock),
+                unit: form.unit.trim(),
+                description: form.description.trim(),
+                sku: form.sku.trim() || undefined,
+                brandName: form.brandName.trim() || undefined,
+              });
+              setPage(1);
+            }
+            setFormOpen(false);
+            await loadPage();
+          }}
+        />
+      ) : null}
+      {dialog}
     </div>
   );
 };
 
-const modalStyles: Record<string, React.CSSProperties> = {
-  form: { display: 'flex', flexDirection: 'column', gap: 14 },
-  label: {
-    display: 'block',
-    fontSize: '0.75rem',
-    color: 'var(--text-muted)',
-    marginBottom: 6,
-    fontWeight: 600,
-  },
-  input: {
-    width: '100%',
-    background: 'var(--bg-surface)',
+const ProductFormDialog: React.FC<{
+  editing: Product | null;
+  categories: Category[];
+  onClose: () => void;
+  onSave: (form: ProductForm) => Promise<void>;
+}> = ({ editing, categories, onClose, onSave }) => {
+  const [form, setForm] = useState<ProductForm>(() => formFor(editing));
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [saving, setSaving] = useState(false);
+
+  const set = (key: keyof ProductForm) => (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
+  ) => {
+    const value = e.target.value;
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (errors[key] || errors.form) setErrors((prev) => ({ ...prev, [key]: undefined, form: undefined }));
+  };
+
+  const submit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const found = checkForm(form, editing);
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    try {
+      setSaving(true);
+      await onSave(form);
+    } catch (err: any) {
+      setErrors({ form: `Not saved: ${err?.message || 'the server refused it.'}` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formId = editing ? `product-edit-${editing.id}` : 'product-add';
+
+  return (
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={editing ? `Edit ${editing.name}` : 'Add product'}
+      subtitle={
+        editing
+          ? editing.sku
+            ? `SKU ${editing.sku}`
+            : undefined
+          : 'Customers can buy it in the app as soon as it has a price and stock.'
+      }
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" type="submit" form={formId} loading={saving}>
+            {editing ? 'Save changes' : 'Add product'}
+          </Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={submit} noValidate style={styles.form}>
+        <Field id={`${formId}-name`} label="Product name" error={errors.name}>
+          <input
+            data-autofocus
+            value={form.name}
+            onChange={set('name')}
+            maxLength={200}
+            placeholder="UltraTech OPC 53 Grade Cement 50 kg"
+          />
+        </Field>
+        {editing ? null : (
+          <Field id={`${formId}-category`} label="Category" error={errors.categoryId}>
+            <select value={form.categoryId} onChange={set('categoryId')}>
+              <option value="">{categories.length === 0 ? 'No categories yet' : 'Choose a category'}</option>
+              {categories.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <div style={styles.row}>
+          <Field
+            id={`${formId}-price`}
+            label="Price (₹)"
+            error={errors.price}
+            hint={editing && editing.price == null ? 'Leave empty to keep it unpriced.' : undefined}
+            style={{ flex: 1 }}
+          >
+            <input inputMode="decimal" value={form.price} onChange={set('price')} placeholder="380" />
+          </Field>
+          <Field id={`${formId}-stock`} label="Stock" error={errors.stock} style={{ flex: 1 }}>
+            <input inputMode="numeric" value={form.stock} onChange={set('stock')} placeholder="100" />
+          </Field>
+          <Field id={`${formId}-unit`} label="Sold as" error={errors.unit} style={{ flex: 1.3 }}>
+            <input value={form.unit} onChange={set('unit')} maxLength={60} placeholder="50 kg bag" />
+          </Field>
+        </div>
+        <div style={styles.row}>
+          {editing ? null : (
+            <Field
+              id={`${formId}-sku`}
+              label="SKU"
+              hint="Leave empty and one is made for you."
+              error={errors.sku}
+              style={{ flex: 1 }}
+            >
+              <input value={form.sku} onChange={set('sku')} maxLength={60} />
+            </Field>
+          )}
+          <Field
+            id={`${formId}-brand`}
+            label="Brand"
+            hint={editing ? 'Clearing the brand keeps the old one.' : undefined}
+            style={{ flex: 1 }}
+          >
+            <input value={form.brandName} onChange={set('brandName')} maxLength={100} placeholder="UltraTech" />
+          </Field>
+        </div>
+        <Field id={`${formId}-description`} label="Description">
+          <textarea value={form.description} onChange={set('description')} maxLength={2000} />
+        </Field>
+        {errors.form ? <FormError>{errors.form}</FormError> : null}
+      </form>
+    </Modal>
+  );
+};
+
+const styles: Record<string, React.CSSProperties> = {
+  thumb: {
+    width: '42px',
+    height: '42px',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--bg-surface-elevated)',
     border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '10px 12px',
-    color: 'var(--text-main)',
-    fontSize: '0.9rem',
-    outline: 'none',
-    boxSizing: 'border-box',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    flexShrink: 0,
   },
-  row: { display: 'flex', gap: 12 },
+  strong: {
+    fontWeight: 600,
+    color: 'var(--text-main)',
+    fontSize: '0.88rem',
+  },
+  small: {
+    fontSize: '0.74rem',
+    color: 'var(--text-dim)',
+    marginTop: '2px',
+  },
+  mono: {
+    fontFamily: 'monospace',
+    color: 'var(--text-muted)',
+  },
+  muted: {
+    fontSize: '0.82rem',
+    color: 'var(--text-muted)',
+  },
+  money: {
+    fontWeight: 700,
+    color: 'var(--text-main)',
+    fontVariantNumeric: 'tabular-nums',
+    fontSize: '0.9rem',
+    whiteSpace: 'nowrap',
+  },
+  mrp: {
+    fontSize: '0.72rem',
+    color: 'var(--text-dim)',
+    textDecoration: 'line-through',
+  },
+  form: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px',
+  },
+  row: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'flex-start',
+  },
 };

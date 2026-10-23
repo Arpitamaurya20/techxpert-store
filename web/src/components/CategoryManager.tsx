@@ -1,15 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Boxes,
-  FolderTree,
-  Plus,
-  Edit2,
-  Trash2,
-  RefreshCw,
-} from 'lucide-react';
+import { Boxes, FolderTree, Plus, Edit2, Trash2, RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
 import type { Category, Subcategory } from '../types';
-import { Badge, Button, EmptyState, Modal, StatGrid, useToast } from './ui';
+import {
+  Button,
+  EmptyState,
+  Field,
+  FormError,
+  LoadState,
+  Modal,
+  PageIntro,
+  Panel,
+  StatGrid,
+  useConfirm,
+  useToast,
+} from './ui';
 import type { StatItem } from './ui';
 
 interface CategoryManagerProps {
@@ -19,35 +24,16 @@ interface CategoryManagerProps {
   canDelete?: boolean;
 }
 
-type CatForm = {
+/** Shared by categories and subcategories; `description` is only shown for categories. */
+interface GroupForm {
   name: string;
   slug: string;
+  displayOrder: string;
+  imageUrl: string;
   description: string;
-  imageUrl: string;
-  displayOrder: number;
-};
+}
 
-type SubForm = {
-  name: string;
-  slug: string;
-  imageUrl: string;
-  displayOrder: number;
-};
-
-const emptyCat = (): CatForm => ({
-  name: '',
-  slug: '',
-  description: '',
-  imageUrl: '',
-  displayOrder: 100,
-});
-
-const emptySub = (): SubForm => ({
-  name: '',
-  slug: '',
-  imageUrl: '',
-  displayOrder: 100,
-});
+type GroupErrors = Partial<Record<keyof GroupForm | 'form', string>>;
 
 function slugify(value: string): string {
   return value
@@ -58,6 +44,30 @@ function slugify(value: string): string {
     .slice(0, 50);
 }
 
+function checkGroup(form: GroupForm): GroupErrors {
+  const errors: GroupErrors = {};
+  if (form.name.trim().length < 2) errors.name = 'Enter the name customers will see.';
+  if (form.slug.trim() && !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(form.slug.trim())) {
+    errors.slug = 'Use lowercase letters, numbers and single dashes, e.g. "cement-plaster".';
+  }
+  const order = Number(form.displayOrder);
+  if (form.displayOrder.trim() === '' || !Number.isInteger(order) || order < 0 || order > 9999) {
+    errors.displayOrder = 'Enter a whole number from 0 to 9999.';
+  }
+  const image = form.imageUrl.trim();
+  if (image && !image.startsWith('/') && !/^https?:\/\//i.test(image)) {
+    errors.imageUrl = 'Enter a path starting with "/" or a full https:// link.';
+  }
+  return errors;
+}
+
+/** Server refusals that belong to one field go under it; anything else under the form. */
+function serverErrors(err: unknown): GroupErrors {
+  const message = err instanceof Error ? err.message : 'the server refused it.';
+  if (/duplicate|already/i.test(message)) return { slug: 'Another one already uses this short code. Choose another.' };
+  return { form: `Not saved: ${message}` };
+}
+
 export const CategoryManager: React.FC<CategoryManagerProps> = ({
   onHierarchyChanged,
   onAudit,
@@ -65,55 +75,53 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
   canDelete = true,
 }) => {
   const toast = useToast();
+  const { confirm, dialog } = useConfirm();
   const [categories, setCategories] = useState<Category[]>([]);
-  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
+  const [catLoading, setCatLoading] = useState(true);
+  const [catError, setCatError] = useState<string | null>(null);
+  const [catLoaded, setCatLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
   const [subsLoading, setSubsLoading] = useState(false);
+  const [subsError, setSubsError] = useState<string | null>(null);
+  /** Which category the subcategory list on screen belongs to. */
+  const [subsFor, setSubsFor] = useState<string | null>(null);
 
-  const [catModalOpen, setCatModalOpen] = useState(false);
-  const [editingCat, setEditingCat] = useState<Category | null>(null);
-  const [catForm, setCatForm] = useState<CatForm>(emptyCat());
-  const [savingCat, setSavingCat] = useState(false);
-
-  const [subModalOpen, setSubModalOpen] = useState(false);
-  const [editingSub, setEditingSub] = useState<Subcategory | null>(null);
-  const [subForm, setSubForm] = useState<SubForm>(emptySub());
-  const [savingSub, setSavingSub] = useState(false);
+  const [catDialog, setCatDialog] = useState<{ editing: Category | null } | null>(null);
+  const [subDialog, setSubDialog] = useState<{ editing: Subcategory | null } | null>(null);
 
   const loadCategories = useCallback(async () => {
     try {
-      setLoading(true);
-      const rows = await api.getCategories();
-      setCategories(rows || []);
+      setCatLoading(true);
+      const rows: Category[] = (await api.getCategories()) || [];
+      setCategories(rows);
+      setCatError(null);
+      setCatLoaded(true);
       setSelectedId((prev) => {
-        if (prev && (rows || []).some((c: Category) => String(c.id) === prev)) return prev;
-        return rows?.[0] ? String(rows[0].id) : null;
+        if (prev && rows.some((c) => String(c.id) === prev)) return prev;
+        return rows[0] ? String(rows[0].id) : null;
       });
     } catch (err: any) {
-      toast.error(`Couldn't load categories: ${err.message}`);
-      setCategories([]);
+      setCatError(err.message || "The server didn't answer.");
     } finally {
-      setLoading(false);
+      setCatLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   const loadSubs = useCallback(async (categoryId: string | null) => {
-    if (!categoryId) {
-      setSubcategories([]);
-      return;
-    }
+    if (!categoryId) return;
     try {
       setSubsLoading(true);
       const rows = await api.getSubcategories(categoryId);
       setSubcategories(rows || []);
+      setSubsFor(categoryId);
+      setSubsError(null);
     } catch (err: any) {
-      toast.error(`Couldn't load subcategories: ${err.message}`);
-      setSubcategories([]);
+      setSubsError(err.message || "The server didn't answer.");
     } finally {
       setSubsLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     loadCategories();
@@ -124,80 +132,65 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
   }, [selectedId, loadSubs]);
 
   const selected = categories.find((c) => String(c.id) === selectedId) || null;
+  const subsShown = subsFor === selectedId ? subcategories : [];
 
   const stats: StatItem[] = [
     {
-      label: 'Trade Categories',
-      value: categories.length,
+      label: 'Categories',
+      value: catLoaded ? categories.length : '—',
       icon: <Boxes size={20} />,
       iconColor: 'var(--accent)',
     },
     {
-      label: 'Subcategories (selected)',
-      value: subcategories.length,
+      label: selected ? `Subcategories in ${selected.name}` : 'Subcategories',
+      value: selected && subsFor === selectedId ? subsShown.length : '—',
       icon: <FolderTree size={20} />,
       iconColor: 'var(--info)',
     },
   ];
 
-  const openCreateCat = () => {
-    setEditingCat(null);
-    setCatForm(emptyCat());
-    setCatModalOpen(true);
-  };
-
-  const openEditCat = (cat: Category) => {
-    setEditingCat(cat);
-    setCatForm({
-      name: cat.name || '',
-      slug: cat.slug || '',
-      description: cat.description || '',
-      imageUrl: cat.imageUrl || '',
-      displayOrder: Number(cat.displayOrder ?? 100),
-    });
-    setCatModalOpen(true);
-  };
-
-  const saveCategory = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!catForm.name.trim()) return;
-    try {
-      setSavingCat(true);
-      const payload = {
-        name: catForm.name.trim(),
-        slug: catForm.slug.trim() || slugify(catForm.name),
-        description: catForm.description.trim(),
-        imageUrl: catForm.imageUrl.trim(),
-        displayOrder: Number(catForm.displayOrder) || 100,
-      };
-      if (editingCat) {
-        await api.updateCategory(String(editingCat.id), payload);
-        onAudit?.('Updated Category', `Updated "${payload.name}"`);
-        toast.success(`Category "${payload.name}" saved.`);
-      } else {
-        const created = await api.createCategory(payload);
-        onAudit?.('Created Category', `Added "${payload.name}"`);
-        toast.success(`Category "${payload.name}" added.`);
-        if (created?.id) setSelectedId(String(created.id));
-      }
-      setCatModalOpen(false);
-      await loadCategories();
-      onHierarchyChanged?.();
-    } catch (err: any) {
-      toast.error(`Couldn't save the category: ${err.message}`);
-    } finally {
-      setSavingCat(false);
+  const saveCategory = async (form: GroupForm, editing: Category | null) => {
+    const payload = {
+      name: form.name.trim(),
+      slug: form.slug.trim() || slugify(form.name),
+      description: form.description.trim(),
+      imageUrl: form.imageUrl.trim(),
+      displayOrder: Number(form.displayOrder),
+    };
+    if (editing) {
+      await api.updateCategory(String(editing.id), payload);
+      onAudit?.('Updated Category', `Saved category "${payload.name}"`);
+      toast.success(`Category "${payload.name}" saved.`);
+    } else {
+      const created = await api.createCategory(payload);
+      onAudit?.('Created Category', `Added category "${payload.name}"`);
+      toast.success(`Category "${payload.name}" added.`);
+      if (created?.id) setSelectedId(String(created.id));
     }
+    setCatDialog(null);
+    await loadCategories();
+    requestAnimationFrame(() =>
+      document.querySelector('[data-category-row][aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' })
+    );
+    onHierarchyChanged?.();
   };
 
   const deleteCategory = async (cat: Category) => {
-    const ok = window.confirm(
-      `Remove category "${cat.name}"? Subcategories under it will also be deactivated.`
-    );
+    const ok = await confirm({
+      title: `Remove category "${cat.name}"?`,
+      message: (
+        <>
+          Customers stop seeing <strong>{cat.name}</strong> and its subcategories in the app straight away. Products in
+          it are not deleted and orders are not changed. The portal can't bring a removed category back.
+        </>
+      ),
+      confirmLabel: 'Remove category',
+      destructive: true,
+    });
     if (!ok) return;
     try {
       await api.deleteCategory(String(cat.id));
-      onAudit?.('Deleted Category', `Removed "${cat.name}"`);
+      onAudit?.('Deleted Category', `Removed category "${cat.name}" and its subcategories`);
       toast.success(`Category "${cat.name}" removed.`);
       await loadCategories();
       onHierarchyChanged?.();
@@ -206,61 +199,45 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     }
   };
 
-  const openCreateSub = () => {
-    if (!selectedId) return;
-    setEditingSub(null);
-    setSubForm(emptySub());
-    setSubModalOpen(true);
-  };
-
-  const openEditSub = (sub: Subcategory) => {
-    setEditingSub(sub);
-    setSubForm({
-      name: sub.name || '',
-      slug: sub.slug || '',
-      imageUrl: sub.imageUrl || '',
-      displayOrder: Number(sub.displayOrder ?? 100),
-    });
-    setSubModalOpen(true);
-  };
-
-  const saveSubcategory = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!selectedId || !subForm.name.trim()) return;
-    try {
-      setSavingSub(true);
-      const payload = {
-        name: subForm.name.trim(),
-        slug: subForm.slug.trim() || slugify(subForm.name),
-        imageUrl: subForm.imageUrl.trim(),
-        displayOrder: Number(subForm.displayOrder) || 100,
-        categoryId: selectedId,
-      };
-      if (editingSub) {
-        await api.updateSubcategory(String(editingSub.id), payload);
-        onAudit?.('Updated Subcategory', `Updated "${payload.name}" under ${selected?.name}`);
-        toast.success(`Subcategory "${payload.name}" saved.`);
-      } else {
-        await api.createSubcategory(payload);
-        onAudit?.('Created Subcategory', `Added "${payload.name}" under ${selected?.name}`);
-        toast.success(`Subcategory "${payload.name}" added under ${selected?.name}.`);
-      }
-      setSubModalOpen(false);
-      await loadSubs(selectedId);
-      onHierarchyChanged?.();
-    } catch (err: any) {
-      toast.error(`Couldn't save the subcategory: ${err.message}`);
-    } finally {
-      setSavingSub(false);
+  const saveSubcategory = async (form: GroupForm, editing: Subcategory | null) => {
+    if (!selectedId || !selected) return;
+    const payload = {
+      name: form.name.trim(),
+      slug: form.slug.trim() || slugify(form.name),
+      imageUrl: form.imageUrl.trim(),
+      displayOrder: Number(form.displayOrder),
+      categoryId: selectedId,
+    };
+    if (editing) {
+      await api.updateSubcategory(String(editing.id), payload);
+      onAudit?.('Updated Subcategory', `Saved subcategory "${payload.name}" in ${selected.name}`);
+      toast.success(`Subcategory "${payload.name}" saved.`);
+    } else {
+      await api.createSubcategory(payload);
+      onAudit?.('Created Subcategory', `Added subcategory "${payload.name}" to ${selected.name}`);
+      toast.success(`Subcategory "${payload.name}" added to ${selected.name}.`);
     }
+    setSubDialog(null);
+    await loadSubs(selectedId);
+    onHierarchyChanged?.();
   };
 
   const deleteSubcategory = async (sub: Subcategory) => {
-    const ok = window.confirm(`Remove subcategory "${sub.name}"?`);
+    const ok = await confirm({
+      title: `Remove subcategory "${sub.name}"?`,
+      message: (
+        <>
+          Customers stop seeing <strong>{sub.name}</strong> in the app straight away. Products are not deleted. The
+          portal can't bring a removed subcategory back.
+        </>
+      ),
+      confirmLabel: 'Remove subcategory',
+      destructive: true,
+    });
     if (!ok) return;
     try {
       await api.deleteSubcategory(String(sub.id));
-      onAudit?.('Deleted Subcategory', `Removed "${sub.name}"`);
+      onAudit?.('Deleted Subcategory', `Removed subcategory "${sub.name}"${selected ? ` from ${selected.name}` : ''}`);
       toast.success(`Subcategory "${sub.name}" removed.`);
       await loadSubs(selectedId);
       onHierarchyChanged?.();
@@ -269,76 +246,87 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     }
   };
 
+  const productCount = (cat: Category) => cat.productCount ?? cat.activeProducts;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <StatGrid items={stats} />
+      <StatGrid items={stats} columns={2} />
 
-      <div style={styles.toolbar}>
-        <p style={styles.hint}>
-          These categories and subcategories are what customers browse and filter by in the app.
-        </p>
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={<RefreshCw size={14} />}
-          onClick={() => {
-            loadCategories();
-            loadSubs(selectedId);
-          }}
-          loading={loading}
-        >
-          Refresh
-        </Button>
-      </div>
+      <PageIntro
+        actions={
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RefreshCw size={14} />}
+            onClick={() => {
+              loadCategories();
+              loadSubs(selectedId);
+            }}
+            disabled={catLoading}
+          >
+            Refresh
+          </Button>
+        }
+      >
+        What customers browse and filter by in the app. Choose a category to see its subcategories.
+        {canEdit ? '' : ' Your role can see categories but not change them.'}
+      </PageIntro>
 
       <div style={styles.split}>
-        {/* Categories column */}
-        <div style={styles.panel}>
-          <div style={styles.panelHeader}>
-            <h3 style={styles.panelTitle}>Categories</h3>
-            {canEdit ? (
-              <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={openCreateCat}>
-                Add
+        <Panel
+          title="Categories"
+          style={styles.column}
+          actions={
+            canEdit ? (
+              <Button size="sm" icon={<Plus size={14} />} onClick={() => setCatDialog({ editing: null })}>
+                Add category
               </Button>
-            ) : null}
-          </div>
-
-          {categories.length === 0 && !loading ? (
-            <EmptyState
-              title="No categories"
-              description="Add a trade category (Cement, Paint, Tiles…) to start the hierarchy."
-              actionLabel={canEdit ? 'Add Category' : undefined}
-              onAction={canEdit ? openCreateCat : undefined}
-            />
-          ) : (
+            ) : undefined
+          }
+        >
+          <LoadState
+            loading={catLoading}
+            error={catError}
+            what="categories"
+            onRetry={loadCategories}
+            isEmpty={categories.length === 0}
+            empty={{
+              icon: <Boxes size={22} />,
+              title: 'No categories yet',
+              description: 'Add a category such as Cement, Paint or Tiles so customers can browse.',
+              actionLabel: canEdit ? 'Add category' : undefined,
+              onAction: canEdit ? () => setCatDialog({ editing: null }) : undefined,
+            }}
+          >
             <div style={styles.list}>
               {categories.map((cat) => {
                 const active = String(cat.id) === selectedId;
+                const count = productCount(cat);
                 return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setSelectedId(String(cat.id))}
-                    style={{
-                      ...styles.listItem,
-                      ...(active ? styles.listItemActive : {}),
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                      <div style={styles.itemName}>{cat.name}</div>
-                      <div style={styles.itemMeta}>
-                        {cat.slug || cat.id}
-                        {(cat.productCount ?? cat.activeProducts) !== undefined &&
-                          ` · ${cat.productCount ?? cat.activeProducts} SKUs`}
-                      </div>
-                    </div>
-                    <div style={styles.itemActions} onClick={(e) => e.stopPropagation()}>
+                  <div key={cat.id} style={{ ...styles.listItem, ...(active ? styles.listItemActive : {}) }}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(String(cat.id))}
+                      aria-pressed={active}
+                      data-category-row
+                      style={styles.selectButton}
+                    >
+                      <span style={styles.itemName}>{cat.name}</span>
+                      <span style={styles.itemMeta}>
+                        {count !== undefined && count !== null
+                          ? `${Number(count).toLocaleString('en-IN')} product${Number(count) === 1 ? '' : 's'}`
+                          : 'Product count not available'}
+                      </span>
+                    </button>
+                    <div style={styles.itemActions}>
                       {canEdit ? (
                         <Button
                           variant="ghost"
                           size="sm"
                           icon={<Edit2 size={13} />}
-                          onClick={() => openEditCat(cat)}
+                          onClick={() => setCatDialog({ editing: cat })}
+                          aria-label={`Edit category ${cat.name}`}
+                          title="Edit"
                         />
                       ) : null}
                       {canDelete ? (
@@ -347,274 +335,231 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
                           size="sm"
                           icon={<Trash2 size={13} color="var(--danger)" />}
                           onClick={() => deleteCategory(cat)}
+                          aria-label={`Remove category ${cat.name}`}
+                          title="Remove"
                         />
                       ) : null}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
-          )}
-        </div>
+          </LoadState>
+        </Panel>
 
-        {/* Subcategories column */}
-        <div style={styles.panel}>
-          <div style={styles.panelHeader}>
-            <div>
-              <h3 style={styles.panelTitle}>Subcategories</h3>
-              {selected && (
-                <Badge variant="neutral">{selected.name}</Badge>
-              )}
-            </div>
-            {canEdit ? (
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Plus size={14} />}
-                onClick={openCreateSub}
-                disabled={!selectedId}
-              >
-                Add
+        <Panel
+          title={selected ? `Subcategories in ${selected.name}` : 'Subcategories'}
+          style={styles.column}
+          actions={
+            canEdit && selected ? (
+              <Button variant="secondary" size="sm" icon={<Plus size={14} />} onClick={() => setSubDialog({ editing: null })}>
+                Add subcategory
               </Button>
-            ) : null}
-          </div>
-
-          {!selectedId ? (
-            <EmptyState title="Select a category" description="Choose a category on the left to manage its subcategories." />
-          ) : subsLoading ? (
-            <p style={styles.loadingText}>Loading…</p>
-          ) : subcategories.length === 0 ? (
-            <EmptyState
-              title="No subcategories"
-              description={`Add subcategories under "${selected?.name}".`}
-              actionLabel={canEdit ? 'Add Subcategory' : undefined}
-              onAction={canEdit ? openCreateSub : undefined}
-            />
+            ) : undefined
+          }
+        >
+          {!selected ? (
+            <EmptyState title="Choose a category" description="Its subcategories appear here." />
           ) : (
-            <div style={styles.list}>
-              {subcategories.map((sub) => (
-                <div key={sub.id} style={styles.subRow}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={styles.itemName}>{sub.name}</div>
-                    <div style={styles.itemMeta}>{sub.slug || sub.id}</div>
+            <LoadState
+              loading={subsLoading}
+              error={subsError}
+              what="subcategories"
+              onRetry={() => loadSubs(selectedId)}
+              isEmpty={subsShown.length === 0}
+              empty={{
+                icon: <FolderTree size={22} />,
+                title: 'No subcategories yet',
+                description: `Customers see ${selected.name} without subcategories.`,
+                actionLabel: canEdit ? 'Add subcategory' : undefined,
+                onAction: canEdit ? () => setSubDialog({ editing: null }) : undefined,
+              }}
+            >
+              <div style={styles.list}>
+                {subsShown.map((sub) => (
+                  <div key={sub.id} style={styles.subRow}>
+                    <span style={{ ...styles.itemName, flex: 1, minWidth: 0 }}>{sub.name}</span>
+                    <div style={styles.itemActions}>
+                      {canEdit ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Edit2 size={13} />}
+                          onClick={() => setSubDialog({ editing: sub })}
+                          aria-label={`Edit subcategory ${sub.name}`}
+                          title="Edit"
+                        />
+                      ) : null}
+                      {canDelete ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Trash2 size={13} color="var(--danger)" />}
+                          onClick={() => deleteSubcategory(sub)}
+                          aria-label={`Remove subcategory ${sub.name}`}
+                          title="Remove"
+                        />
+                      ) : null}
+                    </div>
                   </div>
-                  <div style={styles.itemActions}>
-                    {canEdit ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={<Edit2 size={13} />}
-                        onClick={() => openEditSub(sub)}
-                      />
-                    ) : null}
-                    {canDelete ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={<Trash2 size={13} color="var(--danger)" />}
-                        onClick={() => deleteSubcategory(sub)}
-                      />
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </LoadState>
           )}
-        </div>
+        </Panel>
       </div>
 
-      {/* Category modal */}
-      <Modal
-        isOpen={catModalOpen}
-        onClose={() => setCatModalOpen(false)}
-        title={editingCat ? 'Edit Category' : 'Add Category'}
-        subtitle="Visible in the mobile Categories tab"
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setCatModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              loading={savingCat}
-              disabled={!catForm.name.trim()}
-              onClick={() => saveCategory()}
-            >
-              {editingCat ? 'Save Changes' : 'Create Category'}
-            </Button>
-          </>
-        }
-      >
-        <form onSubmit={saveCategory} style={styles.form}>
-          <div>
-            <label style={styles.label}>Name *</label>
-            <input
-              style={styles.input}
-              value={catForm.name}
-              onChange={(e) => {
-                const name = e.target.value;
-                setCatForm((f) => ({
-                  ...f,
-                  name,
-                  slug: f.slug && editingCat ? f.slug : slugify(name),
-                }));
-              }}
-              required
-              placeholder="e.g. Cement & Plaster"
-            />
-          </div>
-          <div>
-            <label style={styles.label}>Slug / code</label>
-            <input
-              style={styles.input}
-              value={catForm.slug}
-              onChange={(e) => setCatForm({ ...catForm, slug: e.target.value })}
-              placeholder="cement-plaster"
-            />
-          </div>
-          <div>
-            <label style={styles.label}>Display order</label>
-            <input
-              type="number"
-              style={styles.input}
-              value={catForm.displayOrder}
-              onChange={(e) => setCatForm({ ...catForm, displayOrder: Number(e.target.value) })}
-            />
-          </div>
-          <div>
-            <label style={styles.label}>Image URL</label>
-            <input
-              style={styles.input}
-              value={catForm.imageUrl}
-              onChange={(e) => setCatForm({ ...catForm, imageUrl: e.target.value })}
-              placeholder="/images/subcategories/opc-cement.jpg"
-            />
-          </div>
-          <div>
-            <label style={styles.label}>Description</label>
-            <textarea
-              style={{ ...styles.input, minHeight: '72px', resize: 'vertical' }}
-              value={catForm.description}
-              onChange={(e) => setCatForm({ ...catForm, description: e.target.value })}
-            />
-          </div>
-        </form>
-      </Modal>
-
-      {/* Subcategory modal */}
-      <Modal
-        isOpen={subModalOpen}
-        onClose={() => setSubModalOpen(false)}
-        title={editingSub ? 'Edit Subcategory' : 'Add Subcategory'}
-        subtitle={selected ? `Under ${selected.name}` : undefined}
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setSubModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              loading={savingSub}
-              disabled={!subForm.name.trim()}
-              onClick={() => saveSubcategory()}
-            >
-              {editingSub ? 'Save Changes' : 'Create Subcategory'}
-            </Button>
-          </>
-        }
-      >
-        <form onSubmit={saveSubcategory} style={styles.form}>
-          <div>
-            <label style={styles.label}>Name *</label>
-            <input
-              style={styles.input}
-              value={subForm.name}
-              onChange={(e) => {
-                const name = e.target.value;
-                setSubForm((f) => ({
-                  ...f,
-                  name,
-                  slug: f.slug && editingSub ? f.slug : slugify(name),
-                }));
-              }}
-              required
-              placeholder="e.g. OPC Cement"
-            />
-          </div>
-          <div>
-            <label style={styles.label}>Slug / code</label>
-            <input
-              style={styles.input}
-              value={subForm.slug}
-              onChange={(e) => setSubForm({ ...subForm, slug: e.target.value })}
-            />
-          </div>
-          <div>
-            <label style={styles.label}>Display order</label>
-            <input
-              type="number"
-              style={styles.input}
-              value={subForm.displayOrder}
-              onChange={(e) => setSubForm({ ...subForm, displayOrder: Number(e.target.value) })}
-            />
-          </div>
-          <div>
-            <label style={styles.label}>Image URL</label>
-            <input
-              style={styles.input}
-              value={subForm.imageUrl}
-              onChange={(e) => setSubForm({ ...subForm, imageUrl: e.target.value })}
-            />
-          </div>
-        </form>
-      </Modal>
+      {catDialog ? (
+        <GroupDialog
+          key={catDialog.editing?.id ?? 'new-category'}
+          kind="category"
+          initial={catDialog.editing}
+          onClose={() => setCatDialog(null)}
+          onSave={(form) => saveCategory(form, catDialog.editing)}
+        />
+      ) : null}
+      {subDialog && selected ? (
+        <GroupDialog
+          key={subDialog.editing?.id ?? 'new-subcategory'}
+          kind="subcategory"
+          parentName={selected.name}
+          initial={subDialog.editing}
+          onClose={() => setSubDialog(null)}
+          onSave={(form) => saveSubcategory(form, subDialog.editing)}
+        />
+      ) : null}
+      {dialog}
     </div>
   );
 };
 
+const GroupDialog: React.FC<{
+  kind: 'category' | 'subcategory';
+  parentName?: string;
+  initial: (Category | Subcategory) | null;
+  onClose: () => void;
+  onSave: (form: GroupForm) => Promise<void>;
+}> = ({ kind, parentName, initial, onClose, onSave }) => {
+  const [form, setForm] = useState<GroupForm>(() => ({
+    name: initial?.name ?? '',
+    slug: initial?.slug ?? '',
+    displayOrder: String(initial?.displayOrder ?? 100),
+    imageUrl: initial?.imageUrl ?? '',
+    description: (initial as Category | null)?.description ?? '',
+  }));
+  /** A new item's short code follows its name until someone edits the code. */
+  const [slugTouched, setSlugTouched] = useState(Boolean(initial));
+  const [errors, setErrors] = useState<GroupErrors>({});
+  const [saving, setSaving] = useState(false);
+
+  const set = (key: keyof GroupForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+      ...(key === 'name' && !slugTouched ? { slug: slugify(value) } : {}),
+    }));
+    if (key === 'slug') setSlugTouched(true);
+    if (errors[key] || errors.form) setErrors((prev) => ({ ...prev, [key]: undefined, form: undefined }));
+  };
+
+  const submit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const found = checkGroup(form);
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    try {
+      setSaving(true);
+      await onSave(form);
+    } catch (err) {
+      setErrors(serverErrors(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const noun = kind === 'category' ? 'category' : 'subcategory';
+  const formId = `${kind}-${initial?.id ?? 'new'}`;
+
+  return (
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={initial ? `Edit ${noun}` : `Add ${noun}`}
+      subtitle={
+        kind === 'category'
+          ? "Customers see it in the app's Categories tab."
+          : `Customers see it inside ${parentName ?? 'its category'} in the app.`
+      }
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" type="submit" form={formId} loading={saving}>
+            {initial ? 'Save changes' : `Add ${noun}`}
+          </Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={submit} noValidate style={styles.form}>
+        <Field id={`${formId}-name`} label="Name" error={errors.name}>
+          <input
+            data-autofocus
+            value={form.name}
+            onChange={set('name')}
+            maxLength={100}
+            placeholder={kind === 'category' ? 'Cement & Plaster' : 'OPC Cement'}
+          />
+        </Field>
+        <div style={styles.row}>
+          <Field
+            id={`${formId}-slug`}
+            label="Short code"
+            error={errors.slug}
+            hint="Used in app links. Made from the name unless you change it."
+            style={{ flex: 2 }}
+          >
+            <input value={form.slug} onChange={set('slug')} maxLength={50} />
+          </Field>
+          <Field
+            id={`${formId}-order`}
+            label="Position"
+            error={errors.displayOrder}
+            hint="Lower numbers show first."
+            style={{ flex: 1 }}
+          >
+            <input inputMode="numeric" value={form.displayOrder} onChange={set('displayOrder')} />
+          </Field>
+        </div>
+        <Field
+          id={`${formId}-image`}
+          label="Image"
+          error={errors.imageUrl}
+          hint='A path such as "/images/categories/cement.jpg", or a full https:// link.'
+        >
+          <input value={form.imageUrl} onChange={set('imageUrl')} maxLength={500} />
+        </Field>
+        {kind === 'category' ? (
+          <Field id={`${formId}-description`} label="Description">
+            <textarea value={form.description} onChange={set('description')} maxLength={500} />
+          </Field>
+        ) : null}
+        {errors.form ? <FormError>{errors.form}</FormError> : null}
+      </form>
+    </Modal>
+  );
+};
+
 const styles: Record<string, React.CSSProperties> = {
-  toolbar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
-  hint: {
-    margin: 0,
-    fontSize: '0.82rem',
-    color: 'var(--text-muted)',
-    maxWidth: '640px',
-    lineHeight: 1.45,
-  },
   split: {
     display: 'grid',
     gridTemplateColumns: 'minmax(260px, 1fr) minmax(280px, 1.2fr)',
     gap: '16px',
+    alignItems: 'start',
   },
-  panel: {
-    background: 'var(--bg-surface)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-lg)',
-    padding: '16px',
+  column: {
     minHeight: '360px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
-  panelHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '10px',
-  },
-  panelTitle: {
-    margin: 0,
-    fontSize: '0.95rem',
-    fontWeight: 700,
-    color: 'var(--text-main)',
   },
   list: {
     display: 'flex',
@@ -627,17 +572,29 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    padding: '10px 12px',
+    padding: '4px 8px 4px 4px',
     borderRadius: 'var(--radius-md)',
     border: '1px solid transparent',
     background: 'var(--tint-1)',
-    cursor: 'pointer',
-    color: 'inherit',
-    width: '100%',
   },
   listItemActive: {
-    background: 'var(--bg-surface-elevated)',
+    background: 'var(--accent-soft)',
     borderColor: 'var(--accent-border)',
+  },
+  selectButton: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '2px',
+    padding: '6px 8px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 'var(--radius-sm)',
+    cursor: 'pointer',
+    textAlign: 'left',
+    color: 'inherit',
   },
   subRow: {
     display: 'flex',
@@ -654,42 +611,22 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-main)',
   },
   itemMeta: {
-    fontSize: '0.72rem',
+    fontSize: '0.74rem',
     color: 'var(--text-dim)',
-    marginTop: '2px',
-    fontFamily: 'monospace',
   },
   itemActions: {
     display: 'flex',
     gap: '2px',
     flexShrink: 0,
   },
-  loadingText: {
-    color: 'var(--text-dim)',
-    fontSize: '0.86rem',
-    padding: '24px',
-    textAlign: 'center',
-  },
   form: {
     display: 'flex',
     flexDirection: 'column',
     gap: '14px',
   },
-  label: {
-    display: 'block',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    marginBottom: '6px',
-  },
-  input: {
-    width: '100%',
-    background: 'var(--tint-2)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '9px 14px',
-    color: 'var(--text-main)',
-    fontSize: '0.86rem',
-    outline: 'none',
+  row: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'flex-start',
   },
 };

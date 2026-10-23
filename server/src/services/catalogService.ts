@@ -4,6 +4,12 @@ import { allocateCatalogueStock } from '../utils/stockAllocation.js';
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
+function refuseTakenCode(err: any, what: string) {
+  if (err?.code === 'ER_DUP_ENTRY') {
+    throw Object.assign(new Error(`That short code is already used by another ${what}.`), { statusCode: 409 });
+  }
+}
+
 export interface ProductFilterParams {
   search?: string;
   categoryId?: string | number;
@@ -158,8 +164,8 @@ export class CatalogService {
     try {
       const [insertRes] = await storePool.query<any>(
         `INSERT INTO categories
-         (CategoryCode, CategoryName, CategoryDescription, CategoryImage, DisplayOrder, IsActive)
-         VALUES (?, ?, ?, ?, ?, 1)`,
+         (CategoryCode, CategoryName, CategoryDescription, CategoryImage, DisplayOrder, IsActive, CreatedDate, CreatedTime)
+         VALUES (?, ?, ?, ?, ?, 1, CURDATE(), CURTIME())`,
         [slug, name, description, imageUrl, displayOrder]
       );
       return {
@@ -173,6 +179,7 @@ export class CatalogService {
         featured: displayOrder <= 5,
       };
     } catch (err) {
+      refuseTakenCode(err, 'category');
       return mysqlOrFileStore('catalog.createCategory', err, () =>
         store.createCategory({
       id: `cat-${Date.now()}`,
@@ -203,7 +210,9 @@ export class CatalogService {
              CategoryCode = COALESCE(?, CategoryCode),
              CategoryDescription = COALESCE(?, CategoryDescription),
              CategoryImage = COALESCE(?, CategoryImage),
-             DisplayOrder = COALESCE(?, DisplayOrder)
+             DisplayOrder = COALESCE(?, DisplayOrder),
+             UpdatedDate = CURDATE(),
+             UpdatedTime = CURTIME()
            WHERE ID = ?`,
           [
             name || null,
@@ -219,6 +228,7 @@ export class CatalogService {
         if (updated) return updated;
       }
     } catch (err) {
+      refuseTakenCode(err, 'category');
       return mysqlOrFileStore('catalog.updateCategory', err, () => {
         const updated = store.updateCategory(String(id), {
           ...(name !== undefined ? { name } : {}),
@@ -261,14 +271,28 @@ export class CatalogService {
     const displayOrder = data.displayOrder !== undefined ? Number(data.displayOrder) : 100;
 
     try {
-      const [insertRes] = await storePool.query<any>(
-        `INSERT INTO sub_categories
-         (CategoryID, SubCategoryCode, SubCategoryName, SubCategoryImage, DisplayOrder, IsActive)
-         VALUES (?, ?, ?, ?, ?, 1)`,
-        [categoryId, slug, name, imageUrl, displayOrder]
-      );
+      // sub_categories.ID has no AUTO_INCREMENT in the live schema.
+      const conn = await storePool.getConnection();
+      let id = 0;
+      try {
+        const [[lock]] = await conn.query<any[]>(`SELECT GET_LOCK('tx_subcategory_id_gen', 10) as got`);
+        if (Number(lock?.got) !== 1) {
+          throw Object.assign(new Error('Another subcategory is being added. Try again.'), { statusCode: 503 });
+        }
+        const [[next]] = await conn.query<any[]>(`SELECT COALESCE(MAX(ID), 0) + 1 as id FROM sub_categories`);
+        id = Number(next.id);
+        await conn.query(
+          `INSERT INTO sub_categories
+           (ID, CategoryID, SubCategoryCode, SubCategoryName, SubCategoryImage, DisplayOrder, IsActive, CreatedDate, CreatedTime)
+           VALUES (?, ?, ?, ?, ?, ?, 1, CURDATE(), CURTIME())`,
+          [id, categoryId, slug, name, imageUrl, displayOrder]
+        );
+      } finally {
+        await conn.query(`SELECT RELEASE_LOCK('tx_subcategory_id_gen')`).catch(() => undefined);
+        conn.release();
+      }
       return {
-        id: insertRes.insertId,
+        id,
         categoryId: Number(categoryId) || categoryId,
         slug,
         name,
@@ -277,6 +301,8 @@ export class CatalogService {
         displayOrder,
       };
     } catch (err) {
+      if ((err as any)?.statusCode) throw err;
+      refuseTakenCode(err, 'subcategory in this category');
       return mysqlOrFileStore('catalog.createSubcategory', err, () =>
         store.createSubcategory({
           id: `sub-${Date.now()}`,
@@ -305,7 +331,9 @@ export class CatalogService {
              SubCategoryCode = COALESCE(?, SubCategoryCode),
              SubCategoryImage = COALESCE(?, SubCategoryImage),
              DisplayOrder = COALESCE(?, DisplayOrder),
-             CategoryID = COALESCE(?, CategoryID)
+             CategoryID = COALESCE(?, CategoryID),
+             UpdatedDate = CURDATE(),
+             UpdatedTime = CURTIME()
            WHERE ID = ?`,
           [
             name || null,
@@ -321,6 +349,7 @@ export class CatalogService {
         if (updated) return updated;
       }
     } catch (err) {
+      refuseTakenCode(err, 'subcategory in this category');
       return mysqlOrFileStore('catalog.updateSubcategory', err, () => {
         const updated = store.updateSubcategory(String(id), {
           ...(name !== undefined ? { name } : {}),

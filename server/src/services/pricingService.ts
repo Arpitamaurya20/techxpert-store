@@ -5,27 +5,33 @@ import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 export class PricingService {
   static async getBulkTiers(productId?: string | number) {
     try {
+      // product_name on the tier is a copy taken when it was made; the catalogue's name wins.
       let query = `
-        SELECT 
-          id,
-          product_id as productId,
-          category_id as categoryId,
-          product_name as productName,
-          min_quantity as minQty,
-          max_quantity as maxQty,
-          discount_type as discountType,
-          CAST(discount_value AS DOUBLE) as discountValue,
-          COALESCE(terms_condition, 'Standard bulk rate') as terms,
-          is_active as isActive
-        FROM bulk_price_tiers
-        WHERE is_active = 1
+        SELECT
+          t.id,
+          t.product_id as productId,
+          t.category_id as categoryId,
+          COALESCE(p.ProductName, t.product_name) as productName,
+          p.ProductCode as productSku,
+          CASE WHEN p.ID IS NOT NULL AND p.IsActive = 1 THEN 1 ELSE 0 END as productLive,
+          (SELECT CAST(MIN(pr.SellingPrice) AS DOUBLE) FROM product_pricing pr
+            WHERE pr.ProductID = t.product_id AND pr.IsActive = 1) as productPrice,
+          t.min_quantity as minQty,
+          t.max_quantity as maxQty,
+          t.discount_type as discountType,
+          CAST(t.discount_value AS DOUBLE) as discountValue,
+          COALESCE(t.terms_condition, '') as terms,
+          t.is_active as isActive
+        FROM bulk_price_tiers t
+        LEFT JOIN products p ON p.ID = t.product_id
+        WHERE t.is_active = 1
       `;
       const params: any[] = [];
       if (productId) {
-        query += ` AND product_id = ?`;
+        query += ` AND t.product_id = ?`;
         params.push(productId);
       }
-      query += ` ORDER BY product_id ASC, min_quantity ASC`;
+      query += ` ORDER BY t.product_id ASC, t.min_quantity ASC`;
 
       const [rows] = await storePool.query<any[]>(query, params);
       return rows;
@@ -53,6 +59,12 @@ export class PricingService {
     }
 
     try {
+      const [named] = await storePool.query<any[]>(`SELECT ProductName FROM products WHERE ID = ?`, [
+        Number(productId),
+      ]);
+      if (!named.length) {
+        throw Object.assign(new Error("That product isn't in the catalogue."), { statusCode: 404 });
+      }
       const [insertRes] = await storePool.query<any>(
         `INSERT INTO bulk_price_tiers
          (product_id, category_id, product_name, min_quantity, max_quantity, discount_type, discount_value, terms_condition, is_active)
@@ -60,38 +72,29 @@ export class PricingService {
         [
           Number(productId),
           categoryId ? Number(categoryId) : null,
-          productName || 'Construction Product',
+          String(named[0].ProductName),
           Number(minQty),
           maxQty ? Number(maxQty) : null,
           discountType,
           Number(discountValue),
-          terms || 'Bulk contractor pricing applied at checkout',
+          terms ? String(terms) : '',
         ]
       );
 
-      return {
-        id: String(insertRes.insertId),
-        productId: Number(productId),
-        categoryId: categoryId ? Number(categoryId) : undefined,
-        productName: productName || 'Construction Product',
-        minQty: Number(minQty),
-        maxQty: maxQty ? Number(maxQty) : undefined,
-        discountType,
-        discountValue: Number(discountValue),
-        terms: terms || 'Bulk contractor pricing applied at checkout',
-        isActive: 1,
-      };
-    } catch (err) {
+      const tiers = await PricingService.getBulkTiers();
+      return tiers.find((tier) => String(tier.id) === String(insertRes.insertId));
+    } catch (err: any) {
+      if (err?.statusCode) throw err;
       return mysqlOrFileStore('pricing.createBulkTier', err, () =>
         store.createBulkTier({
           id: `tier-${Date.now()}`,
           productId: String(productId),
-          productName: productName || 'Construction Material',
+          productName: productName || '',
           minQty: Number(minQty),
           maxQty: maxQty ? Number(maxQty) : undefined,
           discountType,
           discountValue: Number(discountValue),
-          terms: terms || 'Bulk savings applied at checkout',
+          terms: terms ? String(terms) : '',
         })
       );
     }
@@ -120,7 +123,7 @@ export class PricingService {
           setMax ? (maxQty == null || maxQty === '' ? null : Number(maxQty)) : null,
           data.discountType || null,
           data.discountValue !== undefined ? Number(data.discountValue) : null,
-          data.terms || null,
+          data.terms !== undefined && data.terms !== null ? String(data.terms) : null,
           id,
         ]
       );

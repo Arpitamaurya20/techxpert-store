@@ -19,6 +19,8 @@ import { ChangePasswordDialog, ChangePasswordScreen } from './components/ChangeP
 import { api, setPasswordChangeHandler, setUnauthorizedHandler } from './services/api';
 import { allowedTabs, can, hasAnyAccess, TAB_ORDER } from './services/access';
 import { orderStatusLabel } from './services/orderStatus';
+import { inr } from './services/format';
+import { tierSummary } from './services/bulkTier';
 import {
   loadSession,
   clearSession,
@@ -207,6 +209,7 @@ function PortalApp({
   /** Counts stay hidden until their data has loaded once, so a failed first load never reads as 0. */
   const [loaded, setLoaded] = useState<LoadedPieces>({
     products: false,
+    categories: false,
     orders: false,
     users: false,
     banners: false,
@@ -294,7 +297,7 @@ function PortalApp({
         healthy,
       ] = await Promise.all([
         soft(api.getProducts({ page: 1, limit: 100 }), 'products', 'products'),
-        soft(api.getCategories(), 'categories'),
+        soft(api.getCategories(), 'categories', 'categories'),
         can(permissions, 'orders', 'view') ? soft(api.getOrders(), 'orders', 'orders') : skip,
         can(permissions, 'customers', 'view') ? soft(api.getUsers(), 'customers', 'users') : skip,
         soft(api.getBulkTiers(), 'bulk pricing', 'tiers'),
@@ -317,6 +320,7 @@ function PortalApp({
       const sectionsOk = Array.isArray(sectionsData);
       setLoaded((prev) => ({
         products: prev.products || Boolean(prodsData),
+        categories: prev.categories || Boolean(catsData),
         orders: prev.orders || Boolean(ordersData),
         users: prev.users || Boolean(usersData),
         banners: prev.banners || Boolean(bannersData),
@@ -375,60 +379,47 @@ function PortalApp({
   }, [serverOnline, setServerOnline, toast]);
 
   // Product Actions
+  /** Rejects on refusal; the edit form shows the reason next to the fields. */
   const handleUpdateProduct = async (updated: Product) => {
-    try {
-      const saved = await api.updateProduct(updated.id, updated);
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.id === updated.id
-            ? {
-                ...updated,
-                price: Number(saved?.price ?? updated.price),
-                stockQuantity: Number(saved?.stockQuantity ?? updated.stockQuantity),
-                stockStatus: saved?.stockStatus ?? updated.stockStatus,
-                unit: saved?.unit ?? updated.unit,
-              }
-            : p
-        )
-      );
-      addAuditLog(
-        'Updated Material SKU',
-        'product',
-        `Adjusted ${updated.name}: ₹${updated.price}, Stock: ${updated.stockQuantity} units`
-      );
-      toast.success(`"${updated.name}" saved.`);
-    } catch (err: any) {
-      toast.error(`Couldn't save "${updated.name}": ${err.message}`);
-    }
+    const saved = await api.updateProduct(updated.id, updated);
+    const price = saved?.price ?? updated.price;
+    const next: Product = {
+      ...updated,
+      price: price == null ? null : Number(price),
+      stockQuantity: Number(saved?.stockQuantity ?? updated.stockQuantity),
+      stockStatus: saved?.stockStatus ?? updated.stockStatus,
+      unit: saved?.unit ?? updated.unit,
+    };
+    setProducts((prev) => prev.map((p) => (p.id === updated.id ? next : p)));
+    addAuditLog(
+      'Updated Material SKU',
+      'product',
+      `Saved ${next.name}: price ${next.price == null ? 'not set' : inr(next.price)}, stock ${next.stockQuantity}`
+    );
+    toast.success(`"${next.name}" saved.`);
   };
 
+  /** Rejects on refusal; the add form shows the reason. */
   const handleCreateProduct = async (input: NewProductInput) => {
-    try {
-      const created = await api.createProduct(input);
-      const categoryName = categories.find((c) => String(c.id) === String(input.categoryId))?.name;
-      const product: Product = {
-        id: String(created.id ?? `prod-${Date.now()}`),
-        name: created.name ?? input.name,
-        categoryId: String(created.categoryId ?? input.categoryId),
-        categoryName: created.categoryName ?? categoryName,
-        sku: created.sku ?? input.sku,
-        brandName: created.brandName ?? input.brandName,
-        unit: created.unit ?? input.unit,
-        price: Number(created.price ?? input.price),
-        stockQuantity: Number(created.stockQuantity ?? input.stockQuantity),
-        stockStatus:
-          created.stockStatus ??
-          (Number(input.stockQuantity) > 0 ? 'in_stock' : 'out_of_stock'),
-        description: created.description ?? input.description ?? '',
-      };
-      setProducts((prev) => [product, ...prev]);
-      setCatalogTotal((n) => n + 1);
-      addAuditLog('Created Material SKU', 'product', `Added ${product.name} at ₹${product.price}`);
-      toast.success(`"${product.name}" added to products.`);
-    } catch (err: any) {
-      toast.error(`Couldn't add the product: ${err.message}`);
-      throw err;
-    }
+    const created = await api.createProduct(input);
+    const categoryName = categories.find((c) => String(c.id) === String(input.categoryId))?.name;
+    const product: Product = {
+      id: String(created.id ?? `prod-${Date.now()}`),
+      name: created.name ?? input.name,
+      categoryId: String(created.categoryId ?? input.categoryId),
+      categoryName: created.categoryName ?? categoryName,
+      sku: created.sku ?? input.sku,
+      brandName: created.brandName ?? input.brandName,
+      unit: created.unit ?? input.unit,
+      price: Number(created.price ?? input.price),
+      stockQuantity: Number(created.stockQuantity ?? input.stockQuantity),
+      stockStatus: created.stockStatus ?? (Number(input.stockQuantity) > 0 ? 'in_stock' : 'out_of_stock'),
+      description: created.description ?? input.description ?? '',
+    };
+    setProducts((prev) => [product, ...prev]);
+    setCatalogTotal((n) => n + 1);
+    addAuditLog('Created Material SKU', 'product', `Added ${product.name} at ${inr(Number(product.price))}`);
+    toast.success(`"${product.name}" added to products.`);
   };
 
   const handleDeleteProduct = async (id: string) => {
@@ -463,54 +454,42 @@ function PortalApp({
   };
 
   // Bulk Tier Actions
+  /** Rejects on refusal; the bulk price form shows the reason. */
   const handleAddTier = async (newTier: BulkPriceTier) => {
-    try {
-      const created = await api.createBulkTier(newTier);
-      setBulkTiers((prev) => [...prev, created]);
-      addAuditLog(
-        'Created Bulk Tier',
-        'bulk_tier',
-        `Added ${newTier.discountValue}% tier for ${newTier.productName}`
-      );
-      toast.success(`Bulk price added for ${newTier.productName || 'the product'}.`);
-    } catch (err: any) {
-      toast.error(`Couldn't add the bulk price: ${err.message}`);
-    }
+    const created = await api.createBulkTier(newTier);
+    setBulkTiers((prev) => [...prev, created]);
+    addAuditLog('Created Bulk Tier', 'bulk_tier', `Added ${tierSummary(newTier)}`);
+    toast.success(`Bulk price added for ${newTier.productName || 'the product'}.`);
   };
 
+  /** Rejects on refusal; the bulk price form shows the reason. */
   const handleUpdateTier = async (tier: BulkPriceTier) => {
-    try {
-      const saved = await api.updateBulkTier(tier.id, {
-        productId: tier.productId,
-        productName: tier.productName,
-        minQty: tier.minQty,
-        maxQty: tier.maxQty ?? null,
-        discountType: tier.discountType,
-        discountValue: tier.discountValue,
-        terms: tier.terms,
-      });
-      setBulkTiers((prev) =>
-        prev.map((row) => (row.id === tier.id ? { ...row, ...saved, id: String(saved?.id ?? tier.id) } : row))
-      );
-      addAuditLog(
-        'Updated Bulk Tier',
-        'bulk_tier',
-        `Updated ${tier.productName || tier.productId}: ${tier.minQty}+ at ${tier.discountValue}`
-      );
-      toast.success(`Bulk price saved for ${tier.productName || 'the product'}.`);
-    } catch (err: any) {
-      toast.error(`Couldn't save the bulk price: ${err.message}`);
-    }
+    const saved = await api.updateBulkTier(tier.id, {
+      productId: tier.productId,
+      productName: tier.productName,
+      minQty: tier.minQty,
+      maxQty: tier.maxQty ?? null,
+      discountType: tier.discountType,
+      discountValue: tier.discountValue,
+      terms: tier.terms,
+    });
+    setBulkTiers((prev) =>
+      prev.map((row) => (row.id === tier.id ? { ...row, ...saved, id: String(saved?.id ?? tier.id) } : row))
+    );
+    addAuditLog('Updated Bulk Tier', 'bulk_tier', `Saved ${tierSummary(tier)}`);
+    toast.success(`Bulk price saved for ${tier.productName || 'the product'}.`);
   };
 
   const handleDeleteTier = async (id: string) => {
+    const tier = bulkTiers.find((t) => t.id === id);
+    const what = tier?.productName ? `the bulk price for ${tier.productName}` : 'the bulk price';
     try {
       await api.deleteBulkTier(id);
       setBulkTiers((prev) => prev.filter((t) => t.id !== id));
-      addAuditLog('Deleted Bulk Tier', 'bulk_tier', `Removed tier rule ${id}`);
-      toast.success('Bulk price removed.');
+      addAuditLog('Deleted Bulk Tier', 'bulk_tier', tier ? `Removed ${tierSummary(tier)}` : `Removed ${what}`);
+      toast.success(`Removed ${what}.`);
     } catch (err: any) {
-      toast.error(`Couldn't remove the bulk price: ${err.message}`);
+      toast.error(`Couldn't remove ${what}: ${err.message}`);
     }
   };
 
@@ -791,6 +770,7 @@ function PortalApp({
               catalogTotal={catalogTotal}
               onCatalogTotalChange={setCatalogTotal}
               categories={categories}
+              categoriesLoaded={loaded.categories}
               onUpdateProduct={handleUpdateProduct}
               onCreateProduct={handleCreateProduct}
               canEdit={can(permissions, 'products', 'edit')}
@@ -849,6 +829,11 @@ function PortalApp({
             <BulkPricingManager
               tiers={bulkTiers}
               products={products}
+              productsLoaded={loaded.products}
+              loading={loading}
+              loadError={loadErrors.tiers ?? null}
+              loaded={loaded.tiers}
+              onRetry={() => loadData(true)}
               onAddTier={handleAddTier}
               onUpdateTier={handleUpdateTier}
               canEdit={can(permissions, 'pricing', 'edit')}

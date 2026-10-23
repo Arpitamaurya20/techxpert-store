@@ -45,6 +45,10 @@ export interface BulkPriceTier {
   productId?: string;
   categoryId?: string;
   productName?: string;
+  productSku?: string | null;
+  /** 0 when the product was removed from the catalogue; the bulk price then never applies. */
+  productLive?: number;
+  productPrice?: number | null;
   minQty: number;
   maxQty?: number;
   discountType: 'percentage' | 'fixed_price';

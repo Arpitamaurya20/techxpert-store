@@ -139,18 +139,33 @@ CREATE TABLE techxpertstore.categories (
   CategoryDescription TEXT NULL,
   CategoryImage VARCHAR(500) NULL,
   DisplayOrder INT NOT NULL DEFAULT 100,
-  IsActive TINYINT(1) NOT NULL DEFAULT 1
+  IsActive TINYINT(1) NOT NULL DEFAULT 1,
+  CreatedDate DATE NOT NULL,              -- no default: inserts must set it
+  CreatedTime TIME NOT NULL,
+  CreatedBy INT NULL,
+  UpdatedDate DATE NULL,
+  UpdatedTime TIME NULL,
+  UpdatedBy INT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Sub-Categories
+-- ID has no AUTO_INCREMENT in the live DB: the API takes MAX(ID)+1 under GET_LOCK('tx_subcategory_id_gen').
 CREATE TABLE techxpertstore.sub_categories (
-  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ID INT NOT NULL PRIMARY KEY,
   CategoryID INT NOT NULL,
-  SubCategoryCode VARCHAR(50) NOT NULL UNIQUE,
+  SubCategoryCode VARCHAR(50) NOT NULL,
   SubCategoryName VARCHAR(255) NOT NULL,
+  SubCategoryDescription TEXT NULL,
   SubCategoryImage VARCHAR(500) NULL,
   DisplayOrder INT NOT NULL DEFAULT 100,
   IsActive TINYINT(1) NOT NULL DEFAULT 1,
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL,
+  CreatedBy INT NULL,
+  UpdatedDate DATE NULL,
+  UpdatedTime TIME NULL,
+  UpdatedBy INT NULL,
+  UNIQUE KEY SubCategoryCode_CategoryID (SubCategoryCode, CategoryID),
   INDEX idx_subcat_category (CategoryID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
