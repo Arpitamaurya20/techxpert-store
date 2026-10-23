@@ -1,80 +1,348 @@
+import type { PoolConnection } from 'mysql2/promise';
 import { storePool } from '../db/mysql.js';
+import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 import { PricingService } from './pricingService.js';
-import { OrderService } from './orderService.js';
+import { orderRefusal } from '../utils/checkoutPricing.js';
+import {
+  cartTotals,
+  isUsableSessionId,
+  lineLimits,
+  mergeQuantity,
+  newSessionId,
+  priceLine,
+  quantityRefusal,
+  type CartLimits,
+  type CartTotals,
+  type LineProblem,
+} from '../utils/cartRules.js';
+
+export type CartAccess = { userId?: number; sessionId?: string };
+
+export type CartRow = { id: number; userId: number | null; sessionId: string | null; status?: string };
+
+export type PricedCartLine = {
+  productId: string;
+  name: string;
+  brandName: string | null;
+  categoryId: string | null;
+  imageUrl: string | null;
+  unit: string;
+  quantity: number;
+  basePrice: number | null;
+  unitPrice: number | null;
+  appliedTier: unknown;
+  lineTotal: number;
+  limits: CartLimits;
+  problem: LineProblem;
+};
+
+export type PricedCart = {
+  id: number;
+  sessionId?: string;
+  lines: PricedCartLine[];
+  totals: CartTotals;
+  canCheckout: boolean;
+};
+
+/** A priced line plus what checkout needs to write it. */
+export type CheckoutLine = PricedCartLine & { variantId: number; savings: number };
+
+/** Product facts the cart needs; the variant is the first one, as checkout uses. */
+const PRODUCT_FACTS = `
+  p.ID as productId,
+  p.IsActive as isActive,
+  p.ProductCode as sku,
+  p.ProductName as name,
+  p.Brand as brandName,
+  p.CategoryID as categoryId,
+  p.ProductImage as imageUrl,
+  COALESCE(mu.UnitName, 'unit') as unit,
+  p.MinOrderQuantity as minOrderQuantity,
+  p.MaxOrderQuantity as maxOrderQuantity,
+  (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price`;
 
 export class CartService {
-  static async getOrCreateCart(userId?: number, sessionId?: string) {
-    if (!userId && !sessionId) {
-      throw new Error('Either userId or sessionId must be provided');
+  /** Ensure the caller owns the cart (user JWT or matching x-session-id). */
+  static async assertCartAccess(cartId: number, userId?: number, sessionId?: string) {
+    const [rows] = await storePool.query<any[]>(
+      `SELECT ID as id, UserID as userId, SessionID as sessionId, Status as status
+       FROM carts WHERE ID = ? LIMIT 1`,
+      [cartId]
+    );
+    if (!rows.length) {
+      throw Object.assign(new Error('Cart not found'), { statusCode: 404 });
+    }
+    const cart = rows[0];
+    if (cart.userId != null) {
+      if (userId != null && Number(cart.userId) === Number(userId)) return cart;
+      throw Object.assign(new Error('Not authorized to access this cart'), { statusCode: 403 });
+    }
+    if (sessionId && cart.sessionId && String(cart.sessionId) === String(sessionId)) {
+      return cart;
+    }
+    throw Object.assign(new Error('Not authorized to access this cart'), { statusCode: 403 });
+  }
+
+  /**
+   * The caller's active cart. Signed in: by user. Guest: by a server-issued session id;
+   * an unknown or missing id gets a new cart with a new id.
+   */
+  static async activeCart(access: CartAccess): Promise<CartRow> {
+    if (access.userId) {
+      const [rows] = await storePool.query<any[]>(
+        `SELECT ID as id, UserID as userId, SessionID as sessionId FROM carts
+         WHERE UserID = ? AND Status = 'active' ORDER BY ID DESC LIMIT 1`,
+        [access.userId]
+      );
+      if (rows.length) return rows[0];
+      const [res] = await storePool.query<any>(
+        `INSERT INTO carts (UserID, SessionID, CurrencyID, Status, CreatedDate, CreatedTime)
+         VALUES (?, NULL, 1, 'active', CURDATE(), CURTIME())`,
+        [access.userId]
+      );
+      return { id: Number(res.insertId), userId: access.userId, sessionId: null };
     }
 
+    if (isUsableSessionId(access.sessionId)) {
+      const [rows] = await storePool.query<any[]>(
+        `SELECT ID as id, UserID as userId, SessionID as sessionId FROM carts
+         WHERE SessionID = ? AND UserID IS NULL AND Status = 'active' ORDER BY ID DESC LIMIT 1`,
+        [access.sessionId]
+      );
+      if (rows.length) return rows[0];
+    }
+
+    const sessionId = newSessionId();
+    const [res] = await storePool.query<any>(
+      `INSERT INTO carts (UserID, SessionID, CurrencyID, Status, CreatedDate, CreatedTime)
+       VALUES (NULL, ?, 1, 'active', CURDATE(), CURTIME())`,
+      [sessionId]
+    );
+    return { id: Number(res.insertId), userId: null, sessionId };
+  }
+
+  /** The cart's lines with their first-variant stock; `FOR UPDATE` when checkout is about to take them. */
+  static async cartRows(cartId: number, conn: Pick<PoolConnection, 'query'> = storePool, forUpdate = false) {
+    const [rows] = await conn.query<any[]>(
+      `SELECT ci.Quantity as quantity, pv.ID as variantId, pv.StockQuantity as stock, ${PRODUCT_FACTS}
+       FROM cart_items ci
+       JOIN product_variants pv ON pv.ID = ci.VariantID
+       JOIN products p ON p.ID = pv.ProductID
+       LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
+       WHERE ci.CartID = ?
+       ORDER BY ci.ID ASC
+       ${forUpdate ? 'FOR UPDATE' : ''}`,
+      [cartId]
+    );
+    return rows;
+  }
+
+  /**
+   * Prices rows exactly as the Cart screen shows them and as checkout charges them:
+   * lowest active selling price, bulk tier, first-variant stock and order limits.
+   * A product taken off the catalogue is treated as having no price.
+   */
+  static async priceRows(rows: any[]): Promise<{ lines: CheckoutLine[]; totals: CartTotals }> {
+    const lines: CheckoutLine[] = [];
+    for (const row of rows) {
+      const quantity = Number(row.quantity);
+      const limits = lineLimits(row);
+      const price = Number(row.isActive) === 1 ? row.price : null;
+      const base = Number(price);
+      const bulk =
+        price != null && Number.isFinite(base) && base > 0
+          ? await PricingService.calculateBulkPrice(Number(row.productId), quantity, base)
+          : null;
+      const priced = priceLine(quantity, limits, price, bulk);
+      lines.push({
+        productId: String(row.productId),
+        name: String(row.name),
+        brandName: row.brandName ?? null,
+        categoryId: row.categoryId != null ? String(row.categoryId) : null,
+        imageUrl: row.imageUrl ?? null,
+        unit: String(row.unit),
+        quantity,
+        basePrice: priced.basePrice,
+        unitPrice: priced.unitPrice,
+        appliedTier: priced.appliedTier,
+        lineTotal: priced.lineTotal,
+        limits,
+        problem: priced.problem,
+        variantId: Number(row.variantId),
+        savings: priced.savings,
+      });
+    }
+    return { lines, totals: cartTotals(lines) };
+  }
+
+  static async pricedCart(cart: CartRow): Promise<PricedCart> {
+    const { lines } = await CartService.priceRows(await CartService.cartRows(cart.id));
+    const publicLines: PricedCartLine[] = lines.map(({ variantId: _variantId, savings: _savings, ...line }) => line);
+    return {
+      id: cart.id,
+      ...(cart.userId == null && cart.sessionId ? { sessionId: cart.sessionId } : {}),
+      lines: publicLines,
+      totals: cartTotals(lines),
+      canCheckout: lines.length > 0 && lines.every((line) => line.problem === null),
+    };
+  }
+
+  static async view(access: CartAccess): Promise<PricedCart> {
     try {
-      let [carts] = await storePool.query<any[]>(
-        `SELECT ID as id, UserID as userId, SessionID as sessionId, Status as status
-         FROM techxpertstore.carts
-         WHERE (UserID = ? OR (SessionID = ? AND UserID IS NULL)) AND Status = 'active'
-         ORDER BY ID DESC LIMIT 1`,
-        [userId || null, sessionId || null]
-      );
-
-      if (carts.length === 0) {
-        const [insertRes] = await storePool.query<any>(
-          `INSERT INTO techxpertstore.carts (UserID, SessionID, CurrencyID, Status, CreatedDate, CreatedTime)
-           VALUES (?, ?, 1, 'active', CURDATE(), CURTIME())`,
-          [userId || null, sessionId || null]
-        );
-        return { id: insertRes.insertId, userId, sessionId, items: [], subtotal: 0 };
-      }
-
-      const cart = carts[0];
-      const [items] = await storePool.query<any[]>(
-        `SELECT 
-           ci.ID as id,
-           ci.CartID as cartId,
-           ci.VariantID as variantId,
-           ci.Quantity as quantity,
-           p.ID as productId,
-           p.ProductName as name,
-           p.ProductCode as sku,
-           p.ProductImage as imageUrl,
-           COALESCE(pr.SellingPrice, 450) as unitPrice,
-           COALESCE(mu.UnitName, 'unit') as unit,
-           pv.StockQuantity as availableStock
-         FROM techxpertstore.cart_items ci
-         LEFT JOIN techxpertstore.product_variants pv ON pv.ID = ci.VariantID
-         LEFT JOIN techxpertstore.products p ON p.ID = pv.ProductID
-         LEFT JOIN techxpertstore.product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
-         LEFT JOIN techxpertstore.measurement_units mu ON mu.ID = p.MeasurementUnitID
-         WHERE ci.CartID = ?`,
-        [cart.id]
-      );
-
-      let subtotal = 0;
-      for (const it of items) {
-        it.lineTotal = Number(it.unitPrice) * Number(it.quantity);
-        subtotal += it.lineTotal;
-      }
-
-      return {
-        id: cart.id,
-        userId: cart.userId,
-        sessionId: cart.sessionId,
-        items,
-        subtotal,
-      };
+      return await CartService.pricedCart(await CartService.activeCart(access));
     } catch (err) {
-      console.warn('[CartService] MySQL cart operations failed', err);
-      return { id: 1, userId, sessionId, items: [], subtotal: 0 };
+      return mysqlOrFileStore('cart.view', err, () => ({
+        id: 1,
+        lines: [],
+        totals: cartTotals([]),
+        canCheckout: false,
+      }));
     }
   }
 
-  static async addItem(cartId: number, variantId?: number, quantity: number = 1, productId?: number) {
+  /** An active product with its first variant (`variantId` is null when it has none). */
+  static async productForCart(productId: number, conn: Pick<PoolConnection, 'query'> = storePool, forUpdate = false) {
+    const [rows] = await conn.query<any[]>(
+      `SELECT pv.ID as variantId, pv.StockQuantity as stock, ${PRODUCT_FACTS}
+       FROM products p
+       LEFT JOIN product_variants pv ON pv.ID = (SELECT MIN(v.ID) FROM product_variants v WHERE v.ProductID = p.ID)
+       LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
+       WHERE p.ID = ? AND p.IsActive = 1
+       LIMIT 1
+       ${forUpdate ? 'FOR UPDATE' : ''}`,
+      [productId]
+    );
+    return rows[0] ?? null;
+  }
+
+  /** Sets the exact quantity of one product in the caller's cart; 0 removes it. */
+  static async setLineQuantity(access: CartAccess, productId: number, quantity: number): Promise<PricedCart> {
+    if (!Number.isInteger(productId) || productId <= 0) {
+      throw orderRefusal(400, 'productId must be a product number');
+    }
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      throw orderRefusal(400, 'Quantity must be a whole number of 0 or more.');
+    }
+
+    const cart = await CartService.activeCart(access);
+    const product = await CartService.productForCart(productId);
+
+    if (quantity === 0) {
+      await storePool.query(
+        `DELETE ci FROM cart_items ci
+         JOIN product_variants pv ON pv.ID = ci.VariantID
+         WHERE ci.CartID = ? AND pv.ProductID = ?`,
+        [cart.id, productId]
+      );
+      return CartService.pricedCart(cart);
+    }
+
+    if (!product) throw orderRefusal(409, 'This product is no longer in the catalogue.');
+    if (product.variantId == null) {
+      throw orderRefusal(409, `"${product.name}" isn't available to order right now.`);
+    }
+    const refusal = quantityRefusal(String(product.name), quantity, lineLimits(product), product.price);
+    if (refusal) throw orderRefusal(409, refusal);
+
+    await storePool.query(
+      `INSERT INTO cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
+       VALUES (?, ?, ?, CURDATE(), CURTIME())
+       ON DUPLICATE KEY UPDATE Quantity = VALUES(Quantity), UpdatedDate = CURDATE(), UpdatedTime = CURTIME()`,
+      [cart.id, product.variantId, quantity]
+    );
+    return CartService.pricedCart(cart);
+  }
+
+  /** Moves a guest cart into the signed-in customer's cart, keeping the larger quantity per product. */
+  static async mergeGuestCart(userId: number, sessionId: unknown): Promise<PricedCart> {
+    const account = await CartService.activeCart({ userId });
+    if (!isUsableSessionId(sessionId)) return CartService.pricedCart(account);
+
+    const conn = await storePool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [guests] = await conn.query<any[]>(
+        `SELECT ID as id FROM carts
+         WHERE SessionID = ? AND UserID IS NULL AND Status = 'active'
+         FOR UPDATE`,
+        [sessionId]
+      );
+      if (!guests.length) {
+        await conn.rollback();
+        return CartService.pricedCart(account);
+      }
+      const guestIds = guests.map((g) => Number(g.id));
+
+      const [lines] = await conn.query<any[]>(
+        `SELECT ci.CartID as cartId, pv.ProductID as productId, ci.Quantity as quantity
+         FROM cart_items ci JOIN product_variants pv ON pv.ID = ci.VariantID
+         WHERE ci.CartID IN (?)`,
+        [[account.id, ...guestIds]]
+      );
+      const byProduct = new Map<number, { account?: number; guest?: number }>();
+      for (const line of lines) {
+        const entry = byProduct.get(Number(line.productId)) ?? {};
+        const qty = Number(line.quantity);
+        if (Number(line.cartId) === account.id) entry.account = Math.max(entry.account ?? 0, qty);
+        else entry.guest = Math.max(entry.guest ?? 0, qty);
+        byProduct.set(Number(line.productId), entry);
+      }
+
+      for (const [productId, quantities] of byProduct) {
+        if (quantities.guest == null) continue;
+        const product = await CartService.productForCart(productId, conn);
+        if (!product || product.variantId == null) continue;
+        const quantity = mergeQuantity(quantities.account, quantities.guest, lineLimits(product));
+        await conn.query(
+          `DELETE ci FROM cart_items ci JOIN product_variants pv ON pv.ID = ci.VariantID
+           WHERE ci.CartID = ? AND pv.ProductID = ?`,
+          [account.id, productId]
+        );
+        await conn.query(
+          `INSERT INTO cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
+           VALUES (?, ?, ?, CURDATE(), CURTIME())`,
+          [account.id, product.variantId, quantity]
+        );
+      }
+
+      await conn.query(`DELETE FROM cart_items WHERE CartID IN (?)`, [guestIds]);
+      await conn.query(
+        `UPDATE carts SET Status = 'merged', UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID IN (?)`,
+        [guestIds]
+      );
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    return CartService.pricedCart(account);
+  }
+
+  /** Empties the caller's cart (after the phone has placed its order). */
+  static async emptyCart(access: CartAccess): Promise<PricedCart> {
+    const cart = await CartService.activeCart(access);
+    await storePool.query(`DELETE FROM cart_items WHERE CartID = ?`, [cart.id]);
+    return CartService.pricedCart(cart);
+  }
+
+  static async addItem(
+    cartId: number,
+    variantId?: number,
+    quantity: number = 1,
+    productId?: number,
+    access?: { userId?: number; sessionId?: string }
+  ) {
+    if (access) {
+      await CartService.assertCartAccess(cartId, access.userId, access.sessionId);
+    }
     const qty = Math.max(Number(quantity) || 1, 1);
     let resolvedVariantId = variantId ? Number(variantId) : null;
 
     if (!resolvedVariantId && productId) {
       const [vars] = await storePool.query<any[]>(
-        `SELECT ID FROM techxpertstore.product_variants WHERE ProductID = ? ORDER BY ID ASC LIMIT 1`,
+        `SELECT ID FROM product_variants WHERE ProductID = ? ORDER BY ID ASC LIMIT 1`,
         [productId]
       );
       if (vars.length > 0) {
@@ -87,21 +355,21 @@ export class CartService {
     }
 
     const [existing] = await storePool.query<any[]>(
-      `SELECT ID, Quantity FROM techxpertstore.cart_items WHERE CartID = ? AND VariantID = ? LIMIT 1`,
+      `SELECT ID, Quantity FROM cart_items WHERE CartID = ? AND VariantID = ? LIMIT 1`,
       [cartId, resolvedVariantId]
     );
 
     if (existing.length > 0) {
       const newQty = existing[0].Quantity + qty;
       await storePool.query(
-        `UPDATE techxpertstore.cart_items SET Quantity = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
+        `UPDATE cart_items SET Quantity = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
         [newQty, existing[0].ID]
       );
       return { id: existing[0].ID, cartId, variantId: resolvedVariantId, quantity: newQty };
     }
 
     const [insert] = await storePool.query<any>(
-      `INSERT INTO techxpertstore.cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
+      `INSERT INTO cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
        VALUES (?, ?, ?, CURDATE(), CURTIME())`,
       [cartId, resolvedVariantId, qty]
     );
@@ -109,101 +377,23 @@ export class CartService {
     return { id: insert.insertId, cartId, variantId: resolvedVariantId, quantity: qty };
   }
 
-  static async removeItem(cartId: number, itemId: number) {
-    await storePool.query(`DELETE FROM techxpertstore.cart_items WHERE CartID = ? AND ID = ?`, [cartId, itemId]);
+  static async removeItem(
+    cartId: number,
+    itemId: number,
+    access?: { userId?: number; sessionId?: string }
+  ) {
+    if (access) {
+      await CartService.assertCartAccess(cartId, access.userId, access.sessionId);
+    }
+    await storePool.query(`DELETE FROM cart_items WHERE CartID = ? AND ID = ?`, [cartId, itemId]);
     return { success: true };
   }
 
-  static async clearCart(cartId: number) {
-    await storePool.query(`DELETE FROM techxpertstore.cart_items WHERE CartID = ?`, [cartId]);
+  static async clearCart(cartId: number, access?: { userId?: number; sessionId?: string }) {
+    if (access) {
+      await CartService.assertCartAccess(cartId, access.userId, access.sessionId);
+    }
+    await storePool.query(`DELETE FROM cart_items WHERE CartID = ?`, [cartId]);
     return { success: true };
-  }
-
-  static async getCartSummary(cartId: number) {
-    const [cartRows] = await storePool.query<any[]>(
-      `SELECT ID as id, UserID as userId, SessionID as sessionId, Status as status
-       FROM techxpertstore.carts WHERE ID = ? LIMIT 1`,
-      [cartId]
-    );
-
-    if (cartRows.length === 0) {
-      throw new Error('Cart not found');
-    }
-
-    const [items] = await storePool.query<any[]>(
-      `SELECT 
-         ci.ID as id,
-         ci.CartID as cartId,
-         ci.VariantID as variantId,
-         ci.Quantity as quantity,
-         p.ID as productId,
-         p.ProductName as name,
-         p.ProductCode as sku,
-         p.ProductImage as imageUrl,
-         COALESCE(pr.SellingPrice, 450) as basePrice,
-         COALESCE(mu.UnitName, 'unit') as unit,
-         pv.StockQuantity as availableStock
-       FROM techxpertstore.cart_items ci
-       LEFT JOIN techxpertstore.product_variants pv ON pv.ID = ci.VariantID
-       LEFT JOIN techxpertstore.products p ON p.ID = pv.ProductID
-       LEFT JOIN techxpertstore.product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
-       LEFT JOIN techxpertstore.measurement_units mu ON mu.ID = p.MeasurementUnitID
-       WHERE ci.CartID = ?`,
-      [cartId]
-    );
-
-    let subtotal = 0;
-    let totalDiscount = 0;
-    const enrichedItems = [];
-
-    for (const it of items) {
-      const basePrice = Number(it.basePrice);
-      const pricing = await PricingService.calculateBulkPrice(it.productId, it.quantity, basePrice);
-      const lineTotal = pricing.unitPrice * it.quantity;
-      subtotal += lineTotal;
-      totalDiscount += pricing.totalSavings;
-
-      enrichedItems.push({
-        ...it,
-        basePrice,
-        unitPrice: pricing.unitPrice,
-        discountPerUnit: pricing.discountPerUnit,
-        discountTotal: pricing.totalSavings,
-        appliedTier: pricing.appliedTier,
-        lineTotal,
-      });
-    }
-
-    const taxTotal = Number((subtotal * 0.18).toFixed(2));
-    const shippingCharges = subtotal >= 2000 || subtotal === 0 ? 0 : 99;
-    const grandTotal = Number((subtotal + taxTotal + shippingCharges).toFixed(2));
-
-    return {
-      cartId,
-      items: enrichedItems,
-      itemCount: enrichedItems.length,
-      subtotal,
-      discountTotal: totalDiscount,
-      taxTotal,
-      shippingCharges,
-      grandTotal,
-      freeShippingEligible: subtotal >= 2000,
-    };
-  }
-
-  static async checkoutCart(cartId: number, options: {
-    userId?: number;
-    addressId?: number;
-    shippingAddress?: string;
-    paymentMethod?: string;
-    notes?: string;
-    guestName?: string;
-    guestPhone?: string;
-    guestEmail?: string;
-  }) {
-    return OrderService.checkout({
-      cartId,
-      ...options,
-    });
   }
 }

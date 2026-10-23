@@ -9,6 +9,7 @@ import {
   Banner,
   BulkPriceTier,
   User,
+  AuditLogEntry,
   SEED_CATEGORIES,
   SEED_SUBCATEGORIES,
   SEED_BRANDS,
@@ -28,6 +29,7 @@ interface StoreData {
   banners: Banner[];
   bulkTiers: BulkPriceTier[];
   users: User[];
+  auditLogs: AuditLogEntry[];
 }
 
 const DB_FILE = path.join(process.cwd(), 'database.json');
@@ -43,7 +45,18 @@ class DataStore {
     try {
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw) as Partial<StoreData>;
+        return {
+          categories: parsed.categories || [...SEED_CATEGORIES],
+          subcategories: parsed.subcategories || [...SEED_SUBCATEGORIES],
+          brands: parsed.brands || [...SEED_BRANDS],
+          products: parsed.products || [...SEED_PRODUCTS],
+          orders: parsed.orders || [...SEED_ORDERS],
+          banners: parsed.banners || [...SEED_BANNERS],
+          bulkTiers: parsed.bulkTiers || [...SEED_BULK_TIERS],
+          users: parsed.users || [...SEED_USERS],
+          auditLogs: parsed.auditLogs || [],
+        };
       }
     } catch (e) {
       console.warn('Could not read existing database.json, initializing from seed.', e);
@@ -58,6 +71,7 @@ class DataStore {
       banners: [...SEED_BANNERS],
       bulkTiers: [...SEED_BULK_TIERS],
       users: [...SEED_USERS],
+      auditLogs: [],
     };
     this.saveData(initial);
     return initial;
@@ -80,9 +94,64 @@ class DataStore {
     return this.data.categories;
   }
 
+  createCategory(category: Category): Category {
+    this.data.categories.push(category);
+    this.persist();
+    return category;
+  }
+
+  updateCategory(id: string, updates: Partial<Category>): Category | null {
+    const idx = this.data.categories.findIndex((c) => String(c.id) === String(id));
+    if (idx === -1) return null;
+    this.data.categories[idx] = { ...this.data.categories[idx], ...updates };
+    this.persist();
+    return this.data.categories[idx];
+  }
+
+  deleteCategory(id: string): boolean {
+    const before = this.data.categories.length;
+    this.data.categories = this.data.categories.filter((c) => String(c.id) !== String(id));
+    this.data.subcategories = this.data.subcategories.filter(
+      (s) => String(s.categoryId) !== String(id)
+    );
+    if (this.data.categories.length !== before) {
+      this.persist();
+      return true;
+    }
+    return false;
+  }
+
   // Subcategories
-  getSubcategories(): Subcategory[] {
-    return this.data.subcategories;
+  getSubcategories(categoryId?: string): Subcategory[] {
+    let list = [...this.data.subcategories];
+    if (categoryId) {
+      list = list.filter((s) => String(s.categoryId) === String(categoryId));
+    }
+    return list;
+  }
+
+  createSubcategory(sub: Subcategory): Subcategory {
+    this.data.subcategories.push(sub);
+    this.persist();
+    return sub;
+  }
+
+  updateSubcategory(id: string, updates: Partial<Subcategory>): Subcategory | null {
+    const idx = this.data.subcategories.findIndex((s) => String(s.id) === String(id));
+    if (idx === -1) return null;
+    this.data.subcategories[idx] = { ...this.data.subcategories[idx], ...updates };
+    this.persist();
+    return this.data.subcategories[idx];
+  }
+
+  deleteSubcategory(id: string): boolean {
+    const before = this.data.subcategories.length;
+    this.data.subcategories = this.data.subcategories.filter((s) => String(s.id) !== String(id));
+    if (this.data.subcategories.length !== before) {
+      this.persist();
+      return true;
+    }
+    return false;
   }
 
   // Brands
@@ -221,6 +290,14 @@ class DataStore {
     return tier;
   }
 
+  updateBulkTier(id: string, updates: Partial<BulkPriceTier>): BulkPriceTier | null {
+    const idx = this.data.bulkTiers.findIndex((tier) => tier.id === id);
+    if (idx === -1) return null;
+    this.data.bulkTiers[idx] = { ...this.data.bulkTiers[idx], ...updates };
+    this.persist();
+    return this.data.bulkTiers[idx];
+  }
+
   deleteBulkTier(id: string): boolean {
     const before = this.data.bulkTiers.length;
     this.data.bulkTiers = this.data.bulkTiers.filter((t) => t.id !== id);
@@ -246,6 +323,25 @@ class DataStore {
     this.data.users.push(user);
     this.persist();
     return user;
+  }
+
+  // Audit logs (file-backed fallback when MySQL is unavailable)
+  getAuditLogs(limit = 100): AuditLogEntry[] {
+    if (!this.data.auditLogs) this.data.auditLogs = [];
+    return [...this.data.auditLogs]
+      .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+      .slice(0, limit);
+  }
+
+  createAuditLog(entry: AuditLogEntry): AuditLogEntry {
+    if (!this.data.auditLogs) this.data.auditLogs = [];
+    this.data.auditLogs.unshift(entry);
+    // Cap local file growth
+    if (this.data.auditLogs.length > 500) {
+      this.data.auditLogs = this.data.auditLogs.slice(0, 500);
+    }
+    this.persist();
+    return entry;
   }
 }
 

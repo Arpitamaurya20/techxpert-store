@@ -1,6 +1,13 @@
+import type { PoolConnection } from 'mysql2/promise';
 import { storePool, userPool } from '../db/mysql.js';
 import { store } from '../db/store.js';
-import { PricingService } from './pricingService.js';
+import { mysqlOrFileStore } from '../db/mysqlErrors.js';
+import { AuthService } from './authService.js';
+import { CartService, type CheckoutLine } from './cartService.js';
+import { guestOrderOwner, isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPricing.js';
+import { quantityRefusal, TAX_RATE, type CartTotals } from '../utils/cartRules.js';
+import { deliveryPincode } from '../utils/pincode.js';
+import { DeliveryAreaService } from './deliveryAreaService.js';
 
 export interface OrderFilterParams {
   userId?: number;
@@ -37,9 +44,10 @@ export class OrderService {
         queryParams.push(s, s, s, s);
       }
 
+      // Same-host cross-DB JOIN: techxpertstore.orders + homecare.users (see docs/ARCHITECTURE.md §4)
       const countSql = `
         SELECT COUNT(*) as total 
-        FROM techxpertstore.orders o 
+        FROM orders o 
         LEFT JOIN homecare.users u ON o.UserID = u.user_id 
         ${whereClause}
       `;
@@ -62,7 +70,7 @@ export class OrderService {
           COALESCE(u.full_name, o.GuestName, 'Valued Customer') as customerName,
           COALESCE(u.phone, o.GuestPhone, '') as customerMobile,
           COALESCE(u.email, o.GuestEmail, '') as customerEmail
-        FROM techxpertstore.orders o
+        FROM orders o
         LEFT JOIN homecare.users u ON o.UserID = u.user_id
         ${whereClause}
         ORDER BY o.ID DESC
@@ -84,9 +92,9 @@ export class OrderService {
              CAST(oi.UnitPrice AS DOUBLE) as unitPrice,
              CAST(oi.LineTotal AS DOUBLE) as lineTotal,
              COALESCE(mu.UnitName, 'unit') as unit
-           FROM techxpertstore.order_items oi
-           LEFT JOIN techxpertstore.products p ON oi.ProductID = p.ID
-           LEFT JOIN techxpertstore.measurement_units mu ON p.MeasurementUnitID = mu.ID
+           FROM order_items oi
+           LEFT JOIN products p ON oi.ProductID = p.ID
+           LEFT JOIN measurement_units mu ON p.MeasurementUnitID = mu.ID
            WHERE oi.OrderID = ?`,
           [order.id]
         );
@@ -103,13 +111,97 @@ export class OrderService {
         },
       };
     } catch (err) {
-      console.warn('[OrderService] MySQL getOrders failed, fallback', err);
-      const fallback = store.getOrders(params.isPortal ? undefined : (params.userId ? String(params.userId) : undefined));
-      return {
-        orders: fallback,
-        meta: { page: 1, limit, total: fallback.length, totalPages: 1 },
-      };
+      // Same-host JOIN to homecare.users may fail if identity DB is missing — retry store-only
+      try {
+        return await OrderService.getOrdersWithoutUserJoin(params, limit, page, offset);
+      } catch (err2) {
+        return mysqlOrFileStore('orders.getOrders', err2, () => {
+          const fallback = store.getOrders(
+            params.isPortal ? undefined : params.userId ? String(params.userId) : undefined
+          );
+          return {
+            orders: fallback,
+            meta: { page: 1, limit, total: fallback.length, totalPages: 1 },
+          };
+        });
+      }
     }
+  }
+
+  /** Store-only orders list when cross-DB JOIN to homecare is unavailable. */
+  private static async getOrdersWithoutUserJoin(
+    params: OrderFilterParams,
+    limit: number,
+    page: number,
+    offset: number
+  ) {
+    let whereClause = `WHERE 1=1`;
+    const queryParams: any[] = [];
+    if (!params.isPortal && params.userId) {
+      whereClause += ` AND o.UserID = ?`;
+      queryParams.push(params.userId);
+    }
+    if (params.status) {
+      whereClause += ` AND o.OrderStatus = ?`;
+      queryParams.push(params.status);
+    }
+    if (params.search) {
+      whereClause += ` AND (o.OrderNumber LIKE ? OR o.ShippingAddress LIKE ? OR o.GuestName LIKE ? OR o.GuestPhone LIKE ?)`;
+      const s = `%${params.search}%`;
+      queryParams.push(s, s, s, s);
+    }
+
+    const [countRows] = await storePool.query<any[]>(
+      `SELECT COUNT(*) as total FROM orders o ${whereClause}`,
+      queryParams
+    );
+    const total = countRows[0]?.total || 0;
+    const [orders] = await storePool.query<any[]>(
+      `SELECT 
+         o.ID as id,
+         o.OrderNumber as orderNumber,
+         o.UserID as userId,
+         CONCAT(o.CreatedDate, 'T', COALESCE(o.CreatedTime, '12:00:00'), 'Z') as placedAt,
+         o.OrderStatus as status,
+         o.PaymentStatus as paymentStatus,
+         o.PaymentMethod as paymentMethod,
+         CAST(o.GrandTotal AS DOUBLE) as total,
+         CAST(o.SubTotal AS DOUBLE) as subtotal,
+         CAST(o.TaxTotal AS DOUBLE) as taxTotal,
+         o.ShippingAddress as deliveryAddress,
+         COALESCE(o.GuestName, 'Valued Customer') as customerName,
+         COALESCE(o.GuestPhone, '') as customerMobile,
+         COALESCE(o.GuestEmail, '') as customerEmail
+       FROM orders o
+       ${whereClause}
+       ORDER BY o.ID DESC
+       LIMIT ? OFFSET ?`,
+      [...queryParams, limit, offset]
+    );
+    for (const order of orders) {
+      const [items] = await storePool.query<any[]>(
+        `SELECT 
+           oi.ID as id,
+           oi.ProductID as productId,
+           oi.VariantID as variantId,
+           COALESCE(p.ProductName, 'Construction Material') as name,
+           COALESCE(p.ProductCode, 'SKU') as sku,
+           oi.Quantity as quantity,
+           CAST(oi.UnitPrice AS DOUBLE) as unitPrice,
+           CAST(oi.LineTotal AS DOUBLE) as lineTotal,
+           COALESCE(mu.UnitName, 'unit') as unit
+         FROM order_items oi
+         LEFT JOIN products p ON oi.ProductID = p.ID
+         LEFT JOIN measurement_units mu ON p.MeasurementUnitID = mu.ID
+         WHERE oi.OrderID = ?`,
+        [order.id]
+      );
+      order.items = items;
+    }
+    return {
+      orders,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   static async getOrderById(orderId: string | number) {
@@ -130,7 +222,7 @@ export class OrderService {
            COALESCE(u.full_name, o.GuestName, 'Valued Customer') as customerName,
            COALESCE(u.phone, o.GuestPhone, '') as customerMobile,
            COALESCE(u.email, o.GuestEmail, '') as customerEmail
-         FROM techxpertstore.orders o
+         FROM orders o
          LEFT JOIN homecare.users u ON o.UserID = u.user_id
          WHERE o.ID = ? OR o.OrderNumber = ?
          LIMIT 1`,
@@ -150,9 +242,9 @@ export class OrderService {
              CAST(oi.UnitPrice AS DOUBLE) as unitPrice,
              CAST(oi.LineTotal AS DOUBLE) as lineTotal,
              COALESCE(mu.UnitName, 'unit') as unit
-           FROM techxpertstore.order_items oi
-           LEFT JOIN techxpertstore.products p ON oi.ProductID = p.ID
-           LEFT JOIN techxpertstore.measurement_units mu ON p.MeasurementUnitID = mu.ID
+           FROM order_items oi
+           LEFT JOIN products p ON oi.ProductID = p.ID
+           LEFT JOIN measurement_units mu ON p.MeasurementUnitID = mu.ID
            WHERE oi.OrderID = ?`,
           [order.id]
         );
@@ -160,18 +252,19 @@ export class OrderService {
 
         const [history] = await storePool.query<any[]>(
           `SELECT ID as id, OrderStatus as status, PaymentStatus as paymentStatus, Notes as notes, CreatedDate as date, CreatedTime as time
-           FROM techxpertstore.order_status_history WHERE OrderID = ? ORDER BY ID ASC`,
+           FROM order_status_history WHERE OrderID = ? ORDER BY ID ASC`,
           [order.id]
         );
         order.history = history;
 
         return order;
       }
+      return null;
     } catch (err) {
-      console.warn('[OrderService] getOrderById MySQL failed, fallback', err);
+      return mysqlOrFileStore('orders.getOrderById', err, () =>
+        store.getOrders().find((o) => o.id === String(orderId) || o.orderNumber === String(orderId))
+      );
     }
-
-    return store.getOrders().find((o) => o.id === String(orderId) || o.orderNumber === String(orderId));
   }
 
   static async resolveDeliveryAddress(
@@ -198,6 +291,11 @@ export class OrderService {
       }
     }
 
+    // The address typed at checkout beats the saved default.
+    if (fallbackAddress?.trim()) {
+      return { addressString: fallbackAddress.trim() };
+    }
+
     if (userId) {
       try {
         const [rows] = await userPool.query<any[]>(
@@ -218,9 +316,7 @@ export class OrderService {
       }
     }
 
-    return {
-      addressString: fallbackAddress || 'Sector 62, Noida, Uttar Pradesh 201309 (Default)',
-    };
+    throw orderRefusal(400, 'Add a delivery address with a 6-digit pincode.');
   }
 
   static async resolveCustomerInfo(
@@ -235,11 +331,21 @@ export class OrderService {
         );
         if (rows.length > 0) {
           const u = rows[0];
-          return {
-            name: u.full_name || guestInfo?.name || 'Customer',
-            phone: u.phone || guestInfo?.phone || '',
-            email: u.email || guestInfo?.email || '',
-          };
+          const name = AuthService.isPlaceholderName(u.full_name)
+            ? guestInfo?.name || u.full_name || 'Customer'
+            : u.full_name;
+          const phone = u.phone || guestInfo?.phone || '';
+          const email = u.email || guestInfo?.email || '';
+          try {
+            await AuthService.persistCustomerContact(userId, {
+              name: guestInfo?.name,
+              phone: guestInfo?.phone || phone,
+              email: guestInfo?.email,
+            });
+          } catch (persistErr) {
+            console.warn('[OrderService] persist customer contact failed', persistErr);
+          }
+          return { name, phone, email };
         }
       } catch (err) {
         console.warn('[OrderService] resolveCustomerInfo failed', err);
@@ -253,10 +359,180 @@ export class OrderService {
     };
   }
 
+  /**
+   * The customer who owns a guest's order. An unregistered 10-digit phone gets a new unverified
+   * customer; a phone that already has an account stays a guest order and the account is not touched.
+   */
+  static async ownerForGuest(guest: { name?: string; phone?: string; email?: string }): Promise<number | undefined> {
+    const phone = AuthService.cleanPhone(guest.phone);
+    try {
+      const [existing] =
+        phone.length === 10
+          ? await userPool.query<any[]>(`SELECT user_id FROM users WHERE phone = ? LIMIT 1`, [phone])
+          : [[]];
+      const existingId = existing.length ? Number(existing[0].user_id) : null;
+      if (guestOrderOwner(phone, existingId) === 'guest') return undefined;
+
+      const name = String(guest.name || '').trim();
+      const storedName = name && !AuthService.isPlaceholderName(name) ? name.slice(0, 200) : null;
+      const email = String(guest.email || '').trim();
+      const [insertRes] = await userPool.query<any>(
+        `INSERT INTO users (phone, full_name, email, is_active, is_verified) VALUES (?, ?, ?, 1, 0)`,
+        [phone, storedName, email.includes('@') ? email.slice(0, 200) : null]
+      );
+      return Number(insertRes.insertId);
+    } catch (err) {
+      console.warn('[OrderService] guest customer record failed; placing a guest order', err);
+      return undefined;
+    }
+  }
+
+  /**
+   * Writes the order, its lines and first history entry, and takes the stock, on the caller's
+   * transaction. Lines must already be priced and checked.
+   */
+  static async writeOrder(
+    conn: PoolConnection,
+    order: {
+      cartId?: number | null;
+      userId?: number;
+      customer: { name: string; phone: string; email: string };
+      deliveryAddress: string;
+      paymentMethod: string;
+      notes: string;
+      lines: CheckoutLine[];
+      totals: CartTotals;
+    }
+  ): Promise<number> {
+    const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+    const orderStatus = 'confirmed';
+    const paymentStatus = 'pending';
+    const { totals } = order;
+
+    const [orderRes] = await conn.query<any>(
+      `INSERT INTO orders
+       (OrderNumber, UserID, CartID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
+      [
+        orderNumber,
+        order.userId || null,
+        order.cartId || null,
+        order.customer.name,
+        order.customer.phone,
+        order.customer.email,
+        order.deliveryAddress,
+        totals.subtotal.toFixed(2),
+        totals.tax.toFixed(2),
+        totals.bulkSavings.toFixed(2),
+        totals.delivery.toFixed(2),
+        totals.grandTotal.toFixed(2),
+        orderStatus,
+        paymentStatus,
+        order.paymentMethod,
+        order.userId || 1,
+      ]
+    );
+    const orderId = Number(orderRes.insertId);
+
+    for (const line of order.lines) {
+      await conn.query(
+        `INSERT INTO order_items
+         (OrderID, VariantID, ProductID, Quantity, UnitPrice, TaxRate, TaxAmount, DiscountAmount, LineTotal, CreatedDate, CreatedTime)
+         VALUES (?, ?, ?, ?, ?, 18.00, ?, ?, ?, CURDATE(), CURTIME())`,
+        [
+          orderId,
+          line.variantId,
+          Number(line.productId),
+          line.quantity,
+          Number(line.unitPrice).toFixed(2),
+          (line.lineTotal * TAX_RATE).toFixed(2),
+          line.savings.toFixed(2),
+          line.lineTotal.toFixed(2),
+        ]
+      );
+      await conn.query(
+        `UPDATE product_variants
+         SET StockQuantity = GREATEST(0, StockQuantity - ?), UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
+         WHERE ID = ?`,
+        [line.quantity, line.variantId]
+      );
+      await conn.query(
+        `UPDATE inventory_stock
+         SET StockQuantity = GREATEST(0, StockQuantity - ?), LastStockOutDate = CURDATE(), UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
+         WHERE VariantID = ?`,
+        [line.quantity, line.variantId]
+      );
+      await conn.query(
+        `UPDATE products
+         SET StockStatus = 'out_of_stock', UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
+         WHERE ID = ? AND (SELECT COALESCE(SUM(StockQuantity), 0) FROM product_variants WHERE ProductID = ?) <= 0`,
+        [Number(line.productId), Number(line.productId)]
+      );
+    }
+
+    await conn.query(
+      `INSERT INTO order_status_history
+       (OrderID, OrderStatus, PaymentStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
+       VALUES (?, ?, ?, ?, ?, CURDATE(), CURTIME())`,
+      [orderId, orderStatus, paymentStatus, order.notes, order.userId || 1]
+    );
+    return orderId;
+  }
+
+  /** What the customer is shown for a placed order; the same body for a first answer and a repeat. */
+  static async receipt(orderId: number, conn: Pick<PoolConnection, 'query'> = storePool) {
+    const [rows] = await conn.query<any[]>(
+      `SELECT o.ID as id, o.OrderNumber as orderNumber,
+              UNIX_TIMESTAMP(TIMESTAMP(o.CreatedDate, COALESCE(o.CreatedTime, '00:00:00'))) as placedEpoch,
+              o.OrderStatus as status, o.PaymentStatus as paymentStatus, o.PaymentMethod as paymentMethod,
+              o.GuestName as customerName, o.ShippingAddress as deliveryAddress,
+              CAST(o.SubTotal AS DOUBLE) as subtotal, CAST(o.DiscountTotal AS DOUBLE) as bulkSavings,
+              CAST(o.ShippingCharges AS DOUBLE) as delivery, CAST(o.TaxTotal AS DOUBLE) as tax,
+              CAST(o.GrandTotal AS DOUBLE) as grandTotal
+       FROM orders o WHERE o.ID = ? LIMIT 1`,
+      [orderId]
+    );
+    const o = rows[0];
+    if (!o) throw orderRefusal(409, 'We could not find that order.');
+    const [items] = await conn.query<any[]>(
+      `SELECT oi.ProductID as productId, COALESCE(p.ProductName, 'Product') as name,
+              COALESCE(mu.UnitName, 'unit') as unit, oi.Quantity as quantity,
+              CAST(oi.UnitPrice AS DOUBLE) as unitPrice, CAST(oi.LineTotal AS DOUBLE) as lineTotal
+       FROM order_items oi
+       LEFT JOIN products p ON p.ID = oi.ProductID
+       LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
+       WHERE oi.OrderID = ? ORDER BY oi.ID ASC`,
+      [orderId]
+    );
+    return {
+      id: String(o.id),
+      orderNumber: String(o.orderNumber),
+      placedAt: new Date(Number(o.placedEpoch) * 1000).toISOString(),
+      status: o.status,
+      paymentStatus: o.paymentStatus,
+      paymentMethod: o.paymentMethod,
+      customerName: o.customerName,
+      deliveryAddress: o.deliveryAddress,
+      lines: items.map((it) => ({ ...it, productId: String(it.productId) })),
+      totals: {
+        subtotal: o.subtotal,
+        bulkSavings: o.bulkSavings,
+        delivery: o.delivery,
+        tax: o.tax,
+        grandTotal: o.grandTotal,
+      },
+      total: o.grandTotal,
+      shippingCharges: o.delivery,
+    };
+  }
+
+  /**
+   * Older clients: an order from an item list (`POST /orders`). Priced and checked with the same
+   * rules as the cart; the shop sells each product's first variant.
+   */
   static async checkout(payload: {
     userId?: number;
-    cartId?: number;
-    items?: Array<{ productId: number; variantId?: number; quantity: number; unitPrice?: number }>;
+    items?: Array<{ productId: number; quantity: number }>;
     addressId?: number;
     shippingAddress?: string;
     paymentMethod?: string;
@@ -264,335 +540,100 @@ export class OrderService {
     guestName?: string;
     guestPhone?: string;
     guestEmail?: string;
+    pincode?: string;
   }) {
-    const { userId, cartId, addressId, shippingAddress, paymentMethod = 'COD', notes } = payload;
+    const paymentMethod = String(payload.paymentMethod || 'COD').toUpperCase();
+    if (paymentMethod !== 'COD') throw orderRefusal(400, 'Only cash on delivery is available.');
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    if (items.length === 0) throw orderRefusal(400, 'Order must contain at least one item');
 
-    // 1. Gather order items (from cart or direct payload)
-    let rawItems = payload.items;
-    if (cartId && (!rawItems || rawItems.length === 0)) {
-      const [cartItems] = await storePool.query<any[]>(
-        `SELECT ci.VariantID as variantId, ci.Quantity as quantity, pv.ProductID as productId
-         FROM techxpertstore.cart_items ci
-         LEFT JOIN techxpertstore.product_variants pv ON pv.ID = ci.VariantID
-         WHERE ci.CartID = ?`,
-        [cartId]
-      );
-      if (cartItems.length === 0) {
-        throw new Error('Cart is empty. Add items to checkout.');
-      }
-      rawItems = cartItems.map((ci) => ({
-        variantId: ci.variantId,
-        productId: ci.productId,
-        quantity: ci.quantity,
-      }));
-    }
+    const address = await this.resolveDeliveryAddress(payload.userId, payload.addressId, payload.shippingAddress);
+    await DeliveryAreaService.assertServiceable(
+      deliveryPincode(address.addressDetails?.pincode ?? payload.pincode, address.addressString)
+    );
 
-    if (!rawItems || rawItems.length === 0) {
-      throw new Error('Order must contain at least one item');
-    }
-
-    // 2. Resolve customer info and address from homecare
-    const customer = await this.resolveCustomerInfo(userId, {
-      name: payload.guestName,
-      phone: payload.guestPhone,
-      email: payload.guestEmail,
-    });
-    const address = await this.resolveDeliveryAddress(userId, addressId, shippingAddress);
-
-    // 3. Connect to DB and start atomic transaction
     const conn = await storePool.getConnection();
     try {
       await conn.beginTransaction();
 
-      const processedItems: any[] = [];
-      let subtotal = 0;
-      let totalBulkSavings = 0;
-
-      for (const item of rawItems) {
-        const qty = Math.max(Number(item.quantity) || 1, 1);
-        let variantId = item.variantId ? Number(item.variantId) : null;
-        let productId = item.productId ? Number(item.productId) : null;
-
-        // If variantId not provided, look up primary variant for product
-        if (!variantId && productId) {
-          const [vars] = await conn.query<any[]>(
-            `SELECT ID FROM techxpertstore.product_variants WHERE ProductID = ? ORDER BY ID ASC LIMIT 1`,
-            [productId]
-          );
-          if (vars.length > 0) {
-            variantId = vars[0].ID;
-          }
+      const rows: any[] = [];
+      for (const item of items) {
+        const productId = Number(item.productId);
+        const product = Number.isInteger(productId) && productId > 0
+          ? await CartService.productForCart(productId, conn, true)
+          : null;
+        if (!product) throw orderRefusal(409, 'A product in this order is no longer in the catalogue');
+        if (product.variantId == null) {
+          throw orderRefusal(409, `"${product.name}" isn't available to order right now.`);
         }
-
-        // Lock variant row with FOR UPDATE
-        let variantRow: any = null;
-        if (variantId) {
-          const [vars] = await conn.query<any[]>(
-            `SELECT 
-               pv.ID as variantId,
-               pv.ProductID as productId,
-               pv.StockQuantity as stockQuantity,
-               pv.VariantName as variantName,
-               p.ProductName as productName,
-               p.ProductCode as sku,
-               p.CategoryID as categoryId,
-               COALESCE(pr.SellingPrice, 450) as basePrice,
-               COALESCE(mu.UnitName, 'unit') as unit
-             FROM techxpertstore.product_variants pv
-             LEFT JOIN techxpertstore.products p ON p.ID = pv.ProductID
-             LEFT JOIN techxpertstore.product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
-             LEFT JOIN techxpertstore.measurement_units mu ON p.MeasurementUnitID = mu.ID
-             WHERE pv.ID = ?
-             FOR UPDATE`,
-            [variantId]
-          );
-          if (vars.length > 0) {
-            variantRow = vars[0];
-            productId = variantRow.productId;
-          }
+        const quantity = Number(item.quantity);
+        if (!Number.isInteger(quantity) || quantity < 1) {
+          throw orderRefusal(400, 'Quantity must be a whole number of at least 1.');
         }
-
-        if (!variantRow && productId) {
-          const [prods] = await conn.query<any[]>(
-            `SELECT 
-               p.ID as productId,
-               p.ProductName as productName,
-               p.ProductCode as sku,
-               p.CategoryID as categoryId,
-               COALESCE(pr.SellingPrice, 450) as basePrice,
-               COALESCE(mu.UnitName, 'unit') as unit
-             FROM techxpertstore.products p
-             LEFT JOIN techxpertstore.product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
-             LEFT JOIN techxpertstore.measurement_units mu ON p.MeasurementUnitID = mu.ID
-             WHERE p.ID = ?
-             FOR UPDATE`,
-            [productId]
-          );
-          if (prods.length > 0) {
-            variantRow = {
-              ...prods[0],
-              variantId: null,
-              stockQuantity: 999,
-            };
-          }
-        }
-
-        if (!variantRow) {
-          throw new Error(`Product or variant not found for item ${JSON.stringify(item)}`);
-        }
-
-        // Check stock availability
-        const currentStock = Number(variantRow.stockQuantity) || 0;
-        if (variantId && currentStock < qty) {
-          throw new Error(
-            `Insufficient stock for "${variantRow.productName}". Requested: ${qty}, Available: ${currentStock}`
-          );
-        }
-
-        // Calculate pricing and bulk discount
-        const basePrice = item.unitPrice ? Number(item.unitPrice) : Number(variantRow.basePrice);
-        const pricing = await PricingService.calculateBulkPrice(productId!, qty, basePrice);
-
-        const unitPrice = pricing.unitPrice;
-        const discountAmount = pricing.totalSavings;
-        const lineTotal = unitPrice * qty;
-
-        subtotal += lineTotal;
-        totalBulkSavings += discountAmount;
-
-        // Atomic inventory decrement
-        if (variantId) {
-          await conn.query(
-            `UPDATE techxpertstore.product_variants 
-             SET StockQuantity = GREATEST(0, StockQuantity - ?), UpdatedDate = CURDATE(), UpdatedTime = CURTIME() 
-             WHERE ID = ?`,
-            [qty, variantId]
-          );
-
-          await conn.query(
-            `UPDATE techxpertstore.inventory_stock 
-             SET StockQuantity = GREATEST(0, StockQuantity - ?), LastStockOutDate = CURDATE(), UpdatedDate = CURDATE(), UpdatedTime = CURTIME() 
-             WHERE VariantID = ?`,
-            [qty, variantId]
-          );
-
-          // If variant stock hits 0, check if all variants are out of stock
-          if (currentStock - qty <= 0) {
-            await conn.query(
-              `UPDATE techxpertstore.products 
-               SET StockStatus = 'out_of_stock', UpdatedDate = CURDATE(), UpdatedTime = CURTIME() 
-               WHERE ID = ? AND (SELECT COALESCE(SUM(StockQuantity), 0) FROM techxpertstore.product_variants WHERE ProductID = ?) <= 0`,
-              [productId, productId]
-            );
-          }
-        }
-
-        processedItems.push({
-          productId,
-          variantId,
-          name: variantRow.productName,
-          sku: variantRow.sku,
-          unit: variantRow.unit,
-          quantity: qty,
-          basePrice,
-          unitPrice,
-          discountAmount,
-          taxAmount: Number((lineTotal * 0.18).toFixed(2)),
-          lineTotal,
-          appliedTier: pricing.appliedTier,
-        });
+        rows.push({ ...product, quantity });
       }
 
-      // 4. Financial Calculations
-      const taxTotal = Number((subtotal * 0.18).toFixed(2));
-      const shippingCharges = subtotal >= 2000 ? 0 : 99;
-      const grandTotal = Number((subtotal + taxTotal + shippingCharges).toFixed(2));
-
-      // 5. Insert into orders table
-      const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-      const orderStatus = 'confirmed';
-      const paymentStatus = paymentMethod.toUpperCase() === 'COD' ? 'pending' : 'paid';
-
-      const [orderRes] = await conn.query<any>(
-        `INSERT INTO techxpertstore.orders 
-         (OrderNumber, UserID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
-        [
-          orderNumber,
-          userId || null,
-          customer.name,
-          customer.phone,
-          customer.email,
-          address.addressString,
-          subtotal.toFixed(2),
-          taxTotal.toFixed(2),
-          totalBulkSavings.toFixed(2),
-          shippingCharges.toFixed(2),
-          grandTotal.toFixed(2),
-          orderStatus,
-          paymentStatus,
-          paymentMethod,
-          userId || 1,
-        ]
-      );
-
-      const orderId = orderRes.insertId;
-
-      // 6. Insert line items
-      for (const it of processedItems) {
-        await conn.query(
-          `INSERT INTO techxpertstore.order_items 
-           (OrderID, VariantID, ProductID, Quantity, UnitPrice, TaxRate, TaxAmount, DiscountAmount, LineTotal, CreatedDate, CreatedTime)
-           VALUES (?, ?, ?, ?, ?, 18.00, ?, ?, ?, CURDATE(), CURTIME())`,
-          [
-            orderId,
-            it.variantId || it.productId,
-            it.productId,
-            it.quantity,
-            it.unitPrice.toFixed(2),
-            it.taxAmount.toFixed(2),
-            it.discountAmount.toFixed(2),
-            it.lineTotal.toFixed(2),
-          ]
-        );
+      const { lines, totals } = await CartService.priceRows(rows);
+      for (const line of lines) {
+        const refusal = quantityRefusal(line.name, line.quantity, line.limits, line.basePrice);
+        if (refusal) throw orderRefusal(409, refusal);
       }
 
-      // 7. Insert status history
-      await conn.query(
-        `INSERT INTO techxpertstore.order_status_history 
-         (OrderID, OrderStatus, PaymentStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
-         VALUES (?, ?, ?, ?, ?, CURDATE(), CURTIME())`,
-        [
-          orderId,
-          orderStatus,
-          paymentStatus,
-          notes || (cartId ? 'Order placed via Cart Checkout' : 'Order placed directly via Buy Now'),
-          userId || 1,
-        ]
-      );
+      const userId = payload.userId ?? (await this.ownerForGuest({
+        name: payload.guestName,
+        phone: payload.guestPhone,
+        email: payload.guestEmail,
+      }));
+      const customer = await this.resolveCustomerInfo(userId, {
+        name: payload.guestName,
+        phone: payload.guestPhone,
+        email: payload.guestEmail,
+      });
 
-      // 8. If checkout was from cart, clean up cart
-      if (cartId) {
-        await conn.query(`DELETE FROM techxpertstore.cart_items WHERE CartID = ?`, [cartId]);
-        await conn.query(
-          `UPDATE techxpertstore.carts SET Status = 'merged', UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
-          [cartId]
-        );
-      }
-
-      // 9. Commit transaction!
-      await conn.commit();
-
-      return {
-        id: String(orderId),
-        orderNumber,
-        placedAt: new Date().toISOString(),
-        status: orderStatus,
-        paymentStatus,
-        paymentMethod,
-        customerName: customer.name,
-        customerMobile: customer.phone,
+      const orderId = await this.writeOrder(conn, {
+        userId,
+        customer,
         deliveryAddress: address.addressString,
-        subtotal,
-        discountTotal: totalBulkSavings,
-        taxTotal,
-        shippingCharges,
-        grandTotal,
-        total: grandTotal,
-        items: processedItems,
-      };
+        paymentMethod,
+        notes: payload.notes || 'Order placed directly via Buy Now',
+        lines,
+        totals,
+      });
+      await conn.commit();
+      return this.receipt(orderId);
     } catch (err) {
-      await conn.rollback();
-      throw err;
+      await conn.rollback().catch(() => undefined);
+      if (isOrderRefusal(err)) throw err;
+      console.error('[OrderService] checkout failed', err);
+      throw orderFailed();
     } finally {
       conn.release();
     }
   }
 
+  /** `POST /orders`. The customer is only ever the signed-in user; a database failure is never a pretend order. */
   static async createOrder(orderData: any, userId?: number) {
-    try {
-      return await this.checkout({
-        ...orderData,
-        userId: userId || orderData.userId,
-      });
-    } catch (err: any) {
-      console.warn('[OrderService] MySQL checkout failed, fallback to local store:', err.message);
-      if (err.message?.includes('Insufficient stock') || err.message?.includes('empty')) {
-        throw err;
-      }
-    }
-
-    const calculatedTotal = orderData.total || 450;
-    return store.createOrder({
-      id: `ord-${Date.now()}`,
-      orderNumber: `ORD-${Date.now().toString().slice(-6)}`,
-      placedAt: new Date().toISOString(),
-      status: 'placed',
-      items: orderData.items || [],
-      total: calculatedTotal,
-      deliveryAddress: orderData.deliveryAddress || 'Sector 62, Noida, Uttar Pradesh',
-      customerName: orderData.customerName || 'Valued Customer',
-      customerMobile: orderData.customerMobile || '9876543210',
-    });
+    const { userId: _ignored, cartId: _cartId, ...rest } = orderData ?? {};
+    return this.checkout({ ...rest, userId });
   }
 
   static async updateOrderStatus(orderId: string | number, status: string, note?: string, actorId: number = 1) {
     try {
       await storePool.query(
-        `UPDATE techxpertstore.orders 
+        `UPDATE orders 
          SET OrderStatus = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
          WHERE ID = ? OR OrderNumber = ?`,
         [status, orderId, orderId]
       );
 
       const [orders] = await storePool.query<any[]>(
-        `SELECT ID FROM techxpertstore.orders WHERE ID = ? OR OrderNumber = ? LIMIT 1`,
+        `SELECT ID FROM orders WHERE ID = ? OR OrderNumber = ? LIMIT 1`,
         [orderId, orderId]
       );
 
       if (orders.length > 0) {
         await storePool.query(
-          `INSERT INTO techxpertstore.order_status_history
+          `INSERT INTO order_status_history
            (OrderID, OrderStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
            VALUES (?, ?, ?, ?, CURDATE(), CURTIME())`,
           [orders[0].ID, status, note || 'Status updated from admin operations portal', actorId]
@@ -601,12 +642,12 @@ export class OrderService {
 
       return { success: true, status };
     } catch (err) {
-      console.warn('[OrderService] MySQL update status failed, fallback', err);
+      return mysqlOrFileStore('orders.updateOrderStatus', err, () => {
+        const updated = store.updateOrderStatus(String(orderId), status as any);
+        if (!updated) throw Object.assign(new Error('Order not found'), { statusCode: 404 });
+        return { success: true, status };
+      });
     }
-
-    const updated = store.updateOrderStatus(String(orderId), status as any);
-    if (!updated) throw new Error('Order not found');
-    return { success: true, status };
   }
 
   static async getOrderStats() {
@@ -620,7 +661,7 @@ export class OrderService {
            SUM(CASE WHEN OrderStatus = 'shipped' THEN 1 ELSE 0 END) as shippedCount,
            SUM(CASE WHEN OrderStatus = 'delivered' THEN 1 ELSE 0 END) as deliveredCount,
            SUM(CASE WHEN OrderStatus = 'cancelled' THEN 1 ELSE 0 END) as cancelledCount
-         FROM techxpertstore.orders`
+         FROM orders`
       );
       return rows[0];
     } catch (err) {

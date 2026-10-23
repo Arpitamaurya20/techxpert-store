@@ -3,8 +3,17 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { userPool } from '../db/mysql.js';
 import { store } from '../db/store.js';
+import { getJwtSecret, isDevAdminAllowed } from '../config/security.js';
+import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'techxpert-store-secret-key-2026';
+const JWT_SECRET = getJwtSecret();
+
+export type AdminProfile = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+};
 
 export class AuthService {
   static async login(identifier: string) {
@@ -59,27 +68,28 @@ export class AuthService {
         };
       }
     } catch (err) {
-      console.warn('[AuthService] MySQL user query failed, falling back', err);
-    }
-
-    const localUser = store.findUserByIdentifier(clean);
-    if (localUser) {
-      const token = jwt.sign(
-        { userId: localUser.id, mobile: localUser.mobile, email: localUser.email, role: 'customer' },
-        JWT_SECRET,
-        { expiresIn: '30d' }
-      );
-      return {
-        token,
-        user: {
-          id: localUser.id,
-          name: localUser.name,
-          email: localUser.email,
-          mobile: localUser.mobile,
-          deliveryLocation: localUser.deliveryLocation,
-          role: localUser.role,
-        },
-      };
+      return mysqlOrFileStore('auth.login', err, () => {
+        const localUser = store.findUserByIdentifier(clean);
+        if (!localUser) {
+          throw Object.assign(new Error('User not found'), { statusCode: 404 });
+        }
+        const token = jwt.sign(
+          { userId: localUser.id, mobile: localUser.mobile, email: localUser.email, role: 'customer' },
+          JWT_SECRET,
+          { expiresIn: '30d' }
+        );
+        return {
+          token,
+          user: {
+            id: localUser.id,
+            name: localUser.name,
+            email: localUser.email,
+            mobile: localUser.mobile,
+            deliveryLocation: localUser.deliveryLocation,
+            role: localUser.role,
+          },
+        };
+      });
     }
 
     throw new Error('The mobile number or email entered is not registered');
@@ -107,8 +117,73 @@ export class AuthService {
     };
   }
 
-  static async verifyOtp(phone: string, otp: string) {
-    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+  /** Names that mean "we don't know yet" — safe to overwrite with a real name. */
+  static isPlaceholderName(name: unknown): boolean {
+    const n = String(name || '').trim().toLowerCase();
+    return (
+      !n ||
+      n === 'customer' ||
+      n === 'valued customer' ||
+      n === 'guest' ||
+      n === '—' ||
+      n === '-' ||
+      n === 'n/a' ||
+      n === 'na'
+    );
+  }
+
+  static cleanPhone(phone: unknown): string {
+    return String(phone || '').replace(/\D/g, '').slice(-10);
+  }
+
+  /**
+   * Write name/phone/email onto homecare.users without clobbering a real name.
+   * Used at OTP signup and checkout so search/emails read users, not a later snapshot.
+   */
+  static async persistCustomerContact(
+    userId: number,
+    contact: { name?: string; phone?: string; email?: string }
+  ): Promise<void> {
+    const id = Number(userId);
+    if (!id) return;
+
+    const incomingName = String(contact.name || '').trim();
+    const incomingPhone = AuthService.cleanPhone(contact.phone);
+    const incomingEmail = String(contact.email || '').trim();
+    const realName = incomingName && !AuthService.isPlaceholderName(incomingName) ? incomingName.slice(0, 200) : '';
+    const realPhone = incomingPhone.length === 10 ? incomingPhone : '';
+    const realEmail = incomingEmail.includes('@') ? incomingEmail.slice(0, 200) : '';
+
+    if (!realName && !realPhone && !realEmail) return;
+
+    const [rows] = await userPool.query<any[]>(
+      `SELECT full_name, phone, email FROM users WHERE user_id = ? LIMIT 1`,
+      [id]
+    );
+    if (!rows.length) return;
+    const current = rows[0];
+
+    const nextName = AuthService.isPlaceholderName(current.full_name) && realName ? realName : null;
+    const nextPhone = !AuthService.cleanPhone(current.phone) && realPhone ? realPhone : null;
+    const nextEmail = !String(current.email || '').trim() && realEmail ? realEmail : null;
+    if (!nextName && !nextPhone && !nextEmail) return;
+
+    await userPool.query(
+      `UPDATE users SET
+         full_name = COALESCE(?, full_name),
+         phone = COALESCE(?, phone),
+         email = COALESCE(?, email)
+       WHERE user_id = ?`,
+      [nextName, nextPhone, nextEmail, id]
+    );
+  }
+
+  static async verifyOtp(
+    phone: string,
+    otp: string,
+    profile?: { name?: string; email?: string }
+  ) {
+    const cleanPhone = AuthService.cleanPhone(phone);
     const providedOtp = String(otp).trim();
     const providedHash = crypto.createHash('sha256').update(providedOtp).digest('hex');
 
@@ -141,12 +216,30 @@ export class AuthService {
     );
 
     let user = users[0];
+    const givenName = String(profile?.name || '').trim();
+    const givenEmail = String(profile?.email || '').trim();
+    const storedName =
+      givenName && !AuthService.isPlaceholderName(givenName) ? givenName.slice(0, 200) : null;
+
     if (!user) {
       const [insertRes] = await userPool.query<any>(
-        `INSERT INTO users (phone, full_name, is_active, is_verified) VALUES (?, 'Customer', 1, 1)`,
-        [cleanPhone]
+        `INSERT INTO users (phone, full_name, email, is_active, is_verified) VALUES (?, ?, ?, 1, 1)`,
+        [cleanPhone, storedName, givenEmail.includes('@') ? givenEmail.slice(0, 200) : null]
       );
-      user = { user_id: insertRes.insertId, phone: cleanPhone, email: null, full_name: 'Customer' };
+      user = {
+        user_id: insertRes.insertId,
+        phone: cleanPhone,
+        email: givenEmail.includes('@') ? givenEmail : null,
+        full_name: storedName,
+      };
+    } else {
+      await AuthService.persistCustomerContact(user.user_id, {
+        name: givenName,
+        phone: cleanPhone,
+        email: givenEmail,
+      });
+      if (storedName && AuthService.isPlaceholderName(user.full_name)) user.full_name = storedName;
+      if (givenEmail.includes('@') && !user.email) user.email = givenEmail;
     }
 
     const [addrRows] = await userPool.query<any[]>(
@@ -259,58 +352,170 @@ export class AuthService {
   }
 
   static async adminLogin(email: string, pass: string) {
-    const [rows] = await userPool.query<any[]>(
-      `SELECT admin_id, name, email, password_hash, role, is_active
-       FROM admin_users WHERE email = ? AND is_active = 1 LIMIT 1`,
-      [email]
-    );
-
-    if (rows.length > 0) {
-      const admin = rows[0];
-      const match = await bcrypt.compare(pass, admin.password_hash).catch(() => false);
-      if (match || pass === 'admin123' || pass === 'root123') {
-        const token = jwt.sign(
-          { adminId: admin.admin_id, name: admin.name, email: admin.email, role: admin.role },
-          JWT_SECRET,
-          { expiresIn: '7d' }
-        );
-        return {
-          token,
-          admin: { id: admin.admin_id, name: admin.name, email: admin.email, role: admin.role },
-        };
-      }
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const password = String(pass || '');
+    if (!cleanEmail || !password) {
+      throw Object.assign(new Error('Email and password are required'), { statusCode: 400 });
     }
 
-    if (email === 'admin@techxpert.in' || email === 'admin@techxpertstore.com') {
+    const issue = (admin: { admin_id: number; name: string; email: string; role: string }) => {
       const token = jwt.sign(
-        { adminId: 1, name: 'Super Admin', email, role: 'super_admin' },
+        {
+          adminId: admin.admin_id,
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+        },
         JWT_SECRET,
         { expiresIn: '7d' }
       );
-      return { token, admin: { id: 1, name: 'Super Admin', email, role: 'super_admin' } };
+      return {
+        token,
+        admin: {
+          id: admin.admin_id,
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+        },
+      };
+    };
+
+    const isSeedEmail =
+      cleanEmail === 'admin@techxpert.in' || cleanEmail === 'admin@techxpertstore.com';
+    const isSeedPass = password === 'admin123' || password === 'root123';
+    const seedOk = isDevAdminAllowed() && isSeedEmail && isSeedPass;
+
+    try {
+      const [rows] = await userPool.query<any[]>(
+        `SELECT admin_id, name, email, password_hash, role, is_active
+         FROM admin_users WHERE LOWER(email) = ? AND is_active = 1 LIMIT 1`,
+        [cleanEmail]
+      );
+
+      if (rows.length > 0) {
+        const admin = rows[0];
+        const match = await bcrypt.compare(password, admin.password_hash).catch(() => false);
+        if (match) return issue(admin);
+
+        // Local opt-in: seed password may unlock an existing seed email row whose
+        // hash is unknown / not admin123 (common on shared homecare DBs).
+        if (seedOk) {
+          console.warn(
+            '[AuthService] ALLOW_DEV_ADMIN seed password accepted for existing admin row',
+            cleanEmail
+          );
+          return issue(admin);
+        }
+
+        throw Object.assign(new Error('Invalid email or password'), { statusCode: 401 });
+      }
+    } catch (err: any) {
+      if (err.statusCode === 401 || err.statusCode === 400) throw err;
+      console.warn('[AuthService] admin_users query failed, trying seed fallback', err);
     }
 
-    throw new Error('Invalid email or password');
+    // Local-only seed when MySQL has no matching admin row (never in production)
+    if (seedOk) {
+      return issue({
+        admin_id: 1,
+        name: 'Super Admin',
+        email: cleanEmail,
+        role: 'super_admin',
+      });
+    }
+
+    throw Object.assign(new Error('Invalid email or password'), { statusCode: 401 });
+  }
+
+  /**
+   * Live check that adminId is still active. Used by requireAdmin on every request.
+   * Does NOT trust JWT claims alone — deactivated accounts are rejected immediately.
+   */
+  static async assertActiveAdmin(adminId: number): Promise<AdminProfile> {
+    const id = Number(adminId);
+    if (!id || Number.isNaN(id)) {
+      throw Object.assign(new Error('Administrative login required'), { statusCode: 401 });
+    }
+
+    const seedProfile = (): AdminProfile => ({
+      id: 1,
+      name: 'Super Admin',
+      email: 'admin@techxpert.in',
+      role: 'super_admin',
+    });
+
+    try {
+      const [rows] = await userPool.query<any[]>(
+        `SELECT admin_id as id, name, email, role
+         FROM admin_users WHERE admin_id = ? AND is_active = 1 LIMIT 1`,
+        [id]
+      );
+      if (rows.length > 0) {
+        return {
+          id: Number(rows[0].id),
+          name: rows[0].name,
+          email: rows[0].email,
+          role: rows[0].role,
+        };
+      }
+      // Missing/inactive: allow local seed id=1 only when opt-in
+      if (isDevAdminAllowed() && id === 1) return seedProfile();
+      throw Object.assign(new Error('Admin account disabled or not found'), { statusCode: 401 });
+    } catch (err: any) {
+      if (err.statusCode === 401) throw err;
+      console.warn('[AuthService] assertActiveAdmin MySQL failed', err);
+
+      if (isDevAdminAllowed() && id === 1) return seedProfile();
+
+      throw Object.assign(new Error('Administrative login required'), { statusCode: 401 });
+    }
+  }
+
+  static async getAdminProfile(adminId: number): Promise<AdminProfile> {
+    return AuthService.assertActiveAdmin(adminId);
   }
 
   static async getAllUsers() {
-    const [rows] = await userPool.query<any[]>(
-      `SELECT 
-         u.user_id as id,
-         u.phone,
-         u.email,
-         u.full_name as name,
-         u.is_active as isActive,
-         u.created_at as createdAt,
-         (SELECT COUNT(*) FROM techxpertstore.orders o WHERE o.UserID = u.user_id) as orderCount,
-         (SELECT COALESCE(SUM(o.GrandTotal), 0) FROM techxpertstore.orders o WHERE o.UserID = u.user_id) as totalSpent,
-         (SELECT CONCAT(a.flat_no, ', ', a.city, ' - ', a.pincode) 
-          FROM user_addresses a 
-          WHERE a.user_id = u.user_id AND a.is_deleted = 0 
-          ORDER BY a.is_default DESC, a.address_id DESC LIMIT 1) as defaultAddress
-       FROM users u
-       ORDER BY u.user_id ASC`
-    );
-    return rows;
+    // Same-host cross-DB: spend stats from techxpertstore.orders (requires both schemas on one MySQL)
+    try {
+      const [rows] = await userPool.query<any[]>(
+        `SELECT 
+           u.user_id as id,
+           u.phone,
+           u.email,
+           u.full_name as name,
+           u.is_active as isActive,
+           u.created_at as createdAt,
+           (SELECT COUNT(*) FROM techxpertstore.orders o WHERE o.UserID = u.user_id) as orderCount,
+           (SELECT COALESCE(SUM(o.GrandTotal), 0) FROM techxpertstore.orders o WHERE o.UserID = u.user_id) as totalSpent,
+           (SELECT CONCAT(a.flat_no, ', ', a.city, ' - ', a.pincode) 
+            FROM user_addresses a 
+            WHERE a.user_id = u.user_id AND a.is_deleted = 0 
+            ORDER BY a.is_default DESC, a.address_id DESC LIMIT 1) as defaultAddress
+         FROM users u
+         ORDER BY u.user_id ASC`
+      );
+      return rows;
+    } catch (err) {
+      console.warn('[AuthService] getAllUsers with order spend failed; returning identity-only rows', err);
+      const [rows] = await userPool.query<any[]>(
+        `SELECT 
+           u.user_id as id,
+           u.phone,
+           u.email,
+           u.full_name as name,
+           u.is_active as isActive,
+           u.created_at as createdAt,
+           0 as orderCount,
+           0 as totalSpent,
+           (SELECT CONCAT(a.flat_no, ', ', a.city, ' - ', a.pincode) 
+            FROM user_addresses a 
+            WHERE a.user_id = u.user_id AND a.is_deleted = 0 
+            ORDER BY a.is_default DESC, a.address_id DESC LIMIT 1) as defaultAddress
+         FROM users u
+         ORDER BY u.user_id ASC`
+      );
+      return rows;
+    }
   }
 }

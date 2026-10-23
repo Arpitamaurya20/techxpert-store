@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { CatalogService } from '../services/catalogService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
+import { requireAdmin, requirePermission } from '../middleware/auth.js';
+import { validateProductCreateBody, validateProductUpdateBody } from '../utils/validate.js';
 
 const router = Router();
 
@@ -13,12 +15,78 @@ router.get(
   })
 );
 
+// POST /catalog/categories
+router.post(
+  '/categories',
+  requireAdmin,
+  requirePermission('categories', 'edit'),
+  asyncHandler(async (req, res) => {
+    const category = await CatalogService.createCategory(req.body);
+    return sendSuccess(res, category, 'Category created successfully', 201);
+  })
+);
+
+// PUT /catalog/categories/:id
+router.put(
+  '/categories/:id',
+  requireAdmin,
+  requirePermission('categories', 'edit'),
+  asyncHandler(async (req, res) => {
+    const updated = await CatalogService.updateCategory(req.params.id, req.body);
+    return sendSuccess(res, updated, 'Category updated successfully');
+  })
+);
+
+// DELETE /catalog/categories/:id (soft-delete)
+router.delete(
+  '/categories/:id',
+  requireAdmin,
+  requirePermission('categories', 'delete'),
+  asyncHandler(async (req, res) => {
+    const result = await CatalogService.deleteCategory(req.params.id);
+    return sendSuccess(res, result, 'Category removed successfully');
+  })
+);
+
 // GET /catalog/subcategories
 router.get(
   '/subcategories',
   asyncHandler(async (req, res) => {
     const subcategories = await CatalogService.getSubcategories(req.query.categoryId as string);
     return sendSuccess(res, subcategories);
+  })
+);
+
+// POST /catalog/subcategories
+router.post(
+  '/subcategories',
+  requireAdmin,
+  requirePermission('categories', 'edit'),
+  asyncHandler(async (req, res) => {
+    const sub = await CatalogService.createSubcategory(req.body);
+    return sendSuccess(res, sub, 'Subcategory created successfully', 201);
+  })
+);
+
+// PUT /catalog/subcategories/:id
+router.put(
+  '/subcategories/:id',
+  requireAdmin,
+  requirePermission('categories', 'edit'),
+  asyncHandler(async (req, res) => {
+    const updated = await CatalogService.updateSubcategory(req.params.id, req.body);
+    return sendSuccess(res, updated, 'Subcategory updated successfully');
+  })
+);
+
+// DELETE /catalog/subcategories/:id (soft-delete)
+router.delete(
+  '/subcategories/:id',
+  requireAdmin,
+  requirePermission('categories', 'delete'),
+  asyncHandler(async (req, res) => {
+    const result = await CatalogService.deleteSubcategory(req.params.id);
+    return sendSuccess(res, result, 'Subcategory removed successfully');
   })
 );
 
@@ -62,8 +130,11 @@ router.get(
 // POST /catalog/products
 router.post(
   '/products',
+  requireAdmin,
+  requirePermission('products', 'edit'),
   asyncHandler(async (req, res) => {
-    const newProduct = await CatalogService.createProduct(req.body);
+    const body = validateProductCreateBody(req.body);
+    const newProduct = await CatalogService.createProduct(body);
     return sendSuccess(res, newProduct, 'Product created successfully', 201);
   })
 );
@@ -71,8 +142,11 @@ router.post(
 // PUT /catalog/products/:id
 router.put(
   '/products/:id',
+  requireAdmin,
+  requirePermission('products', 'edit'),
   asyncHandler(async (req, res) => {
-    const updated = await CatalogService.updateProduct(req.params.id, req.body);
+    const body = validateProductUpdateBody(req.body);
+    const updated = await CatalogService.updateProduct(req.params.id, body);
     if (!updated) return sendError(res, 404, 'Product not found');
     return sendSuccess(res, updated, 'Product updated successfully');
   })
@@ -81,6 +155,8 @@ router.put(
 // DELETE /catalog/products/:id
 router.delete(
   '/products/:id',
+  requireAdmin,
+  requirePermission('products', 'delete'),
   asyncHandler(async (req, res) => {
     const deleted = await CatalogService.deleteProduct(req.params.id);
     if (!deleted) return sendError(res, 404, 'Product not found');

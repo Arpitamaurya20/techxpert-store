@@ -1,23 +1,70 @@
 import { Router } from 'express';
 import { CmsService } from '../services/cmsService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
+import { requireAdmin, requirePermission, optionalAuth, extractAuth } from '../middleware/auth.js';
+import { AuthService } from '../services/authService.js';
+import { validateBannerBody } from '../utils/validate.js';
+import { readBannerUpload, storeBannerImage } from '../utils/bannerMedia.js';
 
 const router = Router();
 
-// GET /cms/banners - List all banners
+// GET /cms/banners
+// - Anonymous / mobile: live campaigns only (published or scheduled, inside the window). Query status is ignored.
+// - Active admin Bearer: all statuses by default; ?status= filters; ?status=all = no filter
 router.get(
   '/banners',
+  optionalAuth,
   asyncHandler(async (req, res) => {
-    const banners = await CmsService.getBanners(req.query.status as string);
+    const raw = req.query.status !== undefined ? String(req.query.status) : undefined;
+    let isActiveAdmin = false;
+
+    const tokenUser = extractAuth(req) || req.user;
+    if (tokenUser?.adminId) {
+      try {
+        await AuthService.assertActiveAdmin(tokenUser.adminId);
+        isActiveAdmin = true;
+        req.user = tokenUser;
+      } catch {
+        isActiveAdmin = false;
+      }
+    }
+
+    let statusFilter: string | undefined;
+    if (isActiveAdmin) {
+      if (raw === 'all' || raw === undefined || raw === '') {
+        statusFilter = undefined; // all statuses for portal
+      } else {
+        statusFilter = raw;
+      }
+    }
+
+    const banners = await CmsService.getBanners(isActiveAdmin ? statusFilter : undefined, {
+      audience: isActiveAdmin ? 'admin' : 'customer',
+    });
     return sendSuccess(res, banners);
+  })
+);
+
+// POST /cms/banners/media — store a JPEG, PNG, or WebP up to 2 MB
+router.post(
+  '/banners/media',
+  requireAdmin,
+  requirePermission('banners', 'edit'),
+  asyncHandler(async (req, res) => {
+    const bytes = await readBannerUpload(req);
+    const stored = await storeBannerImage(bytes);
+    return sendSuccess(res, stored, 'Campaign image stored', 201);
   })
 );
 
 // POST /cms/banners - Create banner
 router.post(
   '/banners',
+  requireAdmin,
+  requirePermission('banners', 'edit'),
   asyncHandler(async (req, res) => {
-    const banner = await CmsService.createBanner(req.body);
+    const body = validateBannerBody(req.body, false);
+    const banner = await CmsService.createBanner(body);
     return sendSuccess(res, banner, 'Banner created successfully', 201);
   })
 );
@@ -25,8 +72,11 @@ router.post(
 // PUT /cms/banners/:id - Update banner
 router.put(
   '/banners/:id',
+  requireAdmin,
+  requirePermission('banners', 'edit'),
   asyncHandler(async (req, res) => {
-    const updated = await CmsService.updateBanner(req.params.id, req.body);
+    const body = validateBannerBody(req.body, true);
+    const updated = await CmsService.updateBanner(req.params.id, body);
     return sendSuccess(res, updated, 'Banner updated successfully');
   })
 );
@@ -34,6 +84,8 @@ router.put(
 // DELETE /cms/banners/:id - Delete banner
 router.delete(
   '/banners/:id',
+  requireAdmin,
+  requirePermission('banners', 'delete'),
   asyncHandler(async (req, res) => {
     await CmsService.deleteBanner(req.params.id);
     return sendSuccess(res, { success: true }, 'Banner removed');
@@ -43,6 +95,8 @@ router.delete(
 // PUT /cms/banners/reorder - Batch reorder banners
 router.put(
   '/banners/reorder',
+  requireAdmin,
+  requirePermission('banners', 'edit'),
   asyncHandler(async (req, res) => {
     const { items } = req.body;
     if (!items || !Array.isArray(items)) return sendError(res, 400, 'items array is required');
@@ -51,12 +105,60 @@ router.put(
   })
 );
 
-// GET /cms/sections - Homepage layout dynamic sections
+// GET /cms/sections
+// - Anonymous / mobile: enabled blocks the phone can draw, in desk order
+// - Active admin: the same blocks, including hidden ones, so a toggle can turn them back on
 router.get(
   '/sections',
-  asyncHandler(async (_req, res) => {
-    const sections = await CmsService.getSections();
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    let isActiveAdmin = false;
+    const tokenUser = extractAuth(req) || req.user;
+    if (tokenUser?.adminId) {
+      try {
+        await AuthService.assertActiveAdmin(tokenUser.adminId);
+        isActiveAdmin = true;
+      } catch {
+        isActiveAdmin = false;
+      }
+    }
+    const sections = await CmsService.getSections({ audience: isActiveAdmin ? 'admin' : 'customer' });
     return sendSuccess(res, sections);
+  })
+);
+
+// PUT /cms/sections/reorder - Batch reorder (must be before :id)
+router.put(
+  '/sections/reorder',
+  requireAdmin,
+  requirePermission('sections', 'edit'),
+  asyncHandler(async (req, res) => {
+    const { items } = req.body;
+    if (!items || !Array.isArray(items)) return sendError(res, 400, 'items array is required');
+    const result = await CmsService.reorderSections(items);
+    return sendSuccess(res, result, 'Sections reordered');
+  })
+);
+
+// POST /cms/sections/reset - Restore SRS default order/visibility
+router.post(
+  '/sections/reset',
+  requireAdmin,
+  requirePermission('sections', 'delete'),
+  asyncHandler(async (_req, res) => {
+    const sections = await CmsService.resetSections();
+    return sendSuccess(res, sections, 'Homepage sections reset to SRS defaults');
+  })
+);
+
+// PUT /cms/sections/:id - Toggle / update a section
+router.put(
+  '/sections/:id',
+  requireAdmin,
+  requirePermission('sections', 'edit'),
+  asyncHandler(async (req, res) => {
+    const updated = await CmsService.updateSection(req.params.id, req.body);
+    return sendSuccess(res, updated, 'Section updated');
   })
 );
 

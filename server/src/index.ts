@@ -1,21 +1,58 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { bannerUploadRoot } from './utils/bannerMedia.js';
 import catalogRouter from './routes/catalog.js';
 import authRouter from './routes/auth.js';
 import ordersRouter from './routes/orders.js';
 import cmsRouter from './routes/cms.js';
 import pricingRouter from './routes/pricing.js';
 import cartRouter from './routes/cart.js';
+import auditRouter from './routes/audit.js';
+import deliveryRouter from './routes/delivery.js';
+import accessRouter from './routes/access.js';
+import { getCorsOptions, getJwtSecret } from './config/security.js';
+import { DB_STORE, DB_USERS, logDbBootStatus, testDbConnections } from './db/mysql.js';
 
 dotenv.config();
+
+// Fail fast in production if JWT is misconfigured
+getJwtSecret();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Middleware
-app.use(cors());
+// Middleware — CORS allowlist required in production (see getCorsOptions)
+app.use(cors(getCorsOptions()));
+
+// Campaign images. Served before the API's strict content-security header.
+app.use(
+  '/uploads',
+  express.static(path.join(bannerUploadRoot), {
+    index: false,
+    dotfiles: 'deny',
+    fallthrough: false,
+    setHeaders(res) {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    },
+  })
+);
+
 app.use(express.json());
+
+// Baseline security headers (API + portal consumers)
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+  );
+  next();
+});
 
 // Request logger for debugging
 app.use((req, _res, next) => {
@@ -31,49 +68,73 @@ const mountRouters = (prefix: string) => {
   app.use(`${prefix}/cms`, cmsRouter);
   app.use(`${prefix}/pricing`, pricingRouter);
   app.use(`${prefix}/cart`, cartRouter);
+  app.use(`${prefix}/audit`, auditRouter);
+  app.use(`${prefix}/delivery`, deliveryRouter);
+  app.use(`${prefix}/access`, accessRouter);
 };
 mountRouters('');
 mountRouters('/api');
 
-const healthHandler = (_req: express.Request, res: express.Response) => {
-  res.json({
-    status: 'ok',
+const healthHandler = async (_req: express.Request, res: express.Response) => {
+  const db = await testDbConnections();
+  const bothOk = db.users.ok && db.store.ok;
+  res.status(bothOk ? 200 : 503).json({
+    status: bothOk ? 'ok' : 'degraded',
     service: 'Techxpert Store API Backend',
     timestamp: new Date().toISOString(),
+    db: {
+      users: {
+        ok: db.users.ok,
+        database: db.users.database || DB_USERS,
+        host: db.users.host,
+        role: 'identity_login',
+        ...(db.users.error ? { error: db.users.error } : {}),
+      },
+      store: {
+        ok: db.store.ok,
+        database: db.store.database || DB_STORE,
+        host: db.store.host,
+        role: 'catalog_commerce',
+        ...(db.store.error ? { error: db.store.error } : {}),
+      },
+    },
     endpoints: [
       'POST /auth/login',
-      'POST /auth/register',
+      'POST /auth/admin/login',
+      'GET  /auth/admin/me',
       'GET  /catalog/categories',
-      'GET  /catalog/subcategories',
-      'GET  /catalog/brands',
       'GET  /catalog/products',
-      'GET  /catalog/products/:id',
       'GET  /orders',
-      'POST /orders',
       'GET  /cms/banners',
+      'GET  /cms/sections',
       'GET  /pricing/bulk-tiers',
-      'GET  /pricing/calculate',
       'GET  /cart',
-      'POST /cart/items',
+      'GET  /delivery/pincodes/:pincode',
+      'GET  /audit/logs',
     ],
   });
 };
 
-// Health & System Info
 app.get('/health', healthHandler);
 app.get('/api/health', healthHandler);
 
-// Root handler
 app.get('/', (_req, res) => {
   res.send({
     message: 'Techxpert Store Backend API Service is active',
     documentation: '/health',
+    dualDb: { users: DB_USERS, store: DB_STORE },
   });
 });
 
 app.listen(PORT, () => {
   console.log(`🚀 Techxpert Backend API running on http://localhost:${PORT}`);
-  console.log(`📡 Ready for Expo Mobile App connection via EXPO_PUBLIC_API_BASE_URL=http://localhost:${PORT}`);
+  console.log(
+    `📡 Ready for Expo Mobile App connection via EXPO_PUBLIC_API_BASE_URL=http://localhost:${PORT}`
+  );
+  console.log(`[DB] Dual-DB contract: identity=${DB_USERS} | catalog=${DB_STORE}`);
+  testDbConnections()
+    .then(logDbBootStatus)
+    .catch((e) => console.warn('[DB] boot probe failed', e));
 });
 
 export default app;
