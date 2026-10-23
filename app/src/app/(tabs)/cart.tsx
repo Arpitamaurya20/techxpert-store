@@ -10,7 +10,14 @@ import { Button } from '@/components/ui/Button';
 import { StateView } from '@/components/ui/StateView';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, spacing, typography } from '@/constants/theme';
 import { isApiConfigured } from '@/services/apiConfig';
-import { useCartCount, useCartItems, useCartLineCount } from '@/state/cartStore';
+import {
+  refreshCart,
+  useCanCheckout,
+  useCartCount,
+  useCartItems,
+  useCartLineCount,
+  useCartTotals,
+} from '@/state/cartStore';
 import { formatPrice, fromPaise, toPaise } from '@/utils/format';
 
 const CHECKOUT_BAR_ESTIMATE = 96;
@@ -21,16 +28,24 @@ export default function CartScreen() {
   const items = useCartItems();
   const itemCount = useCartCount();
   const lineCount = useCartLineCount();
+  const totals = useCartTotals();
+  const canCheckout = useCanCheckout();
   const [barHeight, setBarHeight] = useState(CHECKOUT_BAR_ESTIMATE);
   const checkoutLock = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
       checkoutLock.current = false;
+      void refreshCart();
     }, [])
   );
 
-  const subtotal = fromPaise(items.reduce((sum, item) => sum + toPaise(item.price) * item.quantity, 0));
+  const hasProblem = items.some((item) => item.problem);
+  const subtotal =
+    totals?.subtotal ??
+    fromPaise(
+      items.filter((item) => !item.problem).reduce((sum, item) => sum + toPaise(item.price) * item.quantity, 0)
+    );
   const productWord = lineCount === 1 ? 'product' : 'products';
   const subtitle =
     lineCount === 0
@@ -42,7 +57,7 @@ export default function CartScreen() {
   const continueShopping = () => router.navigate('/home');
 
   const goToCheckout = () => {
-    if (checkoutLock.current || items.length === 0) return;
+    if (checkoutLock.current || items.length === 0 || !canCheckout) return;
     checkoutLock.current = true;
     router.push('/checkout');
   };
@@ -99,7 +114,13 @@ export default function CartScreen() {
             </View>
           }
           ListFooterComponent={
-            <CartOrderSummary subtotal={subtotal} itemCount={itemCount} lineCount={lineCount} />
+            <CartOrderSummary
+              subtotal={subtotal}
+              itemCount={itemCount}
+              lineCount={lineCount}
+              totals={totals}
+              connected={isApiConfigured}
+            />
           }
           contentContainerStyle={[styles.content, { paddingBottom: barHeight + spacing.lg }]}
         />
@@ -109,16 +130,24 @@ export default function CartScreen() {
           onLayout={(event) => setBarHeight(Math.round(event.nativeEvent.layout.height))}
         >
           <View style={styles.barInner}>
-            <View accessible accessibilityLabel={`Subtotal ${formatPrice(subtotal)}`}>
-              <Text style={styles.barLabel}>Subtotal</Text>
-              <Text style={styles.barValue}>{formatPrice(subtotal)}</Text>
+            <View
+              accessible
+              accessibilityLabel={`${totals ? 'Total' : 'Subtotal'} ${formatPrice(totals?.grandTotal ?? subtotal)}`}
+            >
+              <Text style={styles.barLabel}>{totals ? 'Total' : 'Subtotal'}</Text>
+              <Text style={styles.barValue}>{formatPrice(totals?.grandTotal ?? subtotal)}</Text>
             </View>
             <View style={styles.barButton}>
               <Button
-                title="Proceed to Checkout"
+                title={hasProblem ? 'Fix items to continue' : 'Proceed to Checkout'}
                 icon="arrow-forward"
                 onPress={goToCheckout}
-                accessibilityHint="Opens checkout to enter your delivery details and place the order"
+                disabled={!canCheckout}
+                accessibilityHint={
+                  hasProblem
+                    ? 'Some items cannot be ordered as they are. Change or remove them first.'
+                    : 'Opens checkout to enter your delivery details and place the order'
+                }
               />
             </View>
           </View>

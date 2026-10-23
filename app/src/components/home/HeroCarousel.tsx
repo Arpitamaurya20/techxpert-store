@@ -15,11 +15,14 @@ import {
 
 import { colors, fonts, radius, spacing } from '@/constants/theme';
 import { HERO_SLIDES, type HeroSlide } from '@/data/homeContent';
+import { useAsyncData } from '@/hooks/useAsyncData';
+import { getHeroSlides } from '@/services/cmsApi';
 
 const AUTO_ADVANCE_MS = 5000;
 
 type HeroCarouselProps = {
   width: number;
+  refreshKey?: number;
 };
 
 function Slide({ slide, width, height }: { slide: HeroSlide; width: number; height: number }) {
@@ -50,12 +53,15 @@ function Slide({ slide, width, height }: { slide: HeroSlide; width: number; heig
   );
 }
 
-/** Swipeable promo banners; auto-advance stops once the shopper swipes or uses a screen reader. */
-export function HeroCarousel({ width }: HeroCarouselProps) {
+/** Swipeable promo banners from CMS (`GET /cms/banners`); static slides when offline. */
+export function HeroCarousel({ width, refreshKey = 0 }: HeroCarouselProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
   const height = Math.round(Math.min(Math.max(width * 0.58, 200), 320));
+
+  const hero = useAsyncData(`home-hero-${refreshKey}`, getHeroSlides, { keepPreviousData: true });
+  const slides = hero.data?.slides?.length ? hero.data.slides : HERO_SLIDES;
 
   useEffect(() => {
     AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
@@ -64,18 +70,23 @@ export function HeroCarousel({ width }: HeroCarouselProps) {
   }, []);
 
   useEffect(() => {
-    if (!autoPlay || width === 0) return;
+    setIndex(0);
+    scrollRef.current?.scrollTo({ x: 0, animated: false });
+  }, [slides.length, refreshKey]);
+
+  useEffect(() => {
+    if (!autoPlay || width === 0 || slides.length === 0) return;
     const timer = setTimeout(() => {
-      const next = (index + 1) % HERO_SLIDES.length;
+      const next = (index + 1) % slides.length;
       scrollRef.current?.scrollTo({ x: next * width, animated: true });
       setIndex(next);
     }, AUTO_ADVANCE_MS);
     return () => clearTimeout(timer);
-  }, [autoPlay, index, width]);
+  }, [autoPlay, index, width, slides.length]);
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const next = Math.round(event.nativeEvent.contentOffset.x / width);
-    if (next !== index && next >= 0 && next < HERO_SLIDES.length) setIndex(next);
+    if (next !== index && next >= 0 && next < slides.length) setIndex(next);
   };
 
   const goTo = (next: number) => {
@@ -96,18 +107,18 @@ export function HeroCarousel({ width }: HeroCarouselProps) {
         scrollEventThrottle={16}
         style={[styles.scroller, { width, height }]}
       >
-        {HERO_SLIDES.map((slide) => (
+        {slides.map((slide) => (
           <Slide key={slide.id} slide={slide} width={width} height={height} />
         ))}
       </ScrollView>
 
       <View style={styles.dots}>
-        {HERO_SLIDES.map((slide, dotIndex) => (
+        {slides.map((slide, dotIndex) => (
           <Pressable
             key={slide.id}
             onPress={() => goTo(dotIndex)}
             accessibilityRole="button"
-            accessibilityLabel={`Show banner ${dotIndex + 1} of ${HERO_SLIDES.length}`}
+            accessibilityLabel={`Show banner ${dotIndex + 1} of ${slides.length}`}
             accessibilityState={{ selected: dotIndex === index }}
             hitSlop={10}
             style={styles.dotHit}

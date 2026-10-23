@@ -9,6 +9,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 
+import { CartSync } from '@/components/store/CartSync';
 import { ToastProvider } from '@/components/ui/Toast';
 import { BRAND } from '@/constants/brand';
 import { colors, fonts } from '@/constants/theme';
@@ -38,6 +39,7 @@ export default function RootLayout() {
 
   return (
     <ToastProvider>
+      <CartSync />
       <Stack
         screenOptions={{
           headerTintColor: colors.primary,

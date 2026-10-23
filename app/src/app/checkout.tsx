@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Pressable,
@@ -18,11 +18,19 @@ import { StateView } from '@/components/ui/StateView';
 import { TextField } from '@/components/ui/TextField';
 import { useToast } from '@/components/ui/Toast';
 import { MAX_CONTENT_WIDTH, SCREEN_PADDING, cardShadow, colors, fonts, radius, spacing, typography } from '@/constants/theme';
+import { usePincodeCheck } from '@/hooks/usePincodeCheck';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
-import { getErrorMessage } from '@/services/apiClient';
+import { ApiError, getErrorMessage } from '@/services/apiClient';
 import { isApiConfigured } from '@/services/apiConfig';
 import { placeOrder, type PaymentMethod } from '@/services/orderApi';
-import { clearCart, useCartItems } from '@/state/cartStore';
+import {
+  clearCart,
+  getCheckoutCart,
+  refreshCart,
+  useCanCheckout,
+  useCartItems,
+  useCartTotals,
+} from '@/state/cartStore';
 import { locationStore, useSavedAddresses, type SavedAddress } from '@/state/locationStore';
 import { useSession } from '@/state/sessionStore';
 import { formatPrice, fromPaise, lineSubtotal, toPaise } from '@/utils/format';
@@ -43,6 +51,21 @@ const TEST_CHECKOUT = __DEV__;
 
 /** Used until the bottom bar reports its real height. */
 const BAR_HEIGHT_ESTIMATE = 88;
+
+const UNCONFIRMED_ORDER =
+  "We couldn't confirm your order. Tap Place order again; it won't create a second order.";
+
+/** The server refused the order (a line, the total or the address); its sentence says why. */
+const isRefusal = (error: unknown) =>
+  error instanceof ApiError && error.code === 'SERVER' && (error.status ?? 500) < 500;
+
+/** The order may or may not have been placed; retrying the same cart is safe. */
+const isUnconfirmed = (error: unknown) =>
+  error instanceof ApiError &&
+  (error.code === 'NETWORK' ||
+    error.code === 'TIMEOUT' ||
+    error.code === 'INVALID_RESPONSE' ||
+    (error.code === 'SERVER' && (error.status ?? 500) >= 500));
 
 type PaymentOption = {
   id: PaymentMethod | 'UPI' | 'CARD';
@@ -74,6 +97,8 @@ export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const items = useCartItems();
+  const totals = useCartTotals();
+  const canCheckout = useCanCheckout();
   const savedAddresses = useSavedAddresses();
   const user = useSession()?.user;
   const mobileRef = useRef<TextInput>(null);
@@ -100,7 +125,17 @@ export default function CheckoutScreen() {
     pincode: validatePincode(pincode),
   };
   const shown = (error: string | undefined) => (submitted ? error : undefined);
+  const delivery = usePincodeCheck(pincode.trim());
   const itemTotal = fromPaise(items.reduce((sum, item) => sum + toPaise(lineSubtotal(item.price, item.quantity)), 0));
+  const hasProblem = items.some((item) => item.problem);
+  /** With a server, only its total may be placed; it is missing while a cart change is saving. */
+  const payable = isApiConfigured ? (totals && canCheckout ? totals.grandTotal : null) : itemTotal;
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshCart();
+    }, [])
+  );
 
   const applyAddress = (address: SavedAddress) => {
     setLine(address.line);
@@ -113,6 +148,14 @@ export default function CheckoutScreen() {
     setSubmitted(true);
     if (Object.values(errors).some(Boolean)) {
       showToast({ variant: 'error', message: 'Please complete your delivery details.', bottomOffset: barHeight });
+      return;
+    }
+    if (delivery.state === 'unserviceable' || delivery.state === 'checking') {
+      showToast({
+        variant: 'error',
+        message: delivery.state === 'checking' ? 'Checking delivery to your pincode…' : delivery.message,
+        bottomOffset: barHeight,
+      });
       return;
     }
     const address = `${line.trim()}, ${city.trim()} - ${pincode.trim()}`;
@@ -139,10 +182,21 @@ export default function CheckoutScreen() {
       return;
     }
 
+    const cart = getCheckoutCart();
+    if (!cart) {
+      showToast({
+        variant: 'error',
+        message: hasProblem ? 'Fix the items marked in your cart first.' : 'Your cart is still updating. Try again in a moment.',
+        bottomOffset: barHeight,
+      });
+      return;
+    }
+
     setPlacing(true);
     try {
       const order = await placeOrder({
-        items: items.map((item) => ({ productId: item.productId, quantity: item.quantity, unitPrice: item.price })),
+        cartId: cart.cartId,
+        expectedTotal: cart.grandTotal,
         customerName: name.trim(),
         mobile: normalizeIndianMobile(mobile),
         address: { line: line.trim(), city: city.trim(), pincode: pincode.trim() },
@@ -159,7 +213,9 @@ export default function CheckoutScreen() {
         },
       });
     } catch (error) {
-      showToast({ variant: 'error', message: getErrorMessage(error), bottomOffset: barHeight });
+      const message = isUnconfirmed(error) ? UNCONFIRMED_ORDER : getErrorMessage(error);
+      showToast({ variant: 'error', message, bottomOffset: barHeight });
+      if (isRefusal(error)) void refreshCart();
     } finally {
       setPlacing(false);
     }
@@ -302,6 +358,40 @@ export default function CheckoutScreen() {
                   />
                 </View>
               </View>
+              {delivery.state !== 'idle' ? (
+                <View style={styles.deliveryRow} accessibilityLiveRegion="polite">
+                  <Ionicons
+                    name={
+                      delivery.state === 'serviceable'
+                        ? 'checkmark-circle'
+                        : delivery.state === 'unserviceable'
+                          ? 'close-circle'
+                          : 'time-outline'
+                    }
+                    size={16}
+                    color={
+                      delivery.state === 'serviceable'
+                        ? colors.success
+                        : delivery.state === 'unserviceable'
+                          ? colors.error
+                          : colors.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.deliveryText,
+                      delivery.state === 'serviceable' && styles.deliveryOk,
+                      delivery.state === 'unserviceable' && styles.deliveryNo,
+                    ]}
+                  >
+                    {delivery.state === 'checking'
+                      ? 'Checking delivery to this pincode…'
+                      : delivery.state === 'error'
+                        ? `${delivery.message} We will confirm delivery when you place the order.`
+                        : delivery.message}
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.section}>
@@ -348,21 +438,67 @@ export default function CheckoutScreen() {
                     <Text style={styles.summaryItem} numberOfLines={2}>
                       {item.name} × {item.quantity}
                     </Text>
-                    <Text style={styles.summaryValue}>{formatPrice(lineSubtotal(item.price, item.quantity))}</Text>
+                    {item.problem ? (
+                      <Text style={styles.summaryProblem}>Fix in cart</Text>
+                    ) : (
+                      <Text style={styles.summaryValue}>{formatPrice(lineSubtotal(item.price, item.quantity))}</Text>
+                    )}
                   </View>
                 ))}
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryItem}>Delivery</Text>
-                  <Text style={styles.summaryMuted}>Confirmed with your order</Text>
-                </View>
-                <View style={styles.divider} />
-                <View style={styles.summaryRow}>
-                  <Text style={styles.totalLabel}>Item total</Text>
-                  <Text style={styles.totalValue}>{formatPrice(itemTotal)}</Text>
-                </View>
+                {isApiConfigured ? (
+                  totals ? (
+                    <>
+                      <View style={styles.divider} />
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryItem}>Subtotal</Text>
+                        <Text style={styles.summaryValue}>{formatPrice(totals.subtotal)}</Text>
+                      </View>
+                      {totals.bulkSavings > 0 ? (
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryItem}>Bulk savings (included)</Text>
+                          <Text style={styles.summarySaving}>− {formatPrice(totals.bulkSavings)}</Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryItem}>Delivery</Text>
+                        <Text style={styles.summaryValue}>
+                          {totals.delivery === 0 ? 'Free' : formatPrice(totals.delivery)}
+                        </Text>
+                      </View>
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryItem}>GST (18%)</Text>
+                        <Text style={styles.summaryValue}>{formatPrice(totals.tax)}</Text>
+                      </View>
+                      <View style={styles.divider} />
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.totalLabel}>Total</Text>
+                        <Text style={styles.totalValue}>{formatPrice(totals.grandTotal)}</Text>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryItem}>Total</Text>
+                      <Text style={styles.summaryMuted}>Updating prices…</Text>
+                    </View>
+                  )
+                ) : (
+                  <>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryItem}>Delivery</Text>
+                      <Text style={styles.summaryMuted}>Confirmed with your order</Text>
+                    </View>
+                    <View style={styles.divider} />
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.totalLabel}>Item total</Text>
+                      <Text style={styles.totalValue}>{formatPrice(itemTotal)}</Text>
+                    </View>
+                  </>
+                )}
               </View>
               <Text style={styles.note}>
-                The store re-checks prices, stock and any delivery charge when your order is placed.
+                {isApiConfigured
+                  ? 'You pay this total in cash when your order arrives. The store checks prices and stock once more as it places the order.'
+                  : 'The store re-checks prices, stock and any delivery charge when your order is placed.'}
               </Text>
               {isApiConfigured ? null : (
                 <View style={styles.notice}>
@@ -387,9 +523,16 @@ export default function CheckoutScreen() {
       >
         <View style={styles.barInner}>
           <Button
-            title={`Place order · ${formatPrice(itemTotal)}`}
+            title={
+              payable != null
+                ? `Place order · ${formatPrice(payable)}`
+                : hasProblem
+                  ? 'Fix items in your cart'
+                  : 'Updating prices…'
+            }
             loading={placing}
             loadingTitle="Placing order…"
+            disabled={payable == null || delivery.state === 'unserviceable'}
             onPress={submit}
           />
         </View>
@@ -566,6 +709,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     color: colors.navy,
   },
+  summarySaving: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: fonts.semiBold,
+    color: colors.success,
+  },
+  summaryProblem: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: fonts.semiBold,
+    color: colors.error,
+  },
   summaryMuted: {
     fontSize: 13,
     lineHeight: 20,
@@ -592,6 +747,23 @@ const styles = StyleSheet.create({
   note: {
     ...typography.caption,
     color: colors.textMuted,
+  },
+  deliveryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+  },
+  deliveryText: {
+    ...typography.caption,
+    flex: 1,
+    color: colors.textMuted,
+  },
+  deliveryOk: {
+    color: colors.success,
+  },
+  deliveryNo: {
+    color: colors.error,
+    fontFamily: fonts.semiBold,
   },
   notice: {
     flexDirection: 'row',

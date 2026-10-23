@@ -24,6 +24,8 @@ export class ApiError extends Error {
 }
 
 type QueryParams = Record<string, string | number | boolean | undefined>;
+type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type RequestOptions = { headers?: Record<string, string> };
 
 function buildUrl(path: string, params?: QueryParams) {
   const query = Object.entries(params ?? {})
@@ -34,13 +36,21 @@ function buildUrl(path: string, params?: QueryParams) {
 }
 
 /** GET request to the Techxpert API. Sends the session token as a Bearer header when signed in. */
-export function apiGet(path: string, params?: QueryParams): Promise<unknown> {
-  return request('GET', buildUrl(path, params));
+export function apiGet(path: string, params?: QueryParams, options?: RequestOptions): Promise<unknown> {
+  return request('GET', buildUrl(path, params), undefined, options);
 }
 
 /** POST a JSON body to the Techxpert API. Sends the session token as a Bearer header when signed in. */
-export function apiPost(path: string, body: unknown): Promise<unknown> {
-  return request('POST', buildUrl(path), body);
+export function apiPost(path: string, body: unknown, options?: RequestOptions): Promise<unknown> {
+  return request('POST', buildUrl(path), body, options);
+}
+
+export function apiPut(path: string, body: unknown, options?: RequestOptions): Promise<unknown> {
+  return request('PUT', buildUrl(path), body, options);
+}
+
+export function apiDelete(path: string, options?: RequestOptions): Promise<unknown> {
+  return request('DELETE', buildUrl(path), undefined, options);
 }
 
 /** The server's own explanation for a rejected request, e.g. "Insufficient stock". */
@@ -54,12 +64,12 @@ async function readErrorMessage(response: Response): Promise<string | undefined>
   }
 }
 
-async function request(method: 'GET' | 'POST', url: string, body?: unknown): Promise<unknown> {
+async function request(method: Method, url: string, body?: unknown, options?: RequestOptions): Promise<unknown> {
   if (!isApiConfigured) {
     throw new ApiError('NOT_CONFIGURED', 'The Techxpert store server is not connected yet.');
   }
 
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { ...options?.headers, Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const token = getAuthToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -93,7 +103,7 @@ async function request(method: 'GET' | 'POST', url: string, body?: unknown): Pro
   if (response.status === 404) {
     throw new ApiError('NOT_FOUND', 'We could not find what you were looking for.', 404);
   }
-  if (method === 'POST' && response.status >= 400 && response.status < 500) {
+  if (method !== 'GET' && response.status >= 400 && response.status < 500) {
     const message = await readErrorMessage(response);
     throw new ApiError(
       'SERVER',

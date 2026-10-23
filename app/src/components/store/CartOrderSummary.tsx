@@ -1,19 +1,29 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { colors, fonts, radius, spacing, typography } from '@/constants/theme';
+import type { CartTotals } from '@/state/cartStore';
 import { formatPrice } from '@/utils/format';
 
 type CartOrderSummaryProps = {
   subtotal: number;
   itemCount: number;
   lineCount: number;
+  /** Server totals. Null while a change is being saved, or when no server is connected. */
+  totals: CartTotals | null;
+  connected: boolean;
 };
 
-/**
- * Shows only amounts the app can honestly compute. Delivery, tax and discounts
- * are omitted until a checkout / pricing API returns them.
- */
-export function CartOrderSummary({ subtotal, itemCount, lineCount }: CartOrderSummaryProps) {
+function Row({ label, value, tone }: { label: string; value: string; tone?: 'saving' }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.amount, tone === 'saving' && styles.saving]}>{value}</Text>
+    </View>
+  );
+}
+
+/** Shows only amounts the server has confirmed; without them, just the subtotal. */
+export function CartOrderSummary({ subtotal, itemCount, lineCount, totals, connected }: CartOrderSummaryProps) {
   const countLabel =
     lineCount === itemCount
       ? `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`
@@ -24,14 +34,34 @@ export function CartOrderSummary({ subtotal, itemCount, lineCount }: CartOrderSu
       <Text style={styles.title} accessibilityRole="header">
         Order Summary
       </Text>
-      <View style={styles.row}>
-        <Text style={styles.label}>Subtotal ({countLabel})</Text>
-        <Text style={styles.value}>{formatPrice(subtotal)}</Text>
-      </View>
-      <Text style={styles.note}>
-        Delivery, tax and any other charges will be calculated at checkout. Prices and stock are
-        confirmed then. A payable total is not shown until those amounts are known.
-      </Text>
+      {totals ? (
+        <>
+          <Row label={`Subtotal (${countLabel})`} value={formatPrice(totals.subtotal)} />
+          {totals.bulkSavings > 0 ? (
+            <Row label="Bulk savings (included)" value={`− ${formatPrice(totals.bulkSavings)}`} tone="saving" />
+          ) : null}
+          <Row label="Delivery" value={totals.delivery === 0 ? 'Free' : formatPrice(totals.delivery)} />
+          <Row label="GST (18%)" value={formatPrice(totals.tax)} />
+          <View style={styles.divider} />
+          <View style={styles.row}>
+            <Text style={styles.totalLabel}>Total</Text>
+            <Text style={styles.value}>{formatPrice(totals.grandTotal)}</Text>
+          </View>
+          <Text style={styles.note}>Prices and stock are checked again when you place the order.</Text>
+        </>
+      ) : (
+        <>
+          <View style={styles.row}>
+            <Text style={styles.label}>Subtotal ({countLabel})</Text>
+            <Text style={styles.value}>{formatPrice(subtotal)}</Text>
+          </View>
+          <Text style={styles.note}>
+            {connected
+              ? 'Updating prices…'
+              : 'Delivery, tax and any other charges will be calculated at checkout. Prices and stock are confirmed then. A payable total is not shown until those amounts are known.'}
+          </Text>
+        </>
+      )}
     </View>
   );
 }
@@ -60,6 +90,25 @@ const styles = StyleSheet.create({
   label: {
     ...typography.body,
     flex: 1,
+    color: colors.text,
+  },
+  amount: {
+    ...typography.body,
+    fontFamily: fonts.semiBold,
+    color: colors.text,
+  },
+  saving: {
+    color: colors.success,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.cardBorder,
+    marginVertical: spacing.xs,
+  },
+  totalLabel: {
+    ...typography.label,
+    flex: 1,
+    fontSize: 16,
     color: colors.text,
   },
   value: {

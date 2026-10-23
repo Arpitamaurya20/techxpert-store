@@ -1,10 +1,24 @@
 /**
- * In-memory cart shared by Home, listing, details and this Cart tab.
- * There is no cart API yet: items are not saved to a server or across
- * app restarts. When the backend is ready, replace these functions with
- * authenticated calls such as GET/POST/PATCH/DELETE /cart and keep this
- * store as the UI cache. Do not add a second cart.
+ * The cart shared by Home, listing, details and the Cart tab.
+ *
+ * With a server configured, the server owns the cart (see `services/cartApi.ts`)
+ * and this store is its on-screen copy: a change shows at once, is sent for that
+ * line (one request at a time, newest quantity wins) and the server's reply
+ * replaces the copy. A refused change goes back to the server's quantity and
+ * leaves a `notice` for `CartSync` to show. Without a server the cart lives in
+ * memory only. Do not add a second cart.
  */
+import { isApiConfigured } from '@/services/apiConfig';
+import { getErrorMessage } from '@/services/apiClient';
+import {
+  fetchCart,
+  mergeGuestCart,
+  putCartLine,
+  type CartLineProblem,
+  type CartTotals,
+  type ServerCart,
+  type ServerCartLine,
+} from '@/services/cartApi';
 import type { Product } from '@/types/catalog';
 
 import { createStore } from './createStore';
@@ -16,16 +30,28 @@ export type CartItem = {
   brandName?: string;
   unit?: string;
   imageUrl?: string;
-  /** Price when the item was added; the backend must re-check it at checkout. */
+  /** Price per unit after any bulk tier; from the server once it has priced the line. */
   price: number;
   quantity: number;
   minQuantity: number;
   quantityStep: number;
   maxQuantity: number;
+  tierLabel?: string;
+  problem?: CartLineProblem;
+  /** Most that can be ordered now (stock and order limit), from the server. */
+  orderableQuantity?: number;
 };
 
+export type { CartLineProblem, CartTotals };
+
 type CartState = {
+  /** The server cart this copy came from; checkout places the order from it. */
+  cartId: string | null;
   items: CartItem[];
+  /** Server totals; null without a server or while a change is still being saved. */
+  totals: CartTotals | null;
+  canCheckout: boolean;
+  notice: { id: number; message: string } | null;
 };
 
 export type AddToCartFailure =
@@ -41,7 +67,13 @@ export type AddToCartResult =
 /** Used when the backend sends no stock or order limit. */
 const DEFAULT_MAX_QUANTITY = 99;
 
-export const cartStore = createStore<CartState>({ items: [] });
+export const cartStore = createStore<CartState>({
+  cartId: null,
+  items: [],
+  totals: null,
+  canCheckout: !isApiConfigured,
+  notice: null,
+});
 
 export function getMaxQuantity(product: Product): number {
   if (product.stockStatus === 'out_of_stock') return 0;
@@ -93,10 +125,120 @@ export function getCartQuantity(productId: string): number {
   return cartStore.getState().items.find((item) => item.productId === productId)?.quantity ?? 0;
 }
 
+// --- Server sync -----------------------------------------------------------
+
+/** Quantities waiting to be sent, and lines with a request in flight. */
+const wanted = new Map<string, number>();
+const inFlight = new Set<string>();
+let noticeId = 0;
+
+const isBusy = (productId: string) => wanted.has(productId) || inFlight.has(productId);
+
+function postNotice(message: string) {
+  noticeId += 1;
+  cartStore.setState((state) => ({ ...state, notice: { id: noticeId, message } }));
+}
+
+function fromServerLine(line: ServerCartLine, local: CartItem | undefined): CartItem {
+  const caps = [DEFAULT_MAX_QUANTITY, line.stock, line.max].filter(
+    (limit): limit is number => typeof limit === 'number'
+  );
+  const orderable = Math.min(...caps);
+  return {
+    productId: line.productId,
+    name: line.name,
+    categoryId: line.categoryId || local?.categoryId || '',
+    brandName: line.brandName ?? local?.brandName,
+    unit: line.unit ?? local?.unit,
+    imageUrl: line.imageUrl ?? local?.imageUrl,
+    price: line.unitPrice ?? line.basePrice ?? local?.price ?? 0,
+    quantity: line.quantity,
+    minQuantity: line.min,
+    quantityStep: local?.quantityStep ?? 1,
+    maxQuantity: Math.max(line.quantity, orderable),
+    tierLabel: line.tierLabel,
+    problem: line.problem,
+    orderableQuantity: orderable,
+  };
+}
+
+/** Takes the server's cart, except lines the customer is still changing. */
+function applyServerCart(cart: ServerCart) {
+  cartStore.setState((state) => {
+    const local = new Map(state.items.map((item) => [item.productId, item]));
+    const items: CartItem[] = [];
+    const seen = new Set<string>();
+    for (const line of cart.lines) {
+      seen.add(line.productId);
+      if (!isBusy(line.productId)) items.push(fromServerLine(line, local.get(line.productId)));
+      else if (local.has(line.productId)) items.push(local.get(line.productId)!);
+    }
+    for (const item of state.items) {
+      if (!seen.has(item.productId) && isBusy(item.productId)) items.push(item);
+    }
+    const settled = wanted.size === 0 && inFlight.size === 0;
+    return {
+      ...state,
+      cartId: cart.id ?? state.cartId,
+      items,
+      totals: settled ? cart.totals : null,
+      canCheckout: settled && cart.canCheckout,
+    };
+  });
+}
+
+async function syncLine(productId: string) {
+  if (inFlight.has(productId) || !wanted.has(productId)) return;
+  const quantity = wanted.get(productId)!;
+  wanted.delete(productId);
+  inFlight.add(productId);
+  try {
+    const cart = await putCartLine(productId, quantity);
+    inFlight.delete(productId);
+    applyServerCart(cart);
+  } catch (error) {
+    inFlight.delete(productId);
+    postNotice(getErrorMessage(error));
+    await refreshCart();
+  } finally {
+    if (wanted.has(productId)) void syncLine(productId);
+  }
+}
+
+function sendLine(productId: string, quantity: number) {
+  if (!isApiConfigured) return;
+  wanted.set(productId, quantity);
+  cartStore.setState((state) => ({ ...state, totals: null, canCheckout: false }));
+  void syncLine(productId);
+}
+
+/** Loads the server cart (app start, sign-out, after a refused change). */
+export async function refreshCart() {
+  if (!isApiConfigured) return;
+  try {
+    applyServerCart(await fetchCart());
+  } catch {
+    // Keep what is on screen; the next change or screen visit tries again.
+  }
+}
+
+/** After sign-in: the guest cart on this device joins the account cart. */
+export async function mergeCartIntoAccount() {
+  if (!isApiConfigured) return;
+  try {
+    applyServerCart(await mergeGuestCart());
+  } catch (error) {
+    postNotice(getErrorMessage(error));
+    await refreshCart();
+  }
+}
+
+// --- Changes ---------------------------------------------------------------
+
 /**
- * Adds to the in-memory cart. Without `quantity`, adds the smallest allowed
- * amount (the minimum order for a new item). Invalid quantities are rejected
- * rather than silently changed.
+ * Adds to the cart. Without `quantity`, adds the smallest allowed amount (the
+ * minimum order for a new item). Invalid quantities are rejected rather than
+ * silently changed; the server checks again.
  */
 export function addToCart(product: Product, quantity?: number): AddToCartResult {
   const rules = getQuantityRules(product);
@@ -147,8 +289,9 @@ export function addToCart(product: Product, quantity?: number): AddToCartResult 
             maxQuantity: rules.max,
           },
         ];
-    return { items };
+    return { ...state, items };
   });
+  sendLine(product.id, nextQuantity);
 
   return { ok: true, added, quantity: nextQuantity };
 }
@@ -162,26 +305,58 @@ function fitCartQuantity(quantity: number, item: CartItem): number {
 }
 
 export function setCartQuantity(productId: string, quantity: number) {
+  const item = cartStore.getState().items.find((entry) => entry.productId === productId);
+  if (!item) return;
+  const next = fitCartQuantity(quantity, item);
+  if (next === item.quantity) return;
   cartStore.setState((state) => ({
-    items: state.items.map((item) =>
-      item.productId === productId ? { ...item, quantity: fitCartQuantity(quantity, item) } : item
-    ),
+    ...state,
+    items: state.items.map((entry) => (entry.productId === productId ? { ...entry, quantity: next } : entry)),
   }));
+  sendLine(productId, next);
 }
 
 export function removeFromCart(productId: string) {
   cartStore.setState((state) => ({
+    ...state,
     items: state.items.filter((item) => item.productId !== productId),
   }));
+  sendLine(productId, 0);
 }
 
-/** Empties the cart once the server has accepted the order. */
+/**
+ * Empties the cart on screen once the order is placed. The server already closed the cart that
+ * became the order, so this only loads the customer's new, empty cart.
+ */
 export function clearCart() {
-  cartStore.setState({ items: [] });
+  wanted.clear();
+  cartStore.setState((state) => ({ ...state, cartId: null, items: [], totals: null, canCheckout: !isApiConfigured }));
+  void refreshCart();
 }
+
+/** The cart number and total checkout sends, or null while a change is still being saved. */
+export function getCheckoutCart(): { cartId: string | null; grandTotal: number } | null {
+  const { cartId, totals, canCheckout } = cartStore.getState();
+  return totals && canCheckout ? { cartId, grandTotal: totals.grandTotal } : null;
+}
+
+// --- Reading ---------------------------------------------------------------
 
 export function useCartItems() {
   return cartStore.useStore((state) => state.items);
+}
+
+export function useCartTotals() {
+  return cartStore.useStore((state) => state.totals);
+}
+
+/** False while a change is being saved or a line has a problem. Always true without a server. */
+export function useCanCheckout() {
+  return cartStore.useStore((state) => state.canCheckout);
+}
+
+export function useCartNotice() {
+  return cartStore.useStore((state) => state.notice);
 }
 
 /** Total number of units in the cart, shown on the header icon and Cart tab. */

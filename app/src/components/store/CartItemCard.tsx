@@ -20,6 +20,21 @@ type CartItemCardProps = {
   item: CartItem;
 };
 
+function problemMessage(item: CartItem): string | null {
+  switch (item.problem) {
+    case 'out_of_stock':
+      return 'Out of stock. Remove it to check out.';
+    case 'price_unavailable':
+      return 'Not available to order right now. Remove it to check out.';
+    case 'over_limit':
+      return item.orderableQuantity !== undefined
+        ? `Only ${item.orderableQuantity} can be ordered now. Lower the quantity to check out.`
+        : 'This quantity cannot be ordered now. Lower it to check out.';
+    default:
+      return null;
+  }
+}
+
 function confirmRemove(name: string, onConfirm: () => void) {
   const title = 'Remove item';
   const message = `Remove ${name} from your cart?`;
@@ -38,6 +53,7 @@ export function CartItemCard({ item }: CartItemCardProps) {
   const floor = getCartQuantityFloor(item);
   const canIncrease = item.quantity + item.quantityStep <= item.maxQuantity;
   const subtotal = lineSubtotal(item.price, item.quantity);
+  const problem = problemMessage(item);
 
   const openProduct = () =>
     router.push({ pathname: '/products/[id]', params: { id: item.productId } });
@@ -74,12 +90,16 @@ export function CartItemCard({ item }: CartItemCardProps) {
           </Text>
         ) : null}
 
-        <View style={styles.priceRow}>
-          <Text style={styles.unitPrice}>{formatPrice(item.price)} each</Text>
-          <Text style={styles.lineTotal} accessibilityLabel={`Line subtotal ${formatPrice(subtotal)}`}>
-            {formatPrice(subtotal)}
-          </Text>
-        </View>
+        {item.problem !== 'price_unavailable' ? (
+          <View style={styles.priceRow}>
+            <Text style={styles.unitPrice}>{formatPrice(item.price)} each</Text>
+            <Text style={styles.lineTotal} accessibilityLabel={`Line subtotal ${formatPrice(subtotal)}`}>
+              {formatPrice(subtotal)}
+            </Text>
+          </View>
+        ) : null}
+        {item.tierLabel && !item.problem ? <Text style={styles.tierText}>{item.tierLabel} applied</Text> : null}
+        {problem ? <Text style={styles.problemText}>{problem}</Text> : null}
 
         <View style={styles.actions}>
           <QuantitySelector
@@ -102,7 +122,7 @@ export function CartItemCard({ item }: CartItemCardProps) {
           </Pressable>
         </View>
 
-        {!canIncrease ? (
+        {problem ? null : !canIncrease ? (
           <Text style={styles.limitText}>Maximum quantity reached</Text>
         ) : item.quantity <= floor ? (
           <Text style={styles.hintText}>Use Remove to take this item out of the cart.</Text>
@@ -188,6 +208,17 @@ const styles = StyleSheet.create({
   limitText: {
     ...typography.small,
     color: colors.warning,
+    marginTop: spacing.xs,
+  },
+  tierText: {
+    ...typography.small,
+    fontFamily: fonts.medium,
+    color: colors.success,
+  },
+  problemText: {
+    ...typography.small,
+    fontFamily: fonts.semiBold,
+    color: colors.error,
     marginTop: spacing.xs,
   },
   hintText: {

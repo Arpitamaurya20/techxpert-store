@@ -3,6 +3,7 @@ import type { Order, OrderItem, OrderStatus } from '@/types/order';
 
 import { ApiError, apiGet, apiPost } from './apiClient';
 import { isApiConfigured } from './apiConfig';
+import { cartHeaders } from './cartApi';
 import { asId, asList, asNumber, asRecord, asText, normalizeList } from './normalize';
 
 /**
@@ -87,7 +88,10 @@ function normalizeOrder(raw: unknown): Order | null {
 export type PaymentMethod = 'COD';
 
 export type PlaceOrderInput = {
-  items: { productId: string; quantity: number; unitPrice: number }[];
+  /** The server cart being ordered; repeating the request with it returns the same order. */
+  cartId: string | null;
+  /** The total the customer saw. The server refuses the order if its own total differs. */
+  expectedTotal: number;
   customerName: string;
   mobile: string;
   address: { line: string; city: string; pincode: string };
@@ -104,23 +108,31 @@ export type PlacedOrder = {
 };
 
 /**
- * Places an order (POST /orders, JSON; Bearer token when signed in, guest details otherwise):
+ * Places a cash-on-delivery order from the server cart (POST /cart/checkout, JSON; Bearer token
+ * when signed in, `x-session-id` for guests):
  *
- *   { items: [{ productId, quantity, unitPrice }], shippingAddress, paymentMethod: "COD",
- *     guestName, guestPhone }
- *       → { data: { id, orderNumber, total? (or grandTotal), shippingCharges?, placedAt? } }
+ *   { cartId, expectedTotal, shippingAddress, pincode, paymentMethod: "COD", guestName, guestPhone }
+ *       → 201 { data: { id, orderNumber, placedAt, totals: { grandTotal, … }, total } }
+ *       → 200 with the same body when that cart already became an order (a repeated tap or retry)
  *
- * The server re-checks prices and stock. Throws `ApiError` ("NOT_CONFIGURED" without a server).
+ * The server prices the cart exactly as the Cart screen shows it and refuses with 409 when a line
+ * has a problem or its total differs from `expectedTotal`. Throws `ApiError`.
  */
 export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
   const { line, city, pincode } = input.address;
-  const raw = await apiPost('/orders', {
-    items: input.items,
-    shippingAddress: `${line}, ${city} - ${pincode}`,
-    paymentMethod: input.paymentMethod,
-    guestName: input.customerName,
-    guestPhone: input.mobile,
-  });
+  const raw = await apiPost(
+    '/cart/checkout',
+    {
+      ...(input.cartId ? { cartId: input.cartId } : {}),
+      expectedTotal: input.expectedTotal,
+      shippingAddress: `${line}, ${city} - ${pincode}`,
+      pincode,
+      paymentMethod: input.paymentMethod,
+      guestName: input.customerName,
+      guestPhone: input.mobile,
+    },
+    { headers: await cartHeaders() }
+  );
 
   const envelope = asRecord(raw);
   const record = asRecord(envelope?.data) ?? envelope;
@@ -128,11 +140,12 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
   if (!record || !id) {
     throw new ApiError('INVALID_RESPONSE', 'We could not confirm your order. Please check My Orders before trying again.');
   }
+  const totals = asRecord(record.totals);
   return {
     id,
     orderNumber: asText(record.orderNumber) ?? asId(record.orderNumber) ?? id,
-    total: asNumber(record.total ?? record.grandTotal),
-    shippingCharges: asNumber(record.shippingCharges),
+    total: asNumber(totals?.grandTotal ?? record.total ?? record.grandTotal),
+    shippingCharges: asNumber(totals?.delivery ?? record.shippingCharges),
     placedAt: asText(record.placedAt),
   };
 }

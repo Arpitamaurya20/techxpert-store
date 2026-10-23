@@ -4,6 +4,7 @@ import { DEMO_PRODUCTS } from '@/data/demoProducts';
 import { DEMO_SUBCATEGORIES } from '@/data/demoSubcategories';
 import type {
   Brand,
+  BulkTier,
   CatalogResult,
   Category,
   Product,
@@ -146,6 +147,29 @@ function asSpecifications(value: unknown): ProductSpecification[] {
     .filter((spec): spec is ProductSpecification => !!spec.label && !!spec.value);
 }
 
+function normalizeBulkTiers(raw: unknown): BulkTier[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const row = asRecord(item);
+    const minQty = asNumber(row?.minQty ?? row?.min_quantity);
+    const discountValue = asNumber(row?.discountValue ?? row?.discount_value);
+    if (!row || minQty === undefined || minQty < 1 || discountValue === undefined) return [];
+    const maxQty = asNumber(row.maxQty ?? row.max_quantity);
+    const discountType = row.discountType === 'fixed_price' || row.discount_type === 'fixed_price'
+      ? 'fixed_price'
+      : 'percentage';
+    return [
+      {
+        minQty: Math.floor(minQty),
+        maxQty: maxQty !== undefined && maxQty >= minQty ? Math.floor(maxQty) : undefined,
+        discountType,
+        discountValue,
+        terms: asText(row.terms ?? row.terms_condition),
+      },
+    ];
+  });
+}
+
 function normalizeProduct(raw: unknown): Product | null {
   const record = asRecord(raw);
   const id = asId(record?.id);
@@ -153,6 +177,7 @@ function normalizeProduct(raw: unknown): Product | null {
   if (!record || !id || !name) return null;
 
   const price = asNumber(record.price);
+  const bulkTiers = normalizeBulkTiers(record.bulkTiers ?? record.bulk_tiers);
   const originalPrice = asNumber(record.originalPrice ?? record.mrp);
   const stockStatus = STOCK_STATUSES.find((status) => status === record.stockStatus);
   const stockQuantity = asNumber(record.stockQuantity);
@@ -172,6 +197,7 @@ function normalizeProduct(raw: unknown): Product | null {
     id,
     name,
     price,
+    bulkTiers: bulkTiers.length > 0 ? bulkTiers : undefined,
     categoryId: asId(record.categoryId) ?? '',
     categoryName: asText(record.categoryName),
     subcategoryId: asId(record.subcategoryId),

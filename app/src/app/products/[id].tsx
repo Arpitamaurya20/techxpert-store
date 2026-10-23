@@ -326,6 +326,22 @@ export default function ProductDetailsScreen() {
         {product.price !== undefined && product.unit ? (
           <Text style={styles.muted}>per {product.unit}</Text>
         ) : null}
+        {product.bulkTiers && product.bulkTiers.length > 0 ? (
+          <View style={styles.tierList}>
+            {product.bulkTiers.map((tier) => {
+              const band = tier.maxQty ? `${tier.minQty}–${tier.maxQty}` : `${tier.minQty}+`;
+              const offer =
+                tier.discountType === 'fixed_price'
+                  ? `${formatPrice(tier.discountValue)} / unit`
+                  : `${tier.discountValue}% off`;
+              return (
+                <Text key={`${tier.minQty}-${tier.discountValue}`} style={styles.tierLine}>
+                  Buy {band}: {offer}
+                </Text>
+              );
+            })}
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.availability}>
@@ -674,6 +690,16 @@ const styles = StyleSheet.create({
   },
   priceBlock: {
     gap: 2,
+  },
+  tierList: {
+    marginTop: spacing.xs,
+    gap: 2,
+  },
+  tierLine: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fonts.medium,
+    color: colors.success,
   },
   priceRow: {
     flexDirection: 'row',

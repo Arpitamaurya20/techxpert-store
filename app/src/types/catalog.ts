@@ -43,6 +43,15 @@ export type ProductSpecification = {
   value: string;
 };
 
+/** Volume price from the merchandising desk. Shown only when the product API sends it. */
+export type BulkTier = {
+  minQty: number;
+  maxQty?: number;
+  discountType: 'percentage' | 'fixed_price';
+  discountValue: number;
+  terms?: string;
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -59,6 +68,8 @@ export type Product = {
   images?: string[];
   /** Selling price in rupees. Missing means the price is unavailable; it is never guessed. */
   price?: number;
+  /** Contractor volume bands. Empty unless the product API sends them. */
+  bulkTiers?: BulkTier[];
   /** Only present when the backend confirms an MRP/strike-through price. */
   originalPrice?: number;
   unit?: string;

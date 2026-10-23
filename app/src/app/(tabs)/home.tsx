@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { CategoryShortcuts } from '@/components/home/CategoryShortcuts';
@@ -21,6 +21,7 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
 import { useStoreLayout } from '@/hooks/useStoreLayout';
 import { getErrorMessage } from '@/services/apiClient';
+import { getHomepageSections } from '@/services/cmsApi';
 import { getOrders } from '@/services/orderApi';
 import { getCategories, getFeaturedProducts, getProductById } from '@/services/productApi';
 import { clearRecentlyViewed, useRecentlyViewedIds } from '@/state/recentlyViewedStore';
@@ -29,6 +30,17 @@ import type { Category, Product } from '@/types/catalog';
 
 const FEATURED_LIMIT = 10;
 const ORDER_AGAIN_LIMIT = 10;
+
+const DEFAULT_HOME_SECTIONS = [
+  { type: 'category_shortcuts', title: 'Category shortcuts' },
+  { type: 'hero_carousel', title: 'Campaign hero' },
+  { type: 'trust_strip', title: 'Trust strip' },
+  { type: 'category_grid', title: 'Shop by project' },
+  { type: 'order_again_rail', title: 'Order again' },
+  { type: 'offer_tiles', title: 'Deals for your projects' },
+  { type: 'product_rail', title: 'Popular products' },
+  { type: 'bulk_enquiry', title: 'Quick tools' },
+] as const;
 
 /** Today's catalogue entries for the given ids; items no longer sold are dropped. */
 async function loadProducts(ids: string[]): Promise<Product[]> {
@@ -68,6 +80,9 @@ export default function HomeScreen() {
   const featured = useAsyncData(`home-featured-${refreshKey}`, () => getFeaturedProducts(FEATURED_LIMIT), {
     keepPreviousData: true,
   });
+  const cmsSections = useAsyncData(`home-sections-${refreshKey}`, getHomepageSections, {
+    keepPreviousData: true,
+  });
   const recentIds = useRecentlyViewedIds();
   const recent = useAsyncData(`home-recent-${recentIds.join(',')}`, () => loadProducts(recentIds), {
     keepPreviousData: true,
@@ -76,10 +91,18 @@ export default function HomeScreen() {
 
   const categoryList = categories.data?.data ?? [];
   const isDemo = categories.data?.source === 'demo' || featured.data?.source === 'demo';
-  const isRefreshing = categories.isRefreshing || orderAgain.isUpdating || featured.isUpdating;
+  const isRefreshing =
+    categories.isRefreshing || orderAgain.isUpdating || featured.isUpdating || cmsSections.isUpdating;
+
+  const orderedSections = useMemo(() => {
+    const live = cmsSections.data?.sections ?? [];
+    if (live.length === 0) return DEFAULT_HOME_SECTIONS.map((section) => ({ ...section }));
+    return live.map((section) => ({ type: section.type, title: section.title || section.type }));
+  }, [cmsSections.data?.sections]);
 
   const refreshAll = () => {
     categories.refresh();
+    cmsSections.refresh();
     setRefreshKey((key) => key + 1);
   };
 
@@ -99,6 +122,80 @@ export default function HomeScreen() {
   );
 
   const openAllCategories = () => router.navigate('/categories');
+
+  const renderSection = (code: string, title: string, key: string) => {
+    switch (code) {
+      case 'hero_banners':
+      case 'hero_carousel':
+        return <HeroCarousel key={key} width={layout.contentWidth} refreshKey={refreshKey} />;
+      case 'category_shortcuts':
+        return categories.status === 'error' ? (
+          <StateView
+            key={key}
+            variant="error"
+            compact
+            title="Couldn't load categories"
+            message={getErrorMessage(categories.error)}
+            actionLabel="Try Again"
+            onAction={categories.reload}
+          />
+        ) : (
+          <CategoryShortcuts
+            key={key}
+            categories={categoryList}
+            loading={categories.status === 'loading'}
+            onOpenCategory={openCategory}
+            onViewAll={openAllCategories}
+          />
+        );
+      case 'trust_strip':
+        return <TrustStrip key={key} />;
+      case 'bulk_enquiry':
+        return <QuickTools key={key} />;
+      case 'offer_tiles':
+        return (
+          <ProjectDeals
+            key={key}
+            categories={categoryList}
+            showSampleOffers={isDemo}
+            onOpenCategory={openCategory}
+            onViewAll={openAllCategories}
+          />
+        );
+      case 'order_again':
+      case 'order_again_rail':
+        return (
+          <OrderAgainSection
+            key={key}
+            status={orderAgain.status}
+            mode={orderAgain.data?.mode}
+            products={orderAgain.data?.products ?? []}
+            onRetry={orderAgain.reload}
+            onOpenProduct={openProduct}
+            onAdd={addProduct}
+          />
+        );
+      case 'category_grid':
+        return <ShopByProject key={key} />;
+      case 'featured_products':
+      case 'product_rail':
+        return (
+          <FeaturedProductsRail
+            key={key}
+            title={title || 'Popular products'}
+            status={featured.status}
+            products={featured.data?.data ?? []}
+            error={featured.error}
+            onRetry={featured.reload}
+            onSeeAll={() => router.push({ pathname: '/products', params: { featured: 'true' } })}
+            onOpenProduct={openProduct}
+            onAdd={addProduct}
+          />
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <ScrollView
@@ -121,47 +218,7 @@ export default function HomeScreen() {
       <View style={styles.body}>
         <SearchSuggestions />
 
-        {categories.status === 'error' ? (
-          <StateView
-            variant="error"
-            compact
-            title="Couldn't load categories"
-            message={getErrorMessage(categories.error)}
-            actionLabel="Try Again"
-            onAction={categories.reload}
-          />
-        ) : (
-          <CategoryShortcuts
-            categories={categoryList}
-            loading={categories.status === 'loading'}
-            onOpenCategory={openCategory}
-            onViewAll={openAllCategories}
-          />
-        )}
-
-        <HeroCarousel width={layout.contentWidth} />
-
-        <TrustStrip />
-
-        <QuickTools />
-
-        <OrderAgainSection
-          status={orderAgain.status}
-          mode={orderAgain.data?.mode}
-          products={orderAgain.data?.products ?? []}
-          onRetry={orderAgain.reload}
-          onOpenProduct={openProduct}
-          onAdd={addProduct}
-        />
-
-        <ShopByProject />
-
-        <ProjectDeals
-          categories={categoryList}
-          showSampleOffers={isDemo}
-          onOpenCategory={openCategory}
-          onViewAll={openAllCategories}
-        />
+        {orderedSections.map((section, i) => renderSection(section.type, section.title, `${section.type}-${i}`))}
 
         {recentIds.length > 0 ? (
           <FeaturedProductsRail
@@ -175,17 +232,6 @@ export default function HomeScreen() {
             onAdd={addProduct}
           />
         ) : null}
-
-        <FeaturedProductsRail
-          title="Featured Products"
-          status={featured.status}
-          products={featured.data?.data ?? []}
-          error={featured.error}
-          onRetry={featured.reload}
-          onSeeAll={() => router.push({ pathname: '/products', params: { featured: 'true' } })}
-          onOpenProduct={openProduct}
-          onAdd={addProduct}
-        />
 
         {isDemo ? (
           <DemoDataNotice message="Sample data: products, prices, offers and Order Again items shown here are placeholders until the Techxpert store is connected." />
