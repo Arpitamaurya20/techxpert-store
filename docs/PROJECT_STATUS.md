@@ -36,12 +36,15 @@ Source: [`AGENTS.md`](../AGENTS.md), [`WEB_SPEC.md` §5](./WEB_SPEC.md), [`SHOP_
 | Shop S3 | Order placed from the server cart (COD), one order per cart, honest product page | Done; device run pending | same |
 | Portal access A1 | Store roles with View/Edit/Delete per module, assigned to existing staff; portal shows only what the role allows; no escalation | Done (local + browser proof) | [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) |
 | Portal access A2 | Stores ↔ pincodes, a free tree of groups above stores, staff scope, orders tagged by store | **Built on `develop`** and proven on the local DB (61/61 HTTP checks, browser check); production needs `portal_scope.sql` before the API restart | [`PORTAL_ACCESS.md` §A2](./PORTAL_ACCESS.md) |
+| Portal access A3 | Store-owned staff list: store logins, plus linked Homecare logins for people in both; Homecare logins no longer listed | **Server built (S1)** on `develop`, proven on the local DB; portal screens (S2) next. Production: `portal_staff.sql`, then `npm run staff:bootstrap`, then the API restart, ideally together with S2 | [`PORTAL_ACCESS.md` §A3](./PORTAL_ACCESS.md) |
 
 ### Staff hierarchy (A1 + A2)
 
 Two independent answers decide what a staff member gets: **what they may do** (role, A1) and **where** (scope, A2).
 
-**What — roles (built).** Super admin (Homecare `super_admin`) has everything and is never given a store role. Everyone else gets one store role, created in the portal, with View / Edit / Delete per module (products, categories, pricing, banners, sections, orders, delivery, stores, customers, audit, access). Edit or Delete implies View. Nobody can grant more than they hold, edit their own role, change themselves, or change someone who holds more. Seeded: Store Admin for Homecare `admin`, Merchandiser for `state_manager` / `region_manager`; everyone else has no portal access until assigned.
+**Who — the staff list (A3, server built).** The store keeps its own staff list. A person is either a store login or a linked Homecare login, for someone who works in both and keeps one password. Homecare people who aren't linked never appear and can't sign in. Super admin is a flag on the store's list, created with `npm run staff:bootstrap`; Homecare's `super_admin` role no longer counts.
+
+**What — roles (built).** Super admin has everything and is never given a store role. Everyone else gets one store role, created in the portal, with View / Edit / Delete per module (products, categories, pricing, banners, sections, orders, delivery, stores, customers, audit, access). Edit or Delete implies View. Nobody can grant more than they hold, edit their own role, change themselves, or change someone who holds more. The A1 roles copied from Homecare roles were removed in A3.
 
 **Where — stores and groups (built).**
 
@@ -99,11 +102,13 @@ What an auditor should check, where it lives.
 
 | Rule | Where |
 |---|---|
-| Staff login against `homecare.admin_users`; every request re-checks `is_active` | `server/src/services/authService.ts` (`adminLogin`, `assertActiveAdmin`), `server/src/middleware/auth.ts` |
+| Staff login against the store's staff list (store logins, or linked Homecare logins); every request re-checks the staff row, the linked Homecare login and the last password change; temporary passwords block everything but changing them | `server/src/services/staffService.ts`, `server/src/utils/staffAccounts.ts`, `server/src/middleware/auth.ts` |
+| Add, link, reset, deactivate staff, with the same hierarchy refusals as roles | `server/src/services/accessService.ts`, `server/src/routes/access.ts` |
+| First super admin, from a terminal | `server/src/scripts/staffBootstrap.ts` (`npm run staff:bootstrap`) |
 | Modules, levels, "edit/delete imply view", no-escalation check | `server/src/utils/permissions.ts` |
 | Role CRUD, staff assignment, self/role-held/higher-role refusals | `server/src/services/accessService.ts`, `server/src/routes/access.ts` |
 | Route gates `requirePermission(module, level)` | `server/src/routes/{catalog,cms,pricing,delivery,orders,audit,auth}.ts` |
-| Super admin always full; permissions loaded from DB per request, never from the token | `middleware/auth.ts` (`resolveAdmin`), `accessService.forAdmin` |
+| Super admin always full; permissions loaded from DB per request, never from the token | `middleware/auth.ts` (`resolveAdmin`), `accessService.forStaff` |
 | Audit trail; actor taken from the session | `server/src/services/auditService.ts`, `server/src/routes/audit.ts` |
 | Portal shows only allowed tabs and controls | `web/src/services/access.ts`, `web/src/App.tsx`, `web/src/components/Sidebar.tsx`, each manager component's `canEdit` / `canDelete` |
 | Roles & Access screen (roles, staff role, staff places) | `web/src/components/AccessManager.tsx` |

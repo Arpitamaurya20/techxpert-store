@@ -151,7 +151,7 @@ export class StoreTreeService {
     try {
       const [res] = await storePool.query<any>(
         `INSERT INTO store_groups (Name, Kind, ParentID, CreatedBy) VALUES (?, ?, ?, ?)`,
-        [name, kind || null, parentId, actor.adminId]
+        [name, kind || null, parentId, actor.staffId]
       );
       const names = await groupNames();
       await audit(actor, 'Created Group', `Created group "${name}" under ${placeLabel(parentId, names)}`);
@@ -185,7 +185,7 @@ export class StoreTreeService {
     try {
       await storePool.query(
         `UPDATE store_groups SET Name = ?, Kind = ?, ParentID = ?, UpdatedBy = ? WHERE ID = ?`,
-        [name, kind || null, parentId, actor.adminId, groupId]
+        [name, kind || null, parentId, actor.staffId, groupId]
       );
     } catch (err) {
       if (isDuplicate(err)) throw refusal(409, `There is already a group called "${name}" there.`);
@@ -264,18 +264,18 @@ export class StoreTreeService {
       const [landmark] = await conn.query<any>(
         `INSERT INTO landmarks (PincodeID, LandmarkCode, LandmarkName, Address, IsActive, CreatedDate, CreatedTime, CreatedBy)
          VALUES (?, ?, ?, ?, 1, CURDATE(), CURTIME(), ?)`,
-        [pincodeId, `LM-${code}`, name, address, actor.adminId]
+        [pincodeId, `LM-${code}`, name, address, actor.staffId]
       );
       await conn.query(
         `INSERT INTO stores (ID, StoreCode, StoreName, LandmarkID, ContactNumber, Email, Address, IsActive, CreatedDate, CreatedTime, CreatedBy)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURDATE(), CURTIME(), ?)`,
-        [storeId, code, name, Number(landmark.insertId), contactNumber, email, address, actor.adminId]
+        [storeId, code, name, Number(landmark.insertId), contactNumber, email, address, actor.staffId]
       );
       if (groupId != null) {
         await conn.query(`INSERT INTO store_group_stores (StoreID, GroupID, UpdatedBy) VALUES (?, ?, ?)`, [
           storeId,
           groupId,
-          actor.adminId,
+          actor.staffId,
         ]);
       }
       await conn.commit();
@@ -361,7 +361,7 @@ export class StoreTreeService {
       if (sets.length) {
         await conn.query(
           `UPDATE stores SET ${sets.join(', ')}, UpdatedDate = CURDATE(), UpdatedTime = CURTIME(), UpdatedBy = ? WHERE ID = ?`,
-          [...values, actor.adminId, storeId]
+          [...values, actor.staffId, storeId]
         );
       }
       if (moving) {
@@ -371,7 +371,7 @@ export class StoreTreeService {
           await conn.query(
             `INSERT INTO store_group_stores (StoreID, GroupID, UpdatedBy) VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE GroupID = VALUES(GroupID), UpdatedBy = VALUES(UpdatedBy)`,
-            [storeId, groupId, actor.adminId]
+            [storeId, groupId, actor.staffId]
           );
         }
       }
@@ -450,14 +450,14 @@ export class StoreTreeService {
           throw refusal(403, `${pincode} is served by "${from.name}", which is outside your places.`);
         }
         await conn.query(`UPDATE store_pincodes SET IsActive = 0, UpdatedBy = ? WHERE ID = ?`, [
-          actor.adminId,
+          actor.staffId,
           Number(held.linkId),
         ]);
       }
       await conn.query(`INSERT INTO store_pincodes (StoreID, PincodeID, CreatedBy) VALUES (?, ?, ?)`, [
         storeId,
         pincodeId,
-        actor.adminId,
+        actor.staffId,
       ]);
       await conn.commit();
     } catch (err) {
@@ -487,7 +487,7 @@ export class StoreTreeService {
     );
     if (!rows.length) throw refusal(404, `"${store.name}" doesn't serve that pincode.`);
     await storePool.query(`UPDATE store_pincodes SET IsActive = 0, UpdatedBy = ? WHERE ID = ?`, [
-      actor.adminId,
+      actor.staffId,
       Number(rows[0].linkId),
     ]);
     await audit(actor, 'Unlinked Pincode', `${rows[0].pincode} no longer served by "${store.name}"`);

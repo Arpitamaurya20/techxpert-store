@@ -1,5 +1,5 @@
 -- Portal roles and module permissions (docs/PORTAL_ACCESS.md, phase A1).
--- Run after portal_audit_logs.sql. Reads homecare.admin_users to seed assignments; never writes to homecare.
+-- Run after portal_audit_logs.sql, then portal_scope.sql and portal_staff.sql. Never touches homecare.
 -- Usage: mysql -u root -p < server/sql/portal_access.sql
 
 CREATE TABLE IF NOT EXISTS techxpertstore.portal_roles (
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS techxpertstore.portal_role_permissions (
     REFERENCES techxpertstore.portal_roles (ID) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- AdminID is homecare.admin_users.admin_id (different schema, so no foreign key).
+-- portal_staff.sql renames AdminID to StaffID and points it at portal_staff (phase A3).
 CREATE TABLE IF NOT EXISTS techxpertstore.portal_staff_roles (
   AdminID INT NOT NULL PRIMARY KEY,
   RoleID INT NOT NULL,
@@ -71,19 +71,6 @@ JOIN (
   SELECT 'audit', 1, 0, 0
 ) g
 WHERE r.Name = 'Merchandiser';
-
--- Keep today's behaviour for existing staff: Homecare admin -> Store Admin; state/region managers -> Merchandiser.
-INSERT IGNORE INTO techxpertstore.portal_staff_roles (AdminID, RoleID)
-SELECT a.admin_id, r.ID
-FROM homecare.admin_users a
-JOIN techxpertstore.portal_roles r ON r.Name = 'Store Admin'
-WHERE a.role = 'admin';
-
-INSERT IGNORE INTO techxpertstore.portal_staff_roles (AdminID, RoleID)
-SELECT a.admin_id, r.ID
-FROM homecare.admin_users a
-JOIN techxpertstore.portal_roles r ON r.Name = 'Merchandiser'
-WHERE a.role IN ('state_manager', 'region_manager');
 
 ALTER TABLE techxpertstore.portal_audit_logs
   MODIFY entity ENUM('banner','section','bulk_tier','product','publish','order','category','delivery','access','store') NOT NULL;

@@ -53,3 +53,11 @@ export const adminLoginRateLimit = rateLimit({
   },
   message: 'Too many login attempts. Wait 15 minutes and try again.',
 });
+
+/** Own password change: 10 attempts / 15 minutes per signed-in staff member. Mount after the session check. */
+export const passwordChangeRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyFn: (req) => `staff-password:${req.user?.staffId ?? req.ip ?? 'unknown'}`,
+  message: 'Too many password attempts. Wait 15 minutes and try again.',
+});

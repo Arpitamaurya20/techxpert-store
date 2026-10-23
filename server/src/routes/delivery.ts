@@ -29,7 +29,7 @@ router.post(
   requireAdmin,
   requirePermission('delivery', 'edit'),
   asyncHandler(async (req, res) => {
-    const row = await DeliveryAreaService.add(req.body ?? {}, req.user!.access!.scope, req.user?.adminId);
+    const row = await DeliveryAreaService.add(req.body ?? {}, req.user!.access!.scope, req.user?.staffId);
     return sendSuccess(res, row, 'Delivery pincode added', 201);
   })
 );
@@ -45,7 +45,7 @@ router.patch(
       Number(req.params.id),
       req.body.active,
       req.user!.access!.scope,
-      req.user?.adminId
+      req.user?.staffId
     );
     return sendSuccess(res, row, row.active ? 'Delivery resumed' : 'Delivery paused');
   })

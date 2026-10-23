@@ -59,7 +59,7 @@ techxpert-store/
 | • user_addresses (pincode, city)   |    | • categories & sub_categories      |
 | • otp_attempts (SHA-256 OTP hashes)|    | • product_pricing & variants       |
 | • refresh_tokens (session tokens)  |    | • inventory_stock                  |
-| • admin_users (portal staff RBAC)  |    | • orders & order_items             |
+| • admin_users (Homecare staff)     |    | • orders & order_items             |
 |                                    |    | • carts & cart_items               |
 |                                    |    | • bulk_price_tiers & discounts     |
 |                                    |    | • cms_banners & homepage_sections  |
@@ -88,9 +88,9 @@ The `homecare` database is the single source of truth for all user entities acro
 4. **Session Lifecycle (`homecare.refresh_tokens`)**:
    - Primary key: `token_id`, Foreign key: `user_id`.
    - Fields: `token_hash`, `device_info`, `expires_at`, `is_revoked`.
-5. **Staff & Administration (`homecare.admin_users`)**:
-   - Primary key: `admin_id`.
-   - Fields: `name`, `email`, `password_hash` (bcrypt), `role` (`super_admin`, `admin`, `state_manager`), `is_active`.
+5. **Homecare staff logins (`homecare.admin_users`)**:
+   - Homecare's own. The store portal reads a row only for someone linked in `techxpertstore.portal_staff` (A3), and never writes here.
+   - Store portal staff, store logins and links alike, live in `techxpertstore.portal_staff`; see [PORTAL_ACCESS.md](./PORTAL_ACCESS.md) §A3.
 
 ---
 

@@ -123,7 +123,7 @@ export class DeliveryAreaService {
   static async add(
     input: { pincode: unknown; areaName: unknown; storeId?: unknown },
     scope: Scope,
-    adminId?: number
+    staffId?: number
   ): Promise<DeliveryPincode> {
     const pincode = normalizePincode(input.pincode);
     if (!pincode) throw orderRefusal(400, 'Enter a 6-digit pincode.');
@@ -167,20 +167,20 @@ export class DeliveryAreaService {
         const [res] = await conn.query<any>(
           `INSERT INTO areas (DistrictID, AreaCode, AreaName, IsActive, CreatedDate, CreatedTime, CreatedBy)
            VALUES (?, ?, ?, 1, CURDATE(), CURTIME(), ?)`,
-          [districtId, areaCodeFor(pincode), areaName, adminId ?? null]
+          [districtId, areaCodeFor(pincode), areaName, staffId ?? null]
         );
         areaId = Number(res.insertId);
       }
       const [res] = await conn.query<any>(
         `INSERT INTO pincodes (AreaID, Pincode, IsActive, CreatedDate, CreatedTime, CreatedBy)
          VALUES (?, ?, 1, CURDATE(), CURTIME(), ?)`,
-        [areaId, pincode, adminId ?? null]
+        [areaId, pincode, staffId ?? null]
       );
       if (storeId !== null) {
         await conn.query(`INSERT INTO store_pincodes (StoreID, PincodeID, CreatedBy) VALUES (?, ?, ?)`, [
           storeId,
           Number(res.insertId),
-          adminId ?? null,
+          staffId ?? null,
         ]);
       }
       await conn.commit();
@@ -194,13 +194,13 @@ export class DeliveryAreaService {
   }
 
   /** Pause or resume delivery to a pincode. There is no delete. */
-  static async setActive(id: number, active: boolean, scope: Scope, adminId?: number): Promise<DeliveryPincode> {
+  static async setActive(id: number, active: boolean, scope: Scope, staffId?: number): Promise<DeliveryPincode> {
     const before = Number.isInteger(id) && id > 0 ? await DeliveryAreaService.one(id) : null;
     const visible = before && (scope.all || (before.storeId != null && coversStore(scope, before.storeId)));
     if (!visible) throw orderRefusal(404, 'Pincode not found');
     await storePool.query(
       `UPDATE pincodes SET IsActive = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME(), UpdatedBy = ? WHERE ID = ?`,
-      [active ? 1 : 0, adminId ?? null, id]
+      [active ? 1 : 0, staffId ?? null, id]
     );
     return (await DeliveryAreaService.one(id))!;
   }

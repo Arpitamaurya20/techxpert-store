@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -109,7 +109,7 @@ CREATE TABLE homecare.refresh_tokens (
 ```
 
 ### 2.5 `homecare.admin_users`
-Staff and internal administrator credentials for the Merchandising & Admin Portal. Shared with Homecare; the live enum has more roles than shown here. The store portal reads `role` only to recognise `super_admin` (always full access); everything else comes from `techxpertstore.portal_staff_roles` (see [PORTAL_ACCESS.md](./PORTAL_ACCESS.md)).
+Homecare's staff logins; the live enum has more roles than shown here. Since portal access A3 the store portal does not list or accept these logins. It reads one only for a person deliberately linked in `techxpertstore.portal_staff.HomecareAdminID`: their name, email, `password_hash` at sign-in, and `is_active` on every request. `role` is ignored. The store never writes here (see [PORTAL_ACCESS.md](./PORTAL_ACCESS.md) §A3).
 
 ```sql
 CREATE TABLE homecare.admin_users (
@@ -357,9 +357,28 @@ CREATE TABLE techxpertstore.portal_role_permissions (
   PRIMARY KEY (RoleID, Module)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- One store role per staff login; AdminID = homecare.admin_users.admin_id (no cross-schema FK)
+-- The store's staff list (server/sql/portal_staff.sql, A3). Each row is a store login OR a linked Homecare login.
+CREATE TABLE techxpertstore.portal_staff (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY, -- starts at 1001; id 1 is the in-memory local dev seed
+  HomecareAdminID INT NULL UNIQUE,  -- linked: homecare.admin_users.admin_id (no cross-schema FK); name/email/password read from there
+  Name VARCHAR(120) NULL,           -- store login only
+  Email VARCHAR(190) NULL UNIQUE,   -- store login only, lower-case
+  PasswordHash VARCHAR(100) NULL,   -- store login only, bcrypt
+  IsSuperAdmin TINYINT(1) NOT NULL DEFAULT 0,
+  IsActive TINYINT(1) NOT NULL DEFAULT 1,
+  MustChangePassword TINYINT(1) NOT NULL DEFAULT 0, -- set by add / reset; every endpoint but /auth/admin/me and /auth/admin/password refuses until changed
+  PasswordChangedAt TIMESTAMP NULL, -- written from the API clock; tokens with iat before this second are refused
+  LastLoginAt TIMESTAMP NULL,
+  CreatedBy INT NULL, CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedBy INT NULL, UpdatedAt TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT chk_portal_staff_kind CHECK (
+    (HomecareAdminID IS NULL AND Name IS NOT NULL AND Email IS NOT NULL AND PasswordHash IS NOT NULL)
+    OR (HomecareAdminID IS NOT NULL AND Email IS NULL AND PasswordHash IS NULL))
+) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8mb4;
+
+-- One store role per staff member (AdminID until A3)
 CREATE TABLE techxpertstore.portal_staff_roles (
-  AdminID INT NOT NULL PRIMARY KEY,
+  StaffID INT NOT NULL PRIMARY KEY, -- FK portal_staff.ID, cascade delete
   RoleID INT NOT NULL,              -- FK portal_roles.ID; a held role cannot be deleted
   ScopeAll TINYINT(1) NOT NULL DEFAULT 0, -- whole company (portal_scope.sql); 0 with no portal_staff_scope rows = sees no orders, pincodes or customers
   AssignedBy INT NULL,
@@ -369,12 +388,12 @@ CREATE TABLE techxpertstore.portal_staff_roles (
 -- Places a staff member covers (server/sql/portal_scope.sql). A group covers every group and store under it.
 CREATE TABLE techxpertstore.portal_staff_scope (
   ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  AdminID INT NOT NULL,             -- FK portal_staff_roles.AdminID, cascade delete
+  StaffID INT NOT NULL,             -- FK portal_staff_roles.StaffID, cascade delete
   NodeType ENUM('group','store') NOT NULL,
   NodeID INT NOT NULL,              -- store_groups.ID or stores.ID
   AssignedBy INT NULL,
   AssignedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_portal_staff_scope (AdminID, NodeType, NodeID)
+  UNIQUE KEY uq_portal_staff_scope (StaffID, NodeType, NodeID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Free tree of groups above stores (Zone, Area, Cluster...); nesting capped at 8 by the server

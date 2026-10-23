@@ -18,8 +18,6 @@ export type ModuleKey = (typeof MODULES)[number]['key'];
 export type ModuleGrant = { view: boolean; edit: boolean; delete: boolean };
 export type Permissions = Record<ModuleKey, ModuleGrant>;
 
-export const SUPER_ADMIN_ROLE = 'super_admin';
-
 const LEVEL_LABEL: Record<Level, string> = { view: 'View', edit: 'Edit', delete: 'Delete' };
 
 export function moduleLabel(module: ModuleKey): string {

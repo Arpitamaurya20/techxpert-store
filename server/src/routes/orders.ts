@@ -66,7 +66,7 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     let scope: Scope | null = null;
-    if (req.user?.adminId) {
+    if (req.user?.staffId) {
       const admin = await resolveAdmin(req);
       if (!can(admin.access.permissions, 'orders', 'view')) {
         return sendError(res, 403, permissionRefusal('orders', 'view'));
@@ -78,7 +78,7 @@ router.get(
     if (!order) return sendError(res, 404, 'Order not found');
     if (scope && !orderInScope(order, scope)) return sendError(res, 404, 'Order not found');
 
-    const isAdmin = Boolean(req.user?.adminId);
+    const isAdmin = Boolean(req.user?.staffId);
     const ownerId = order.userId != null ? Number(order.userId) : null;
     const isOwner =
       req.user?.userId != null && ownerId != null && Number(req.user.userId) === ownerId;
@@ -116,7 +116,7 @@ router.put(
       req.params.id,
       status,
       note,
-      req.user!.adminId!
+      req.user!.staffId!
     );
     return sendSuccess(res, result, 'Order status updated');
   })

@@ -8,7 +8,7 @@ Two phases. Each is finished and verified before the next starts.
 |-------|------|--------|
 | **A1** | Store roles with per-module View / Edit / Delete; assign a role to existing staff; portal shows only what the role allows | **Done** (local DB + browser proof, 23 Oct 2026) |
 | **A2** | Stores and the pincodes they serve, a free tree of groups above stores, staff scope, orders tagged with a store and filtered by scope | Done (23 Oct 2026) |
-| **A3** | Store-owned staff list: store-only logins, plus linked Homecare logins for people who work in both | Planned (23 Oct 2026); see [A3](#a3--store-owned-staff-accounts) |
+| **A3** | Store-owned staff list: store-only logins, plus linked Homecare logins for people who work in both | Server built (S1, 23 Oct 2026); portal screens (S2) next. See [A3](#a3--store-owned-staff-accounts) |
 
 Nothing here changes the Homecare database. Until A3, `homecare.admin_users` is the login table; its `role` column is read for one thing only: `super_admin` always has full access. In A3 the store keeps its own staff list, and reads a Homecare login only for people deliberately linked to it.
 
@@ -592,6 +592,51 @@ It never writes to `homecare`. Nobody is linked automatically; links are made on
 | **S1** | SQL migration, bootstrap script, auth and access services on `portal_staff`, linking, new endpoints, server tests | Server tsc and tests. Scripted checks: an unlinked Homecare login is refused, a linked one signs in with its Homecare password, a store login works, a linked person deactivated in either place is refused, and an old `adminId` token is refused. |
 | **S2** | Portal: Staff panel actions (new login, link, reset, deactivate), temporary-password dialog, first-sign-in and Change password screens | Web tsc, oxlint, browser check: add, link, sign in both ways, forced change, reset, deactivate |
 | **S3** | Docs (`DATABASE_SCHEMA`, `ARCHITECTURE`, `WEB_SPEC`, this file) and rollout notes | Docs match the code |
+
+### As built (S1, 23 Oct 2026)
+
+The server is on `develop`. The portal still uses the A2 screens until S2, so it can't yet add or link staff, and it has no Change password screen.
+
+**Files:**
+- `server/sql/portal_staff.sql` is the migration.
+- `server/src/scripts/staffBootstrap.ts` is `npm run staff:bootstrap`.
+- `server/src/utils/staffAccounts.ts` holds the pure rules, with tests.
+- `server/src/services/staffService.ts` handles sign-in, the per-request check and account changes.
+- `server/src/services/accessService.ts` handles the staff actions and the hierarchy.
+- `server/src/middleware/auth.ts` and `server/src/routes/{auth,access}.ts` are the routes and session checks.
+- `authService.ts` is now customer sign-in only.
+
+**Where the build is more precise than the plan:**
+- **Super admins:** only a super admin can rename, reset or deactivate another super admin. Nobody can change themselves through the staff endpoints. They use Change password instead.
+- **Temporary passwords:** while `MustChangePassword` is set, every admin endpoint except `GET /auth/admin/me` and `POST /auth/admin/password` answers 403 with `details.code = PASSWORD_CHANGE_REQUIRED`.
+- **Changing your own password:** it returns a fresh token and cookie, so the person stays signed in while their other sessions end. It has its own rate limit of 10 per 15 minutes per person.
+- **`PasswordChangedAt`:** written and compared in whole seconds from the API's clock, so a clock difference with MySQL can't end or keep sessions by mistake.
+- **Session-check failures:** if the database can't be reached during the per-request check, the answer is 503 "Can't check your session right now", not 401. The portal therefore doesn't sign people out during an outage.
+- **Failed sign-in:** an unlinked Homecare login with the right password gets a message saying it isn't set up for the store. A wrong password, or an email nobody has, gets the same "Invalid email or password".
+- **Adding a store login:** an email that belongs to any Homecare login is refused, with "Link it instead". That way the person keeps one password.
+- **Dev seed:** id 1, only with `ALLOW_DEV_ADMIN=1`, and only when no store row already has that email.
+- **Audit entries:** Added Staff, Linked Homecare Login, Renamed Staff, Deactivated / Reactivated Staff, Reset Staff Password and Changed Own Password.
+
+**Proof (local DB):**
+- Server tsc is clean and 84 tests pass. They include the token rules: tokens with only `adminId`, Homecare tokens and customer tokens are refused.
+- A 37-step HTTP script passed, covering:
+  - an empty list after the migration;
+  - an unlinked Homecare login refused;
+  - adding a store login, with duplicate and Homecare-email refusals;
+  - the forced change, the blocked endpoints and the old token refused;
+  - assigning a role;
+  - reset and deactivation ending sessions, then reactivation;
+  - homecare-match returning found, 404 and already-linked;
+  - linking, double-link refused, and reset or rename of a linked person refused;
+  - a linked wrong password refused;
+  - the audit entries.
+- Service-level checks:
+  - a linked person whose Homecare login is off is refused;
+  - a linked person switched off in the store is refused;
+  - the dev seed is refused without `ALLOW_DEV_ADMIN`.
+- **Not yet proven:**
+  - a linked sign-in with the correct Homecare password, because no test password is known and Homecare is never written. This is to be checked in S2 with a real login.
+  - an old `adminId` token against the live API, which is covered by unit tests only.
 
 ### Production rollout order
 

@@ -1,6 +1,6 @@
 # Store MySQL ops scripts
 
-Run against the same MySQL instance that hosts `homecare` + `techxpertstore`, in this order. None of them changes the `homecare` schema; `portal_access.sql` only reads `homecare.admin_users` to seed assignments.
+Run against the same MySQL instance that hosts `homecare` + `techxpertstore`, in this order. None of them reads or changes the `homecare` schema.
 
 ```bash
 cd server
@@ -9,6 +9,8 @@ mysql -u root -p < sql/portal_audit_logs_alter_category.sql   # only if the tabl
 mysql -u root -p < sql/shop_s3_checkout.sql
 mysql -u root -p < sql/portal_access.sql
 mysql -u root -p < sql/portal_scope.sql   # before restarting the API on the A2 code
+mysql -u root -p < sql/portal_staff.sql   # before restarting the API on the A3 code
+npm run staff:bootstrap                   # once: the first super admin
 ```
 
 | Script | Purpose |
@@ -16,8 +18,9 @@ mysql -u root -p < sql/portal_scope.sql   # before restarting the API on the A2 
 | `portal_audit_logs.sql` | Create audit table (fixes `GET /audit/logs` 503) |
 | `portal_audit_logs_alter_category.sql` | Bring an older table's entity ENUM up to date |
 | `shop_s3_checkout.sql` | `orders.CartID` (unique) and cart status `ordered` — one order per cart (shop S3) |
-| `portal_access.sql` | Store roles, module permissions, staff assignments + seed (portal access A1); adds `access` to audit entities |
+| `portal_access.sql` | Store roles, module permissions and staff assignments, with the two seeded roles (portal access A1); adds `access` to audit entities |
 | `portal_scope.sql` | Groups tree, store placement, store↔pincode links, staff places, whole-company switch, `orders.StoreID`, `stores` module grants (portal access A2); adds `store` to audit entities. Links existing pincodes and orders when there is exactly one store; otherwise stops until pincodes are linked |
+| `portal_staff.sql` | Store-owned staff list `portal_staff`: store logins and linked Homecare logins (portal access A3). Removes the store roles that A1 copied from Homecare roles, and renames `AdminID` to `StaffID` in the staff role and places tables |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

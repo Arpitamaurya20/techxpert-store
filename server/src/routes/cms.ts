@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { CmsService } from '../services/cmsService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
-import { requireAdmin, requirePermission, optionalAuth, extractAuth } from '../middleware/auth.js';
-import { AuthService } from '../services/authService.js';
+import { requireAdmin, requirePermission, optionalAuth, isActiveStaff } from '../middleware/auth.js';
 import { validateBannerBody } from '../utils/validate.js';
 import { readBannerUpload, storeBannerImage } from '../utils/bannerMedia.js';
 
@@ -16,18 +15,7 @@ router.get(
   optionalAuth,
   asyncHandler(async (req, res) => {
     const raw = req.query.status !== undefined ? String(req.query.status) : undefined;
-    let isActiveAdmin = false;
-
-    const tokenUser = extractAuth(req) || req.user;
-    if (tokenUser?.adminId) {
-      try {
-        await AuthService.assertActiveAdmin(tokenUser.adminId);
-        isActiveAdmin = true;
-        req.user = tokenUser;
-      } catch {
-        isActiveAdmin = false;
-      }
-    }
+    const isActiveAdmin = await isActiveStaff(req);
 
     let statusFilter: string | undefined;
     if (isActiveAdmin) {
@@ -112,16 +100,7 @@ router.get(
   '/sections',
   optionalAuth,
   asyncHandler(async (req, res) => {
-    let isActiveAdmin = false;
-    const tokenUser = extractAuth(req) || req.user;
-    if (tokenUser?.adminId) {
-      try {
-        await AuthService.assertActiveAdmin(tokenUser.adminId);
-        isActiveAdmin = true;
-      } catch {
-        isActiveAdmin = false;
-      }
-    }
+    const isActiveAdmin = await isActiveStaff(req);
     const sections = await CmsService.getSections({ audience: isActiveAdmin ? 'admin' : 'customer' });
     return sendSuccess(res, sections);
   })

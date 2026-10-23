@@ -146,10 +146,10 @@ If `portal_audit_logs.entity` was created before P4, add the enum value:
 `ALTER TABLE techxpertstore.portal_audit_logs MODIFY entity ENUM('banner','section','bulk_tier','product','publish','order','category') NOT NULL;`
 
 ### P5 ops note
-- Login: `POST /auth/admin/login` against `homecare.admin_users` (bcrypt only for real rows). Rate-limited (10 / 15 min / IP+email).
+- Login: `POST /auth/admin/login` against the store's staff list `techxpertstore.portal_staff`: a store login, or a Homecare login that has been linked (A3, [PORTAL_ACCESS.md](./PORTAL_ACCESS.md)). Unlinked Homecare logins are refused. Rate-limited (10 / 15 min / IP+email).
 - Local seed: **opt-in** `ALLOW_DEV_ADMIN=1` + `admin@techxpert.in` / `admin123`. Always off in production.
 - Production **requires** `JWT_SECRET` (≥24 chars) and `CORS_ORIGINS` (comma allowlist) or the API refuses to start.
-- Every admin request re-checks `admin_users.is_active` (revoked accounts lose access immediately).
+- Every admin request re-checks the staff row (and, for linked people, the Homecare login's `is_active`), and refuses tokens issued before the last password change.
 - Portal: `VITE_API_BASE_URL` (default `http://localhost:5001`); session via HttpOnly cookie `tx_admin_token` (`credentials: 'include'`); profile cache in `localStorage`.
 - Public `GET /cms/banners` defaults to **published** only; admin session sees all statuses.
 - Staff mutations + sensitive reads require admin plus the module permission from the store role (A1, [PORTAL_ACCESS.md](./PORTAL_ACCESS.md)); `GET /orders/:id` owner or staff with Orders view.

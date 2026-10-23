@@ -1,9 +1,10 @@
 import type { PoolConnection } from 'mysql2/promise';
-import { storePool, userPool } from '../db/mysql.js';
+import { storePool } from '../db/mysql.js';
 import { AuditService } from './auditService.js';
+import { StaffService, type StaffRecord } from './staffService.js';
+import type { StaffKind } from '../utils/staffAccounts.js';
 import {
   MODULES,
-  SUPER_ADMIN_ROLE,
   emptyPermissions,
   fullPermissions,
   grantsBeyond,
@@ -36,7 +37,8 @@ export type StaffAccess = {
 export type NamedScopeNode = ScopeNode & { name: string };
 
 export type AccessActor = {
-  adminId: number;
+  /** portal_staff.ID (1 for the local dev seed). */
+  staffId: number;
   name: string;
   access: StaffAccess;
 };
@@ -55,8 +57,12 @@ export type StaffMember = {
   id: number;
   name: string;
   email: string;
-  homecareRole: string;
+  kind: StaffKind;
   active: boolean;
+  /** Linked only: whether the Homecare login itself is active. */
+  homecareActive: boolean | null;
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
   isSuperAdmin: boolean;
   roleId: number | null;
   roleName: string | null;
@@ -91,21 +97,21 @@ export async function loadStoreTree(): Promise<StoreTree> {
 }
 
 /** Scope rows per staff member with a role. */
-async function scopeRows(adminIds?: number[]): Promise<Map<number, ScopeRows>> {
+async function scopeRows(staffIds?: number[]): Promise<Map<number, ScopeRows>> {
   const result = new Map<number, ScopeRows>();
-  if (adminIds && !adminIds.length) return result;
-  const filter = adminIds ? 'WHERE r.AdminID IN (?)' : '';
+  if (staffIds && !staffIds.length) return result;
+  const filter = staffIds ? 'WHERE r.StaffID IN (?)' : '';
   const [roles] = await storePool.query<any[]>(
-    `SELECT r.AdminID as adminId, r.ScopeAll as scopeAll FROM portal_staff_roles r ${filter}`,
-    adminIds ? [adminIds] : []
+    `SELECT r.StaffID as staffId, r.ScopeAll as scopeAll FROM portal_staff_roles r ${filter}`,
+    staffIds ? [staffIds] : []
   );
-  for (const r of roles) result.set(Number(r.adminId), { all: Number(r.scopeAll) === 1, nodes: [] });
+  for (const r of roles) result.set(Number(r.staffId), { all: Number(r.scopeAll) === 1, nodes: [] });
   const [nodes] = await storePool.query<any[]>(
-    `SELECT AdminID as adminId, NodeType as type, NodeID as id FROM portal_staff_scope ${adminIds ? 'WHERE AdminID IN (?)' : ''}
+    `SELECT StaffID as staffId, NodeType as type, NodeID as id FROM portal_staff_scope ${staffIds ? 'WHERE StaffID IN (?)' : ''}
      ORDER BY ID ASC`,
-    adminIds ? [adminIds] : []
+    staffIds ? [staffIds] : []
   );
-  for (const n of nodes) result.get(Number(n.adminId))?.nodes.push({ type: n.type, id: Number(n.id) });
+  for (const n of nodes) result.get(Number(n.staffId))?.nodes.push({ type: n.type, id: Number(n.id) });
   return result;
 }
 
@@ -212,9 +218,9 @@ export class AccessService {
     return MODULES.map((m) => ({ key: m.key, label: m.label, levels: [...m.levels] }));
   }
 
-  /** What a signed-in admin may do. Super admin never touches the tables. */
-  static async forAdmin(adminId: number, homecareRole: string): Promise<StaffAccess> {
-    if (homecareRole === SUPER_ADMIN_ROLE) {
+  /** What a signed-in staff member may do. Super admin never touches the tables. */
+  static async forStaff(staffId: number, isSuperAdmin: boolean): Promise<StaffAccess> {
+    if (isSuperAdmin) {
       return {
         roleId: null,
         roleName: 'Super admin',
@@ -227,15 +233,15 @@ export class AccessService {
       const [rows] = await storePool.query<any[]>(
         `SELECT r.ID as roleId, r.Name as roleName
          FROM portal_staff_roles s JOIN portal_roles r ON r.ID = s.RoleID
-         WHERE s.AdminID = ? LIMIT 1`,
-        [adminId]
+         WHERE s.StaffID = ? LIMIT 1`,
+        [staffId]
       );
       if (!rows.length) {
         return { roleId: null, roleName: null, isSuperAdmin: false, permissions: emptyPermissions(), scope: noScope() };
       }
       const roleId = Number(rows[0].roleId);
       const permissions = (await rolePermissions([roleId])).get(roleId) ?? emptyPermissions();
-      const held = (await scopeRows([adminId])).get(adminId) ?? { all: false, nodes: [] };
+      const held = (await scopeRows([staffId])).get(staffId) ?? { all: false, nodes: [] };
       const scope = held.all ? WHOLE_COMPANY : resolveScope(false, held.nodes, await loadStoreTree());
       return { roleId, roleName: String(rows[0].roleName), isSuperAdmin: false, permissions, scope };
     } catch (err) {
@@ -245,7 +251,7 @@ export class AccessService {
 
   static async listRoles(actor: AccessActor): Promise<PortalRole[]> {
     const [rows] = await storePool.query<any[]>(
-      `SELECT r.ID as id, r.Name as name, r.Description as description, COUNT(s.AdminID) as staffCount
+      `SELECT r.ID as id, r.Name as name, r.Description as description, COUNT(s.StaffID) as staffCount
        FROM portal_roles r LEFT JOIN portal_staff_roles s ON s.RoleID = r.ID
        GROUP BY r.ID, r.Name, r.Description
        ORDER BY r.Name ASC`
@@ -275,7 +281,7 @@ export class AccessService {
       await conn.beginTransaction();
       const [res] = await conn.query<any>(
         `INSERT INTO portal_roles (Name, Description, CreatedBy) VALUES (?, ?, ?)`,
-        [input.name, input.description || null, actor.adminId]
+        [input.name, input.description || null, actor.staffId]
       );
       roleId = Number(res.insertId);
       await writePermissions(conn, roleId, input.permissions);
@@ -308,7 +314,7 @@ export class AccessService {
       await conn.beginTransaction();
       await conn.query(
         `UPDATE portal_roles SET Name = ?, Description = ?, UpdatedBy = ? WHERE ID = ?`,
-        [input.name, input.description || null, actor.adminId, existing.id]
+        [input.name, input.description || null, actor.staffId, existing.id]
       );
       await writePermissions(conn, existing.id, input.permissions);
       await conn.commit();
@@ -353,40 +359,40 @@ export class AccessService {
     return { success: true };
   }
 
+  /** The store's staff list with roles and places. Homecare logins appear only once linked. */
   static async listStaff(actor: AccessActor): Promise<StaffMember[]> {
-    const [admins] = await userPool.query<any[]>(
-      `SELECT admin_id as id, name, email, role, is_active as active FROM admin_users ORDER BY is_active DESC, name ASC`
-    );
+    const people = await StaffService.list();
     const [assigned] = await storePool.query<any[]>(
-      `SELECT s.AdminID as adminId, r.ID as roleId, r.Name as roleName
+      `SELECT s.StaffID as staffId, r.ID as roleId, r.Name as roleName
        FROM portal_staff_roles s JOIN portal_roles r ON r.ID = s.RoleID`
     );
-    const roleByAdmin = new Map(assigned.map((a) => [Number(a.adminId), a]));
+    const roleByStaff = new Map(assigned.map((a) => [Number(a.staffId), a]));
     const permissions = await rolePermissions([...new Set(assigned.map((a) => Number(a.roleId)))]);
     const scopes = await scopeRows();
     const tree = await loadStoreTree();
     const names = await nodeNames();
 
-    return admins.map((a) => {
-      const id = Number(a.id);
-      const isSuperAdmin = a.role === SUPER_ADMIN_ROLE;
-      const held = isSuperAdmin ? undefined : roleByAdmin.get(id);
+    return people.map((person) => {
+      const held = person.isSuperAdmin ? undefined : roleByStaff.get(person.id);
       const roleId = held ? Number(held.roleId) : null;
       const heldPermissions = roleId ? permissions.get(roleId) ?? emptyPermissions() : emptyPermissions();
-      const heldScope = isSuperAdmin ? { all: true, nodes: [] } : scopes.get(id) ?? { all: false, nodes: [] };
+      const heldScope = person.isSuperAdmin ? { all: true, nodes: [] } : scopes.get(person.id) ?? { all: false, nodes: [] };
       const changeable =
-        !isSuperAdmin &&
-        id !== actor.adminId &&
+        person.id !== actor.staffId &&
         (actor.access.isSuperAdmin ||
-          (grantsBeyond(heldPermissions, actor.access.permissions).length === 0 &&
+          (!person.isSuperAdmin &&
+            grantsBeyond(heldPermissions, actor.access.permissions).length === 0 &&
             scopeWithin(resolveScope(heldScope.all, heldScope.nodes, tree), actor.access.scope)));
       return {
-        id,
-        name: String(a.name ?? ''),
-        email: String(a.email ?? ''),
-        homecareRole: String(a.role ?? ''),
-        active: Number(a.active) === 1,
-        isSuperAdmin,
+        id: person.id,
+        name: person.name,
+        email: person.email,
+        kind: person.kind,
+        active: person.active,
+        homecareActive: person.homecareActive,
+        mustChangePassword: person.mustChangePassword,
+        lastLoginAt: person.lastLoginAt,
+        isSuperAdmin: person.isSuperAdmin,
         roleId,
         roleName: held ? String(held.roleName) : null,
         scope: {
@@ -398,36 +404,45 @@ export class AccessService {
     });
   }
 
-  /** Refuses changing someone whose role or places go beyond the actor's. */
-  private static async assertCanChange(actor: AccessActor, target: { id: number; name: string; role: string }) {
-    if (actor.access.isSuperAdmin) return;
-    const current = await AccessService.forAdmin(target.id, target.role);
-    if (grantsBeyond(current.permissions, actor.access.permissions).length) {
-      throw refusal(403, `${target.name} has access you don't have, so you can't change their access.`);
+  private static async member(actor: AccessActor, staffId: number): Promise<StaffMember> {
+    const found = (await AccessService.listStaff(actor)).find((s) => s.id === staffId);
+    if (!found) throw refusal(404, 'No one on the staff list with that id.');
+    return found;
+  }
+
+  /**
+   * Refuses changing yourself, a super admin (unless you are one), or someone whose role or places
+   * go beyond yours.
+   */
+  private static async changeableTarget(actor: AccessActor, staffId: number, what: string): Promise<StaffRecord> {
+    if (!Number.isInteger(staffId) || staffId <= 0) throw refusal(404, 'No one on the staff list with that id.');
+    if (staffId === actor.staffId) throw refusal(403, `You can't change your own ${what}.`);
+    const target = await StaffService.find(staffId);
+    if (!target) throw refusal(404, 'No one on the staff list with that id.');
+    if (target.isSuperAdmin && !actor.access.isSuperAdmin) {
+      throw refusal(403, `${target.name} is a super admin; only a super admin can change their ${what}.`);
     }
-    if (!scopeWithin(current.scope, actor.access.scope)) {
-      throw refusal(403, `${target.name} covers places outside yours, so you can't change their access.`);
+    if (!actor.access.isSuperAdmin) {
+      const current = await AccessService.forStaff(staffId, target.isSuperAdmin);
+      if (grantsBeyond(current.permissions, actor.access.permissions).length) {
+        throw refusal(403, `${target.name} has access you don't have, so you can't change their ${what}.`);
+      }
+      if (!scopeWithin(current.scope, actor.access.scope)) {
+        throw refusal(403, `${target.name} covers places outside yours, so you can't change their ${what}.`);
+      }
     }
+    return target;
   }
 
   /** `{ all: true }` for whole company, or `{ all: false, nodes: [{ type, id }] }`. */
-  static async setStaffScope(actor: AccessActor, adminId: number, body: any): Promise<StaffMember> {
-    if (!Number.isInteger(adminId) || adminId <= 0) throw refusal(404, 'No staff login with that id.');
-    if (adminId === actor.adminId) throw refusal(403, "You can't change your own places.");
+  static async setStaffScope(actor: AccessActor, staffId: number, body: any): Promise<StaffMember> {
     if (typeof body?.all !== 'boolean') throw refusal(400, 'Say whether this person covers the whole company.');
     const nodes = body.all ? [] : parseScopeNodes(body.nodes);
     if (!nodes) throw refusal(400, 'Places must be a list of groups and stores.');
-
-    const [admins] = await userPool.query<any[]>(
-      `SELECT admin_id as id, name, role FROM admin_users WHERE admin_id = ?`,
-      [adminId]
-    );
-    const target = admins[0];
-    if (!target) throw refusal(404, 'No staff login with that id.');
-    if (target.role === SUPER_ADMIN_ROLE) throw refusal(409, 'Super admin always covers the whole company.');
-    const before = (await scopeRows([adminId])).get(adminId);
+    const target = await AccessService.changeableTarget(actor, staffId, 'places');
+    if (target.isSuperAdmin) throw refusal(409, 'Super admin always covers the whole company.');
+    const before = (await scopeRows([staffId])).get(staffId);
     if (!before) throw refusal(409, `Give ${target.name} a role first.`);
-    await AccessService.assertCanChange(actor, { id: adminId, name: String(target.name), role: String(target.role) });
 
     if (body.all && !actor.access.scope.all) {
       throw refusal(403, 'Only whole-company staff can give whole-company access.');
@@ -442,15 +457,15 @@ export class AccessService {
     const conn = await storePool.getConnection();
     try {
       await conn.beginTransaction();
-      await conn.query(`UPDATE portal_staff_roles SET ScopeAll = ?, AssignedBy = ? WHERE AdminID = ?`, [
+      await conn.query(`UPDATE portal_staff_roles SET ScopeAll = ?, AssignedBy = ? WHERE StaffID = ?`, [
         body.all ? 1 : 0,
-        actor.adminId,
-        adminId,
+        actor.staffId,
+        staffId,
       ]);
-      await conn.query(`DELETE FROM portal_staff_scope WHERE AdminID = ?`, [adminId]);
+      await conn.query(`DELETE FROM portal_staff_scope WHERE StaffID = ?`, [staffId]);
       if (nodes.length) {
-        await conn.query(`INSERT INTO portal_staff_scope (AdminID, NodeType, NodeID, AssignedBy) VALUES ?`, [
-          nodes.map((n) => [adminId, n.type, n.id, actor.adminId]),
+        await conn.query(`INSERT INTO portal_staff_scope (StaffID, NodeType, NodeID, AssignedBy) VALUES ?`, [
+          nodes.map((n) => [staffId, n.type, n.id, actor.staffId]),
         ]);
       }
       await conn.commit();
@@ -464,28 +479,18 @@ export class AccessService {
     const was = describeScope(before, names);
     const now = describeScope({ all: body.all, nodes }, names);
     if (was !== now) await audit(actor, 'Changed Staff Places', `${target.name} now covers ${now} (was ${was})`);
-    return (await AccessService.listStaff(actor)).find((s) => s.id === adminId)!;
+    return AccessService.member(actor, staffId);
   }
 
-  static async assignStaff(actor: AccessActor, adminId: number, rawRoleId: unknown): Promise<StaffMember> {
-    if (!Number.isInteger(adminId) || adminId <= 0) throw refusal(404, 'No staff login with that id.');
-    if (adminId === actor.adminId) throw refusal(403, "You can't change your own role.");
-
-    const [admins] = await userPool.query<any[]>(
-      `SELECT admin_id as id, name, role FROM admin_users WHERE admin_id = ?`,
-      [adminId]
-    );
-    const target = admins[0];
-    if (!target) throw refusal(404, 'No staff login with that id.');
-    if (target.role === SUPER_ADMIN_ROLE) {
+  static async assignStaff(actor: AccessActor, staffId: number, rawRoleId: unknown): Promise<StaffMember> {
+    const target = await AccessService.changeableTarget(actor, staffId, 'role');
+    if (target.isSuperAdmin) {
       throw refusal(409, "Super admin always has full access; it can't be given a store role.");
     }
-
-    const current = await AccessService.forAdmin(adminId, String(target.role));
-    await AccessService.assertCanChange(actor, { id: adminId, name: String(target.name), role: String(target.role) });
+    const current = await AccessService.forStaff(staffId, false);
 
     if (rawRoleId === null) {
-      await storePool.query(`DELETE FROM portal_staff_roles WHERE AdminID = ?`, [adminId]);
+      await storePool.query(`DELETE FROM portal_staff_roles WHERE StaffID = ?`, [staffId]);
       if (current.roleName) {
         await audit(actor, 'Removed Staff Role', `${target.name} no longer has "${current.roleName}"`);
       }
@@ -494,17 +499,73 @@ export class AccessService {
       if (!role) throw refusal(404, 'That role no longer exists.');
       assertWithin(actor, role.permissions);
       await storePool.query(
-        `INSERT INTO portal_staff_roles (AdminID, RoleID, AssignedBy) VALUES (?, ?, ?)
+        `INSERT INTO portal_staff_roles (StaffID, RoleID, AssignedBy) VALUES (?, ?, ?)
          ON DUPLICATE KEY UPDATE RoleID = ?, AssignedBy = ?`,
-        [adminId, role.id, actor.adminId, role.id, actor.adminId]
+        [staffId, role.id, actor.staffId, role.id, actor.staffId]
       );
       if (current.roleId !== role.id) {
         const from = current.roleName ? ` (was "${current.roleName}")` : '';
         await audit(actor, 'Assigned Staff Role', `${target.name} now has "${role.name}"${from}`);
       }
     }
+    return AccessService.member(actor, staffId);
+  }
 
-    const staff = await AccessService.listStaff(actor);
-    return staff.find((s) => s.id === adminId)!;
+  /** New store login; the temporary password is returned once and never stored in plain text. */
+  static async addStoreLogin(
+    actor: AccessActor,
+    body: any
+  ): Promise<{ staff: StaffMember; temporaryPassword: string }> {
+    const created = await StaffService.createStoreLogin(actor.staffId, body ?? {});
+    const staff = await AccessService.member(actor, created.id);
+    await audit(actor, 'Added Staff', `Added store login ${staff.name} <${staff.email}>`);
+    return { staff, temporaryPassword: created.temporaryPassword };
+  }
+
+  static async homecareMatch(email: unknown): Promise<{ name: string; email: string }> {
+    const match = await StaffService.homecareMatch(email);
+    return { name: match.name, email: match.email };
+  }
+
+  static async linkHomecare(actor: AccessActor, body: any): Promise<StaffMember> {
+    const id = await StaffService.linkHomecare(actor.staffId, body?.email);
+    const staff = await AccessService.member(actor, id);
+    await audit(actor, 'Linked Homecare Login', `Linked ${staff.name} <${staff.email}> to the store portal`);
+    return staff;
+  }
+
+  /** `{ name }` (store logins) and/or `{ active }`. The route checks Delete for `active`. */
+  static async updateStaff(actor: AccessActor, staffId: number, body: any): Promise<StaffMember> {
+    const hasName = body?.name !== undefined;
+    const hasActive = body?.active !== undefined;
+    if (!hasName && !hasActive) throw refusal(400, 'Nothing to change.');
+    if (hasActive && typeof body.active !== 'boolean') throw refusal(400, 'Say whether the login is active.');
+    const target = await AccessService.changeableTarget(actor, staffId, hasActive ? 'access' : 'name');
+
+    if (hasName && target.kind === 'store') {
+      const before = target.name;
+      await StaffService.rename(actor.staffId, staffId, body.name);
+      const after = (await StaffService.find(staffId))?.name ?? before;
+      if (after !== before) await audit(actor, 'Renamed Staff', `${before} is now ${after}`);
+    } else if (hasName) {
+      throw refusal(409, `${target.name} takes their name from Homecare; change it there.`);
+    }
+    if (hasActive && body.active !== target.active) {
+      await StaffService.setActive(actor.staffId, staffId, body.active);
+      await audit(
+        actor,
+        body.active ? 'Reactivated Staff' : 'Deactivated Staff',
+        `${target.name} <${target.email}> ${body.active ? 'can use the store portal again' : 'can no longer use the store portal'}`
+      );
+    }
+    return AccessService.member(actor, staffId);
+  }
+
+  static async resetStaffPassword(actor: AccessActor, staffId: number): Promise<{ temporaryPassword: string }> {
+    const target = await AccessService.changeableTarget(actor, staffId, 'password');
+    if (target.kind === 'linked') throw refusal(409, `${target.name}'s password is managed in Homecare.`);
+    const temporaryPassword = await StaffService.resetPassword(actor.staffId, staffId);
+    await audit(actor, 'Reset Staff Password', `Gave ${target.name} a new temporary password`);
+    return { temporaryPassword };
   }
 }

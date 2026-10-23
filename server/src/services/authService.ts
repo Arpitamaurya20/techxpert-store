@@ -1,20 +1,13 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
 import { userPool } from '../db/mysql.js';
 import { store } from '../db/store.js';
-import { getJwtSecret, isDevAdminAllowed } from '../config/security.js';
+import { getJwtSecret } from '../config/security.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
 const JWT_SECRET = getJwtSecret();
 
-export type AdminProfile = {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-};
-
+/** Customer sign-in and profile. Portal staff sign-in lives in StaffService. */
 export class AuthService {
   static async login(identifier: string) {
     const clean = String(identifier).trim();
@@ -349,130 +342,6 @@ export class AuthService {
   static async deleteAddress(userId: number, addressId: number) {
     await userPool.query(`UPDATE user_addresses SET is_deleted = 1 WHERE user_id = ? AND address_id = ?`, [userId, addressId]);
     return { success: true };
-  }
-
-  static async adminLogin(email: string, pass: string) {
-    const cleanEmail = String(email || '').trim().toLowerCase();
-    const password = String(pass || '');
-    if (!cleanEmail || !password) {
-      throw Object.assign(new Error('Email and password are required'), { statusCode: 400 });
-    }
-
-    const issue = (admin: { admin_id: number; name: string; email: string; role: string }) => {
-      const token = jwt.sign(
-        {
-          adminId: admin.admin_id,
-          name: admin.name,
-          email: admin.email,
-          role: admin.role,
-        },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-      return {
-        token,
-        admin: {
-          id: admin.admin_id,
-          name: admin.name,
-          email: admin.email,
-          role: admin.role,
-        },
-      };
-    };
-
-    const isSeedEmail =
-      cleanEmail === 'admin@techxpert.in' || cleanEmail === 'admin@techxpertstore.com';
-    const isSeedPass = password === 'admin123' || password === 'root123';
-    const seedOk = isDevAdminAllowed() && isSeedEmail && isSeedPass;
-
-    try {
-      const [rows] = await userPool.query<any[]>(
-        `SELECT admin_id, name, email, password_hash, role, is_active
-         FROM admin_users WHERE LOWER(email) = ? AND is_active = 1 LIMIT 1`,
-        [cleanEmail]
-      );
-
-      if (rows.length > 0) {
-        const admin = rows[0];
-        const match = await bcrypt.compare(password, admin.password_hash).catch(() => false);
-        if (match) return issue(admin);
-
-        // Local opt-in: seed password may unlock an existing seed email row whose
-        // hash is unknown / not admin123 (common on shared homecare DBs).
-        if (seedOk) {
-          console.warn(
-            '[AuthService] ALLOW_DEV_ADMIN seed password accepted for existing admin row',
-            cleanEmail
-          );
-          return issue(admin);
-        }
-
-        throw Object.assign(new Error('Invalid email or password'), { statusCode: 401 });
-      }
-    } catch (err: any) {
-      if (err.statusCode === 401 || err.statusCode === 400) throw err;
-      console.warn('[AuthService] admin_users query failed, trying seed fallback', err);
-    }
-
-    // Local-only seed when MySQL has no matching admin row (never in production)
-    if (seedOk) {
-      return issue({
-        admin_id: 1,
-        name: 'Super Admin',
-        email: cleanEmail,
-        role: 'super_admin',
-      });
-    }
-
-    throw Object.assign(new Error('Invalid email or password'), { statusCode: 401 });
-  }
-
-  /**
-   * Live check that adminId is still active. Used by requireAdmin on every request.
-   * Does NOT trust JWT claims alone — deactivated accounts are rejected immediately.
-   */
-  static async assertActiveAdmin(adminId: number): Promise<AdminProfile> {
-    const id = Number(adminId);
-    if (!id || Number.isNaN(id)) {
-      throw Object.assign(new Error('Administrative login required'), { statusCode: 401 });
-    }
-
-    const seedProfile = (): AdminProfile => ({
-      id: 1,
-      name: 'Super Admin',
-      email: 'admin@techxpert.in',
-      role: 'super_admin',
-    });
-
-    try {
-      const [rows] = await userPool.query<any[]>(
-        `SELECT admin_id as id, name, email, role
-         FROM admin_users WHERE admin_id = ? AND is_active = 1 LIMIT 1`,
-        [id]
-      );
-      if (rows.length > 0) {
-        return {
-          id: Number(rows[0].id),
-          name: rows[0].name,
-          email: rows[0].email,
-          role: rows[0].role,
-        };
-      }
-      // Missing/inactive: allow local seed id=1 only when opt-in
-      if (isDevAdminAllowed() && id === 1) return seedProfile();
-      throw Object.assign(new Error('Admin account disabled or not found'), { statusCode: 401 });
-    } catch (err: any) {
-      if (err.statusCode === 401) throw err;
-      console.warn('[AuthService] assertActiveAdmin MySQL failed', err);
-
-      if (isDevAdminAllowed() && id === 1) return seedProfile();
-
-      throw Object.assign(new Error('Administrative login required'), { statusCode: 401 });
-    }
-  }
-
-  static async getAdminProfile(adminId: number): Promise<AdminProfile> {
-    return AuthService.assertActiveAdmin(adminId);
   }
 
   /**

@@ -2,12 +2,37 @@ import { Router } from 'express';
 import { AuthService } from '../services/authService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { AccessService } from '../services/accessService.js';
-import { requireAuth, requireAdmin, requirePermission } from '../middleware/auth.js';
-import { adminLoginRateLimit } from '../middleware/rateLimit.js';
+import { AuditService } from '../services/auditService.js';
+import { StaffService, type StaffIdentity } from '../services/staffService.js';
+import {
+  requireAuth,
+  requireAdmin,
+  requireAdminSession,
+  requirePermission,
+  signStaffToken,
+} from '../middleware/auth.js';
+import { adminLoginRateLimit, passwordChangeRateLimit } from '../middleware/rateLimit.js';
 import { storeFilter } from '../utils/scope.js';
 import { clearAdminTokenCookie, setAdminTokenCookie } from '../utils/cookies.js';
 
 const router = Router();
+
+/** What the portal needs about the signed-in person. `role` stays for the portal's super admin check. */
+async function staffProfile(staff: StaffIdentity) {
+  const access = await AccessService.forStaff(staff.id, staff.isSuperAdmin);
+  return {
+    id: staff.id,
+    name: staff.name,
+    email: staff.email,
+    kind: staff.kind,
+    role: staff.isSuperAdmin ? 'super_admin' : 'staff',
+    isSuperAdmin: staff.isSuperAdmin,
+    mustChangePassword: staff.mustChangePassword,
+    storeRole: access.roleName,
+    permissions: access.permissions,
+    wholeCompany: access.scope.all,
+  };
+}
 
 // POST /auth/login - App mobile/email customer sign in
 router.post(
@@ -108,22 +133,32 @@ router.post(
     const { email, password } = req.body;
     if (!email || !password) return sendError(res, 400, 'Email and password are required');
 
-    const result = await AuthService.adminLogin(email, password);
-    const access = await AccessService.forAdmin(result.admin.id, result.admin.role);
-    setAdminTokenCookie(res, result.token);
-    return sendSuccess(
-      res,
-      {
-        ...result,
-        admin: {
-          ...result.admin,
-          storeRole: access.roleName,
-          permissions: access.permissions,
-          wholeCompany: access.scope.all,
-        },
-      },
-      'Admin login successful'
-    );
+    const staff = await StaffService.authenticate(email, password);
+    const token = signStaffToken(staff);
+    setAdminTokenCookie(res, token);
+    return sendSuccess(res, { token, admin: await staffProfile(staff) }, 'Admin login successful');
+  })
+);
+
+// POST /auth/admin/password - { current, next }: change your own password (store logins)
+router.post(
+  '/admin/password',
+  requireAdminSession,
+  passwordChangeRateLimit,
+  asyncHandler(async (req, res) => {
+    const user = req.user!;
+    await StaffService.changeOwnPassword(user.staffId!, req.body?.current, req.body?.next);
+    await AuditService.create({
+      action: 'Changed Own Password',
+      entity: 'access',
+      details: `${user.name} changed their password`,
+      user: `${user.name} (${user.access?.roleName ?? 'no role'})`,
+    }).catch((err) => console.warn('[auth] audit write failed', err));
+    // Tokens issued before this second are now refused, so this session gets a fresh one.
+    const staff = await StaffService.assertActive(user.staffId!, Math.floor(Date.now() / 1000));
+    const token = signStaffToken(staff);
+    setAdminTokenCookie(res, token);
+    return sendSuccess(res, { token, admin: await staffProfile(staff) }, 'Password changed');
   })
 );
 
@@ -136,20 +171,23 @@ router.post(
   })
 );
 
-// GET /auth/admin/me - Current portal staff session (re-checks is_active)
+// GET /auth/admin/me - Current portal staff session (re-checks the staff list, and Homecare for linked people)
 router.get(
   '/admin/me',
-  requireAdmin,
+  requireAdminSession,
   asyncHandler(async (req, res) => {
-    return sendSuccess(res, {
-      id: req.user!.adminId,
-      name: req.user!.name,
-      email: req.user!.email,
-      role: req.user!.role,
-      storeRole: req.user!.access!.roleName,
-      permissions: req.user!.access!.permissions,
-      wholeCompany: req.user!.access!.scope.all,
-    });
+    const user = req.user!;
+    return sendSuccess(
+      res,
+      await staffProfile({
+        id: user.staffId!,
+        name: user.name || '',
+        email: user.email || '',
+        kind: user.kind ?? 'store',
+        isSuperAdmin: Boolean(user.isSuperAdmin),
+        mustChangePassword: Boolean(user.mustChangePassword),
+      })
+    );
   })
 );
 
