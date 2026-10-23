@@ -677,12 +677,10 @@ export class CatalogService {
     }
   }
 
+  /** `data` comes from `validateProductUpdateBody`: `price: null` removes the price, `brandName: null` clears it. */
   static async updateProduct(id: string | number, data: any) {
     const { name, price, stockQuantity, description, brandName, unit } = data;
-    const hasNewPrice = price != null && price !== '';
-    if (hasNewPrice && !(Number(price) > 0)) {
-      throw Object.assign(new Error('Price must be more than ₹0.'), { statusCode: 400 });
-    }
+    const hasNewPrice = typeof price === 'number';
 
     try {
       const numId = Number(id);
@@ -701,7 +699,7 @@ export class CatalogService {
           `UPDATE products SET
              ProductName = COALESCE(?, ProductName),
              ProductDescription = COALESCE(?, ProductDescription),
-             Brand = COALESCE(?, Brand),
+             Brand = IF(? = 1, ?, Brand),
              StockStatus = COALESCE(?, StockStatus),
              MeasurementUnitID = COALESCE(?, MeasurementUnitID),
              UpdatedDate = CURDATE(),
@@ -710,7 +708,8 @@ export class CatalogService {
           [
             name || null,
             description !== undefined ? description : null,
-            brandName || null,
+            brandName !== undefined ? 1 : 0,
+            brandName ?? null,
             stockStatus,
             measurementUnitId,
             numId,
@@ -718,7 +717,12 @@ export class CatalogService {
         );
 
         if (hasNewPrice) {
-          await CatalogService.writeSellingPrice(numId, Number(price));
+          await CatalogService.writeSellingPrice(numId, price);
+        } else if (price === null) {
+          // Price rows are switched off, not deleted, so the old price stays on record.
+          await storePool.query(`UPDATE product_pricing SET IsActive = 0 WHERE ProductID = ? AND IsActive = 1`, [
+            numId,
+          ]);
         }
 
         if (stockQuantity !== undefined) {

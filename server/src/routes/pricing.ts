@@ -50,20 +50,17 @@ router.delete(
   })
 );
 
-// GET /pricing/calculate - Calculate discounted price for a given quantity
+// GET /pricing/calculate - bulk price for a quantity, on the product's own price (a sent basePrice is ignored)
 router.get(
   '/calculate',
   asyncHandler(async (req, res) => {
-    const { productId, quantity, basePrice } = req.query;
-    if (!productId || !quantity || !basePrice) {
-      return sendError(res, 400, 'productId, quantity, and basePrice are required');
+    const productId = Number(req.query.productId);
+    const quantity = Number(req.query.quantity);
+    if (!Number.isInteger(productId) || productId < 1 || !Number.isInteger(quantity) || quantity < 1) {
+      return sendError(res, 400, 'productId and quantity must be whole numbers of at least 1');
     }
 
-    const calculation = await PricingService.calculateBulkPrice(
-      Number(productId),
-      Number(quantity),
-      Number(basePrice)
-    );
+    const calculation = await PricingService.calculateForProduct(productId, quantity);
     return sendSuccess(res, calculation);
   })
 );

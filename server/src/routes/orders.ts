@@ -10,6 +10,7 @@ import {
   permissionRefusal,
 } from '../middleware/auth.js';
 import { can } from '../utils/permissions.js';
+import { validateOrderStatusBody } from '../utils/validate.js';
 import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
 
 const router = Router();
@@ -107,8 +108,7 @@ router.put(
   requireAdmin,
   requirePermission('orders', 'edit'),
   asyncHandler(async (req, res) => {
-    const { status, note } = req.body;
-    if (!status) return sendError(res, 400, 'Status is required');
+    const { status, note } = validateOrderStatusBody(req.body);
     const order = await OrderService.getOrderById(req.params.id);
     if (!order || !orderInScope(order, req.user!.access!.scope)) return sendError(res, 404, 'Order not found');
 

@@ -74,17 +74,14 @@ const formFor = (product: Product | null): ProductForm => ({
   description: product?.description ?? '',
 });
 
-/** Mirrors the server: a price, once set, can be changed but not removed, and must be more than ₹0. */
+/** Mirrors the server: a new product needs a price; an edited one may have it removed. A price must be more than ₹0. */
 function checkForm(form: ProductForm, editing: Product | null): FormErrors {
   const errors: FormErrors = {};
   if (form.name.trim().length < 2) errors.name = 'Enter the product name customers will see.';
   if (!editing && !form.categoryId) errors.categoryId = 'Choose a category.';
   const price = form.price.trim();
-  const needsPrice = !editing || editing.price != null;
   if (price === '') {
-    if (needsPrice) {
-      errors.price = editing ? "A price can be changed but not removed. Enter the new price." : 'Enter the selling price.';
-    }
+    if (!editing) errors.price = 'Enter the selling price.';
   } else if (!(Number(price) > 0)) {
     errors.price = 'Enter a price of more than ₹0.';
   }
@@ -394,16 +391,17 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
           key={editing?.id ?? 'new'}
           editing={editing}
           categories={categories}
+          confirm={confirm}
           onClose={() => setFormOpen(false)}
           onSave={async (form) => {
             if (editing) {
               await onUpdateProduct({
                 ...editing,
                 name: form.name.trim(),
-                price: form.price.trim() === '' ? editing.price : Number(form.price),
+                price: form.price.trim() === '' ? null : Number(form.price),
                 stockQuantity: Number(form.stock),
                 unit: form.unit.trim(),
-                brandName: form.brandName.trim() || editing.brandName,
+                brandName: form.brandName.trim(),
                 description: form.description.trim(),
               });
             } else {
@@ -434,7 +432,9 @@ const ProductFormDialog: React.FC<{
   categories: Category[];
   onClose: () => void;
   onSave: (form: ProductForm) => Promise<void>;
-}> = ({ editing, categories, onClose, onSave }) => {
+  /** The page's confirm; its dialog renders after this form, so it shows on top. */
+  confirm: ReturnType<typeof useConfirm>['confirm'];
+}> = ({ editing, categories, onClose, onSave, confirm }) => {
   const [form, setForm] = useState<ProductForm>(() => formFor(editing));
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
@@ -452,6 +452,15 @@ const ProductFormDialog: React.FC<{
     const found = checkForm(form, editing);
     setErrors(found);
     if (Object.keys(found).length) return;
+    if (editing && editing.price != null && form.price.trim() === '') {
+      const ok = await confirm({
+        title: `Remove the price of "${editing.name}"?`,
+        message: <>Customers can't buy it until it has a price again. Carts that hold it show it as unavailable.</>,
+        confirmLabel: 'Remove price',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     try {
       setSaving(true);
       await onSave(form);
@@ -514,7 +523,13 @@ const ProductFormDialog: React.FC<{
             id={`${formId}-price`}
             label="Price (₹)"
             error={errors.price}
-            hint={editing && editing.price == null ? 'Leave empty to keep it unpriced.' : undefined}
+            hint={
+              editing
+                ? editing.price == null
+                  ? 'Leave empty to keep it unpriced.'
+                  : 'Empty it to take the product off sale.'
+                : undefined
+            }
             style={{ flex: 1 }}
           >
             <input inputMode="decimal" value={form.price} onChange={set('price')} placeholder="380" />
@@ -538,12 +553,7 @@ const ProductFormDialog: React.FC<{
               <input value={form.sku} onChange={set('sku')} maxLength={60} />
             </Field>
           )}
-          <Field
-            id={`${formId}-brand`}
-            label="Brand"
-            hint={editing ? 'Clearing the brand keeps the old one.' : undefined}
-            style={{ flex: 1 }}
-          >
+          <Field id={`${formId}-brand`} label="Brand" style={{ flex: 1 }}>
             <input value={form.brandName} onChange={set('brandName')} maxLength={100} placeholder="UltraTech" />
           </Field>
         </div>

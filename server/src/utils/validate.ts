@@ -75,13 +75,35 @@ export function validateProductCreateBody(body: any) {
   return { ...body, name, categoryId, price, stockQuantity, unit, description, sku, brandName };
 }
 
+/** Fields left out stay as they are. `price: null` removes the price; an empty or null `brandName` clears it. */
 export function validateProductUpdateBody(body: any) {
+  const next = { ...(body ?? {}) };
   if (body?.name !== undefined) requireString(body.name, 'name', { max: 500 });
-  if (body?.price !== undefined) requireNumber(body.price, 'price', { min: 0 });
+  if (body?.price !== undefined && body.price !== null) {
+    if (body.price === '') badRequest('price must be a number, or null to remove it');
+    const price = requireNumber(body.price, 'price');
+    if (!(price > 0)) badRequest('Price must be more than ₹0.');
+    next.price = price;
+  }
+  if (body?.brandName !== undefined) {
+    next.brandName = optionalString(body.brandName, 'brandName', { max: 255 }) || null;
+  }
   if (body?.stockQuantity !== undefined) requireNumber(body.stockQuantity, 'stockQuantity', { min: 0 });
   if (body?.unit !== undefined) optionalString(body.unit, 'unit', { max: 100 });
   if (body?.description !== undefined) optionalString(body.description, 'description', { max: 5000 });
-  return body;
+  return next;
+}
+
+export const ORDER_STATUSES = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'] as const;
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+export function validateOrderStatusBody(body: any): { status: OrderStatus; note?: string } {
+  const status = requireString(body?.status, 'status');
+  if (!(ORDER_STATUSES as readonly string[]).includes(status)) {
+    badRequest(`status must be one of: ${ORDER_STATUSES.join(', ')}`);
+  }
+  const note = optionalString(body?.note, 'note', { max: 500 }) || undefined;
+  return { status: status as OrderStatus, note };
 }
 
 export function validateBannerBody(body: any, partial = false) {

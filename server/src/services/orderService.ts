@@ -7,6 +7,7 @@ import { CartService, type CheckoutLine } from './cartService.js';
 import { guestOrderOwner, isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPricing.js';
 import { quantityRefusal, TAX_RATE, type CartTotals } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
+import type { OrderStatus } from '../utils/validate.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
 
 export interface OrderFilterParams {
@@ -656,7 +657,7 @@ export class OrderService {
     return this.checkout({ ...rest, userId });
   }
 
-  static async updateOrderStatus(orderId: string | number, status: string, note?: string, actorId: number = 1) {
+  static async updateOrderStatus(orderId: string | number, status: OrderStatus, note?: string, actorId: number = 1) {
     try {
       await storePool.query(
         `UPDATE orders 

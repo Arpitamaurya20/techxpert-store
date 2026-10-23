@@ -1,6 +1,7 @@
 import { storePool } from '../db/mysql.js';
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
+import { bulkPrice, type Tier } from '../utils/bulkPricing.js';
 
 export class PricingService {
   static async getBulkTiers(productId?: string | number) {
@@ -167,57 +168,31 @@ export class PricingService {
   }
 
   static async calculateBulkPrice(productId: number, quantity: number, basePrice: number) {
-    const qty = Math.max(Number(quantity) || 1, 1);
-    const tiers = await this.getBulkTiers(productId);
+    const rows = await this.getBulkTiers(productId);
+    const tiers: Tier[] = rows.map((t: any) => ({
+      id: t.id,
+      minQty: Number(t.minQty),
+      maxQty: t.maxQty == null ? null : Number(t.maxQty),
+      discountType: String(t.discountType),
+      discountValue: Number(t.discountValue),
+      terms: t.terms ?? '',
+    }));
+    return bulkPrice(tiers, quantity, basePrice);
+  }
 
-    let applicableTier: any = null;
-    for (const tier of tiers) {
-      if (qty >= tier.minQty && (!tier.maxQty || qty <= tier.maxQty)) {
-        if (!applicableTier || tier.discountValue > applicableTier.discountValue) {
-          applicableTier = tier;
-        }
-      }
+  /** `GET /pricing/calculate`: the bulk price on the product's own selling price, as the cart charges it. */
+  static async calculateForProduct(productId: number, quantity: number) {
+    const [rows] = await storePool.query<any[]>(
+      `SELECT CAST(MIN(pr.SellingPrice) AS DOUBLE) as price
+       FROM products p
+       JOIN product_pricing pr ON pr.ProductID = p.ID AND pr.IsActive = 1
+       WHERE p.ID = ? AND p.IsActive = 1`,
+      [productId]
+    );
+    const price = Number(rows[0]?.price);
+    if (!(price > 0)) {
+      throw Object.assign(new Error("That product isn't available to order right now."), { statusCode: 404 });
     }
-
-    if (!applicableTier) {
-      return {
-        unitPrice: basePrice,
-        discountPercent: 0,
-        discountPerUnit: 0,
-        subtotal: basePrice * qty,
-        totalSavings: 0,
-        appliedTier: null,
-      };
-    }
-
-    let discountPerUnit = 0;
-    if (applicableTier.discountType === 'percentage') {
-      discountPerUnit = (basePrice * applicableTier.discountValue) / 100;
-    } else {
-      discountPerUnit = Math.max(basePrice - applicableTier.discountValue, 0);
-    }
-
-    const effectiveUnitPrice = Math.max(basePrice - discountPerUnit, 0);
-    const totalSavings = discountPerUnit * qty;
-
-    return {
-      basePrice,
-      unitPrice: effectiveUnitPrice,
-      discountPercent:
-        applicableTier.discountType === 'percentage'
-          ? applicableTier.discountValue
-          : ((discountPerUnit / basePrice) * 100).toFixed(1),
-      discountPerUnit,
-      subtotal: effectiveUnitPrice * qty,
-      totalSavings,
-      appliedTier: {
-        id: applicableTier.id,
-        minQty: applicableTier.minQty,
-        maxQty: applicableTier.maxQty,
-        discountValue: applicableTier.discountValue,
-        discountType: applicableTier.discountType,
-        terms: applicableTier.terms,
-      },
-    };
+    return this.calculateBulkPrice(productId, quantity, price);
   }
 }
