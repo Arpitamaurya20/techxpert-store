@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff_roles` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -202,6 +202,7 @@ CREATE TABLE techxpertstore.orders (
   OrderNumber VARCHAR(50) NOT NULL UNIQUE,
   UserID INT NULL, -- Logical foreign reference to homecare.users.user_id
   CartID INT NULL, -- Cart the order was placed from; unique, so one cart becomes at most one order (shop S3)
+  StoreID INT NULL, -- FK stores.ID: the store serving the delivery pincode at checkout (portal_scope.sql); scoped staff see only their stores' orders
   GuestEmail VARCHAR(255) NULL,
   GuestPhone VARCHAR(50) NULL,
   GuestName VARCHAR(255) NULL,
@@ -221,6 +222,7 @@ CREATE TABLE techxpertstore.orders (
   UpdatedTime TIME NULL,
   CreatedBy INT NULL,
   INDEX idx_orders_user (UserID),
+  INDEX idx_orders_store (StoreID),
   UNIQUE INDEX uq_orders_cart (CartID),
   INDEX idx_orders_status (OrderStatus),
   INDEX idx_orders_date (CreatedDate)
@@ -329,7 +331,7 @@ CREATE TABLE techxpertstore.cms_homepage_sections (
 CREATE TABLE techxpertstore.portal_audit_logs (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   action VARCHAR(255) NOT NULL,
-  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access') NOT NULL,
+  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store') NOT NULL,
   details TEXT NULL,
   actor VARCHAR(255) NOT NULL DEFAULT 'Store Admin',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -348,7 +350,7 @@ CREATE TABLE techxpertstore.portal_roles (
 
 CREATE TABLE techxpertstore.portal_role_permissions (
   RoleID INT NOT NULL,              -- FK portal_roles.ID, cascade delete
-  Module VARCHAR(40) NOT NULL,      -- products, categories, orders, delivery, customers, pricing, banners, sections, audit, api, access
+  Module VARCHAR(40) NOT NULL,      -- products, categories, orders, delivery, stores, customers, pricing, banners, sections, audit, api, access
   CanView TINYINT(1) NOT NULL DEFAULT 0,
   CanEdit TINYINT(1) NOT NULL DEFAULT 0,
   CanDelete TINYINT(1) NOT NULL DEFAULT 0,
@@ -359,8 +361,52 @@ CREATE TABLE techxpertstore.portal_role_permissions (
 CREATE TABLE techxpertstore.portal_staff_roles (
   AdminID INT NOT NULL PRIMARY KEY,
   RoleID INT NOT NULL,              -- FK portal_roles.ID; a held role cannot be deleted
+  ScopeAll TINYINT(1) NOT NULL DEFAULT 0, -- whole company (portal_scope.sql); 0 with no portal_staff_scope rows = sees no orders, pincodes or customers
   AssignedBy INT NULL,
   AssignedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Places a staff member covers (server/sql/portal_scope.sql). A group covers every group and store under it.
+CREATE TABLE techxpertstore.portal_staff_scope (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  AdminID INT NOT NULL,             -- FK portal_staff_roles.AdminID, cascade delete
+  NodeType ENUM('group','store') NOT NULL,
+  NodeID INT NOT NULL,              -- store_groups.ID or stores.ID
+  AssignedBy INT NULL,
+  AssignedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_portal_staff_scope (AdminID, NodeType, NodeID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Free tree of groups above stores (Zone, Area, Cluster...); nesting capped at 8 by the server
+CREATE TABLE techxpertstore.store_groups (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Name VARCHAR(80) NOT NULL,
+  Kind VARCHAR(40) NULL,
+  ParentID INT NULL,                -- FK store_groups.ID; NULL = top level
+  ParentKey INT AS (COALESCE(ParentID, 0)) STORED,
+  CreatedBy INT NULL, CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedBy INT NULL, UpdatedAt TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_store_groups_sibling_name (ParentKey, Name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Where a store sits in the tree; no row = top level
+CREATE TABLE techxpertstore.store_group_stores (
+  StoreID INT NOT NULL PRIMARY KEY, -- FK stores.ID
+  GroupID INT NOT NULL,             -- FK store_groups.ID
+  UpdatedBy INT NULL,
+  UpdatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Which store serves a delivery pincode; old links kept with IsActive = 0. Checkout refuses a pincode with no active link.
+CREATE TABLE techxpertstore.store_pincodes (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  StoreID INT NOT NULL,             -- FK stores.ID
+  PincodeID INT NOT NULL,           -- FK pincodes.ID
+  IsActive TINYINT(1) NOT NULL DEFAULT 1,
+  ActivePincodeID INT AS (IF(IsActive = 1, PincodeID, NULL)) STORED,
+  CreatedBy INT NULL, CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedBy INT NULL, UpdatedAt TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_store_pincodes_active (ActivePincodeID) -- one active store per pincode
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Bulk Contractor Price Tiers

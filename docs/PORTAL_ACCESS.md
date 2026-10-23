@@ -106,7 +106,7 @@ Role and staff changes are written to the audit trail server-side (entity `acces
 | Creating stores | In the portal: name, contact, address, the store's own pincode; `ID`, `StoreCode` and the landmark are generated. |
 | Existing `pincodes` table | It links to `areas` (geographic). We do **not** change it. A new `store_pincodes` join table links pincodes to stores independently. |
 | Existing `user_store_mapping` | Maps customer `users` to stores. We do not change it or use it for staff scope; it is a separate Homecare concept. |
-| A2 audit | All group and scope changes written to `portal_audit_logs` as entity `scope`. |
+| A2 audit | Group, store and pincode-link changes written to `portal_audit_logs` as entity `store`; staff places as entity `access`. |
 
 ### Review of this design (23 Oct 2026) — fix before build
 
@@ -132,6 +132,82 @@ Checked against the code and the local DB (MySQL 9.6). The shape below (groups t
 - **D4:** new `stores` module.
 
 Where the sections below disagree with R1–R9 or D1–D4, the review and decisions win.
+
+### As built (A2, 23 Oct 2026)
+
+This section is what the code does. The draft sections after it (tables, API, screens, files) are kept for history; where they differ, this wins.
+
+**Tables** (`server/sql/portal_scope.sql`, techxpertstore only, re-runnable):
+
+- `store_groups` (ID, Name, Kind, ParentID): the free tree. Names are unique among siblings; nesting is capped at 8 levels in the server.
+- `store_group_stores` (StoreID primary key, GroupID): where a store sits. No row means top level.
+- `store_pincodes` (StoreID, PincodeID, IsActive): which store serves a pincode. A generated `ActivePincodeID` with `UNIQUE` allows one active link per pincode and any number of old ones (R1).
+- `portal_staff_scope` (AdminID, NodeType `group`/`store`, NodeID): a person's places.
+- `portal_staff_roles.ScopeAll`: the whole-company switch. The migration sets it to 1 for existing staff (D2).
+- `orders.StoreID`: written at checkout. The migration fills it for existing orders when there is one store.
+- The migration links every active pincode to the store when exactly one store exists, and stops with an error when there is more than one store and some pincode is unlinked (D1).
+- It also grants `stores` (View/Edit/Delete) to Store Admin and View to Merchandiser, and adds `store` to the audit entity list.
+
+**Rules** (`server/src/utils/scope.ts` and its tests):
+
+- Places are loaded from the tables on every request (`AccessService.forAdmin`), never from the token.
+- A group covers every group and store under it, including ones added later.
+- Super admin is always whole company. A person with a role, no places and no switch sees no orders, pincodes or customers.
+- Orders, order detail, status change and order stats are limited to stores in your places; anything outside answers 404.
+- Delivery pincodes are limited by the store that serves them. Customers are limited to people with an order from your stores, and their spend counts only those orders.
+- No escalation:
+  - places you give must be inside your own;
+  - only whole-company staff can give whole company;
+  - you can't change someone whose places are wider than yours or whose role holds more than yours;
+  - you can't change yourself;
+  - super admin can't be scoped (409).
+
+**API:**
+
+| Route | Needs |
+|---|---|
+| `GET /stores/tree`: groups and stores inside your places, plus `wholeCompany` | Stores view |
+| `POST /stores/groups`, `PUT /stores/groups/:id` (rename, kind, move) | Stores edit |
+| `DELETE /stores/groups/:id`: refused (409) while it has groups, stores or staff | Stores delete |
+| `POST /stores`: name, group, the store's own pincode, contact; ID, `ST000n` code and landmark generated | Stores edit |
+| `PUT /stores/:id`: details, move group; `active:false` refused while it serves pincodes | Stores edit (+ delete to deactivate) |
+| `GET /stores/:id/pincodes`, `POST /stores/:id/pincodes` (moves the pincode from its old store if that store is in your places), `DELETE /stores/:id/pincodes/:pincodeId` | Stores view / edit |
+| `PUT /access/staff/:adminId/scope` `{ all, nodes: [{type, id}] }` | Roles & Access edit |
+
+**Other changes:**
+
+- Checkout (cart and older `POST /orders`) refuses with 409 "We don't deliver to X yet." when the pincode has no active link or its store is inactive.
+- `GET /delivery/pincodes` returns `storeId` and `storeName`. `POST /delivery/pincodes` takes an optional `storeId`, which scoped staff must give.
+- Orders and order detail return `storeId` and `storeName`. `/auth/admin/me` and login return `wholeCompany`.
+- Audit: group, store and pincode-link changes are logged with entity `store`; staff places changes with entity `access`.
+
+**Portal:**
+
+- New **Stores & Groups** tab (`StoreTreeManager.tsx`). On the left is the tree of your places, with add, rename and move for groups and stores. On the right are the selected store's details and its pincodes (serve, stop serving, earlier links).
+- Whole-company staff also see New group and New store at the top level.
+- **Roles & Access**: each staff row shows their places. A **Places** button (needs Roles & Access edit and Stores view) opens a checklist of your own groups and stores. Anything under a ticked group shows as covered. Whole company can only be ticked by whole-company staff.
+- **Delivery Pincodes**: a "Served by" store column, and a store picker when adding.
+- **Orders**: a Store column, also shown in the order detail.
+
+**Proof (local DB):**
+
+- Server: tsc clean; 71/71 unit tests.
+- HTTP script: 61/61 checks with three scoped staff, then exact cleanup. It covered:
+  - migration guard and idempotency;
+  - group, store and link creation and moves;
+  - order `StoreID`;
+  - scoped orders, detail, status and stats (404 outside);
+  - scoped delivery list, pause and add, and scoped customers;
+  - escalation refusals;
+  - delete and deactivate rules;
+  - audit rows.
+- Browser:
+  - Store Admin created a group and a store inside it, and moved pincode 201016 to the new store.
+  - Store Admin set Merchandiser test-up's places to the group.
+  - test-up then saw only that group and store (view only), 0 orders, 0 customers, and only 201016 under Delivery.
+- Test rows were removed afterwards.
+
+**Production:** run `server/sql/portal_scope.sql` **before** restarting the API on the A2 code. If the database has more than one store, link each active pincode to a store first, or the script stops.
 
 ---
 

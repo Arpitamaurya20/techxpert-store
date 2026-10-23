@@ -56,16 +56,17 @@ Portal boots via Vite (`cd web && npm run dev`); API on `:5001`.
 | Dashboard | KPIs + shortcuts | Live aggregate load | — |
 | Products & Inventory | List, filter, edit, **add, delete** | `GET/POST/PUT/DELETE /catalog/products` | Create writes MySQL (+ file fallback) |
 | Categories & Subs | Hierarchy editor | `GET/POST/PUT/DELETE /catalog/categories` + `/subcategories` | Soft-delete via `IsActive` (**P4**) |
-| Orders & Fulfillment | List, status change | `GET`, `PUT …/status` | No cancel/refund UX |
-| Customers (homecare) | Directory read | `GET /auth/users` | Read-only |
+| Orders & Fulfillment | List with store, status change | `GET`, `PUT …/status` | No cancel/refund UX; limited to your places (404 outside) |
+| Customers (homecare) | Directory read | `GET /auth/users` | Read-only; scoped staff see customers who ordered from their stores |
 | Bulk Pricing | List, add, delete tiers | Full CRUD used | No edit-in-place |
 | Campaign Banners | CRUD + reorder + **live image preview + CTA validation** | Full CMS banners | File upload still out of scope (P2 uses URL/path) |
 | Homepage Sections | Toggle, reorder, reset | `GET/PUT` sections | Mobile home consumes `GET /cms/sections` |
-| Delivery Pincodes | List, add, pause/resume | `GET/POST/PATCH /delivery/pincodes` | Add/pause need Delivery edit; checkout refuses unlisted pincodes (shop **S2**) |
+| Delivery Pincodes | List with serving store, add (with store), pause/resume | `GET/POST/PATCH /delivery/pincodes` | Add/pause need Delivery edit; checkout refuses unlisted pincodes (shop **S2**) and pincodes no active store serves (A2); list limited to your places |
+| Stores & Groups | Group tree, create/rename/move groups and stores, link/unlink pincodes | `GET /stores/tree`, `POST/PUT/DELETE /stores/groups`, `POST/PUT /stores`, `GET/POST/DELETE /stores/:id/pincodes` | Stores module (View/Edit/Delete); shows only your places ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md) §A2) |
 | API Explorer | Endpoint tester | `/health` | Cookie session |
 | Audit Trail | Timeline viewer | `GET /audit/logs` (Audit view), `POST` (any role; actor taken from the session) | MySQL `portal_audit_logs` + file fallback (**P3**) |
 | Staff Auth | Login gate + logout | `POST /auth/admin/login`, `/logout`, `GET /auth/admin/me` | HttpOnly cookie; login and `/me` return `storeRole` + `permissions` |
-| Roles & Access | Roles (module × View/Edit/Delete), staff role assignment | `GET/POST/PUT/DELETE /access/roles`, `GET/PUT /access/staff` | Every tab and control follows the signed-in role; no escalation ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md)) |
+| Roles & Access | Roles (module × View/Edit/Delete), staff role assignment, staff places | `GET/POST/PUT/DELETE /access/roles`, `GET/PUT /access/staff`, `PUT /access/staff/:id/scope` | Every tab and control follows the signed-in role; no escalation of role or places ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md)) |
 
 Restore bootstrap if merge drops it again: `git checkout cdb6adf -- web/package.json web/vite.config.ts web/tsconfig*.json web/src/main.tsx web/src/index.css web/src/App.css web/public web/index.html` (+ shell components as needed).
 

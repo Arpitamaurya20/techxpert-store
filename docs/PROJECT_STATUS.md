@@ -35,25 +35,26 @@ Source: [`AGENTS.md`](../AGENTS.md), [`WEB_SPEC.md` §5](./WEB_SPEC.md), [`SHOP_
 | Shop S2 | Delivery pincodes: phone checks before checkout, server refuses others; portal tab | Done; device run pending | same |
 | Shop S3 | Order placed from the server cart (COD), one order per cart, honest product page | Done; device run pending | same |
 | Portal access A1 | Store roles with View/Edit/Delete per module, assigned to existing staff; portal shows only what the role allows; no escalation | Done (local + browser proof) | [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) |
-| Portal access A2 | Stores ↔ pincodes, a free tree of groups above stores, staff scope, orders tagged by store | Detailed design drafted, reviewed (fixes R1–R9), decisions D1–D4 answered; not built | [`PORTAL_ACCESS.md` §A2](./PORTAL_ACCESS.md) |
+| Portal access A2 | Stores ↔ pincodes, a free tree of groups above stores, staff scope, orders tagged by store | **Built on `develop`** and proven on the local DB (61/61 HTTP checks, browser check); production needs `portal_scope.sql` before the API restart | [`PORTAL_ACCESS.md` §A2](./PORTAL_ACCESS.md) |
 
 ### Staff hierarchy (A1 + A2)
 
 Two independent answers decide what a staff member gets: **what they may do** (role, A1) and **where** (scope, A2).
 
-**What — roles (built).** Super admin (Homecare `super_admin`) has everything and is never given a store role. Everyone else gets one store role, created in the portal, with View / Edit / Delete per module (products, categories, pricing, banners, sections, orders, delivery, customers, audit, access). Edit or Delete implies View. Nobody can grant more than they hold, edit their own role, change themselves, or change someone who holds more. Seeded: Store Admin for Homecare `admin`, Merchandiser for `state_manager` / `region_manager`; everyone else has no portal access until assigned.
+**What — roles (built).** Super admin (Homecare `super_admin`) has everything and is never given a store role. Everyone else gets one store role, created in the portal, with View / Edit / Delete per module (products, categories, pricing, banners, sections, orders, delivery, stores, customers, audit, access). Edit or Delete implies View. Nobody can grant more than they hold, edit their own role, change themselves, or change someone who holds more. Seeded: Store Admin for Homecare `admin`, Merchandiser for `state_manager` / `region_manager`; everyone else has no portal access until assigned.
 
-**Where — stores and groups (decided, not built).**
+**Where — stores and groups (built).**
 
 - Each pincode belongs to exactly one store; a store serves many pincodes.
 - Above stores is a free tree the company builds itself: groups named Zone, Area, Cluster… at any depth; stores and groups can be moved.
 - A staff member's scope is one or more places in that tree, or the whole company. A place covers everything under it, including stores added later.
 - Example: Store A (pincodes set 1) and Store B (pincodes set 2) can have different managers (each scoped to their store) or one manager (scoped to both); an area manager is scoped to the group containing both and sees everything in it.
-- You can only give scope inside your own.
+- You can only give scope inside your own; only whole-company staff can give whole company. Existing staff started as whole company; someone with a role but no places sees no orders, pincodes or customers.
+- An order to a pincode that no active store serves is refused.
 - Scope filters orders (by the store recorded at checkout), delivery pincodes, and customers who ordered from those stores. Catalogue, banners, sections and pricing stay company-wide.
 - Stock stays shared company-wide for now; per-store stock is a later step.
 
-Full decisions and tables: [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md). The A2 table and screen design is agreed with the user before building (plan item 4 below).
+Full decisions, tables and the as-built API: [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) (§A2 "As built").
 
 ---
 
@@ -105,11 +106,14 @@ What an auditor should check, where it lives.
 | Super admin always full; permissions loaded from DB per request, never from the token | `middleware/auth.ts` (`resolveAdmin`), `accessService.forAdmin` |
 | Audit trail; actor taken from the session | `server/src/services/auditService.ts`, `server/src/routes/audit.ts` |
 | Portal shows only allowed tabs and controls | `web/src/services/access.ts`, `web/src/App.tsx`, `web/src/components/Sidebar.tsx`, each manager component's `canEdit` / `canDelete` |
-| Roles & Access screen | `web/src/components/AccessManager.tsx` |
+| Roles & Access screen (roles, staff role, staff places) | `web/src/components/AccessManager.tsx` |
+| Places: group tree, whole-company switch, scoped orders / pincodes / customers (404 outside), scope no-escalation | `server/src/utils/scope.ts`, `accessService.ts` (`forAdmin`, `setStaffScope`), `orderService.ts`, `deliveryAreaService.ts`, `authService.getAllUsers` |
+| Stores & Groups (tree, stores, pincode links) | `server/src/services/storeTreeService.ts`, `server/src/routes/stores.ts`, `web/src/components/StoreTreeManager.tsx` |
+| Store on each order; refuse pincodes no active store serves | `deliveryAreaService.assertServiceable`, `cartCheckoutService.ts`, `orderService.writeOrder` |
 
 ### Tests
 
-`cd server && npm test` — 56 unit tests: `cartRules`, `checkoutPricing`, `permissions`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 71 unit tests: `cartRules`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -121,6 +125,7 @@ Run in this order on production (all applied to the local DB already). See [`ser
 2. `server/sql/portal_audit_logs_alter_category.sql` (only if the table predates the newer entities)
 3. `server/sql/shop_s3_checkout.sql`
 4. `server/sql/portal_access.sql`
+5. `server/sql/portal_scope.sql`: before restarting the API on the A2 code. With more than one store, link every active pincode to a store first, or it stops.
 
 Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 
@@ -133,8 +138,8 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 1 | Restart the API on :5001 on the new code (portal needs `/me` permissions) | ops | **Done** locally (restarted 23 Oct 11:52; `/api/access/*` answers) |
 | 2 | Device run of shop S1–S3 | **app team** (outside this track); `app/` screens Cart, Checkout | guest cart, merge, pincode, order, repeat-tap all behave as in `SHOP_TRACK.md` |
 | 3 | P11 staging desk proof | `server/src/scripts/deskProof.ts`, `WEB_SPEC.md` P11 note | `npm run proof:desk` exits 0 |
-| 4 | **A2 detailed design**, agreed before build | `docs/PORTAL_ACCESS.md` §A2 (design + review R1–R9) | **Done** — D1–D4 answered 23 Oct; build is next |
-| 5 | A2 build: pincode → store, group tree, staff scope, store on each order, scoped orders / pincodes / customers | expected: new `server/sql/portal_scope.sql`; `accessService.ts`; `cartCheckoutService.ts` + `orderService.writeOrder` (store on order); `deliveryAreaService.ts`; `orderService.getOrders`; new portal tab under `web/src/components/` | local proof + browser check as in A1 |
+| 4 | **A2 detailed design**, agreed before build | `docs/PORTAL_ACCESS.md` §A2 (design + review R1–R9) | **Done** — D1–D4 answered 23 Oct |
+| 5 | A2 build: pincode → store, group tree, staff scope, store on each order, scoped orders / pincodes / customers | `server/sql/portal_scope.sql`, `scope.ts`, `storeTreeService.ts`, `routes/stores.ts`, `accessService.ts`, `deliveryAreaService.ts`, `orderService.ts`, `StoreTreeManager.tsx`, `AccessManager.tsx` | **Done** on `develop` 23 Oct: 71/71 unit tests, 61/61 HTTP checks, browser check; local API on :5001 needs a restart to run it |
 | 6 | Portal UI/UX pass | `web/src/components/*`, `web/src/index.css`, `WEB_SPEC.md` §3 | agreed with the user after functionality |
 | 7 | Production rollout | SQL in §5, then API deploy, then phone build | — |
 
@@ -149,7 +154,8 @@ Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices,
 - **Stock mismatch for multi-variant products:** the shop sells the first variant only.
 - **Not device-tested:** S1–S3 proven over HTTP and the local DB only; the device run is with the app team.
 - **Ops:** admin login rate limit is in-memory (single node); `JWT_SECRET` and `CORS_ORIGINS` must be set in production (the API refuses to start otherwise).
-- **Portal lint:** `set-state-in-effect` warnings on screens that load data on open (existing pattern, now also in `App.tsx` and `AccessManager.tsx`).
+- **Portal lint:** `set-state-in-effect` warnings on screens that load data on open (existing pattern, now also in `App.tsx`, `AccessManager.tsx` and `StoreTreeManager.tsx`).
+- **Store codes:** the existing store's code is a long legacy value; stores created in the portal get `ST0002`, `ST0003`…
 - **Branching:** work goes on `develop` (see `AGENTS.md`). Unused Vite template files (`web/src/App.css`, `web/src/assets/`, `web/public/icons.svg`, `web/public/favicon.svg`) were left out on purpose.
 
 ---
@@ -166,6 +172,6 @@ Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices,
 | [`WEB_SPEC.md`](./WEB_SPEC.md) | Portal modules and P1–P11 plan with notes |
 | [`WEB_PORTAL_AUDIT.md`](./WEB_PORTAL_AUDIT.md) | Security findings, fixes, AuthZ matrix |
 | [`SHOP_TRACK.md`](./SHOP_TRACK.md) | Shop S0–S3 spec, as-built, proof |
-| [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) | Roles A1 (built) and scope A2 (decided) |
+| [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) | Roles A1 and scope A2 (both built) |
 | [`../server/sql/README.md`](../server/sql/README.md) | Migration order |
 | `PROJECT_STATUS.md` (this file) | Index for audit review |
