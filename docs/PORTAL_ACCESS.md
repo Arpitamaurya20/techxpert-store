@@ -1,16 +1,16 @@
 # Portal access — roles, modules and scope
 
-Who can open which part of the merchandising portal, and (from A2) whose data they see.
+Who can sign in to the merchandising portal (from A3), which parts they can open, and (from A2) whose data they see.
 
-Two phases. Each is finished and verified before the next starts.
+Three phases. Each was finished and verified before the next started. A1 and A2 describe staff as Homecare logins because they were built that way; since A3, "staff" means the store's own staff list, and ids are `portal_staff` ids.
 
 | Phase | What | Status |
 |-------|------|--------|
 | **A1** | Store roles with per-module View / Edit / Delete; assign a role to existing staff; portal shows only what the role allows | **Done** (local DB + browser proof, 23 Oct 2026) |
 | **A2** | Stores and the pincodes they serve, a free tree of groups above stores, staff scope, orders tagged with a store and filtered by scope | Done (23 Oct 2026) |
-| **A3** | Store-owned staff list: store-only logins, plus linked Homecare logins for people who work in both | Server (S1) and portal (S2) built, 23 Oct 2026; docs pass (S3) next. See [A3](#a3--store-owned-staff-accounts) |
+| **A3** | Store-owned staff list: store-only logins, plus linked Homecare logins for people who work in both | **Done** (local DB + browser proof, 23 Oct 2026). See [A3](#a3--store-owned-staff-accounts) |
 
-Nothing here changes the Homecare database. Until A3, `homecare.admin_users` is the login table; its `role` column is read for one thing only: `super_admin` always has full access. In A3 the store keeps its own staff list, and reads a Homecare login only for people deliberately linked to it.
+Nothing here changes the Homecare database. The store keeps its own staff list (`techxpertstore.portal_staff`) and reads `homecare.admin_users` only for people deliberately linked to it: their name, email, password at sign-in and `is_active`. Homecare's `role` column no longer means anything to the store. Before A3, `admin_users` was the login table and its `super_admin` role gave full access.
 
 ---
 
@@ -26,6 +26,11 @@ Nothing here changes the Homecare database. Until A3, `homecare.admin_users` is 
 | Hierarchy | No escalation: you can only create, change or assign a role whose permissions are all within your own. You cannot change your own role, a role you hold, or someone whose role is above yours. |
 | Super admin | `admin_users.role = 'super_admin'` has every permission and cannot be assigned a store role. |
 | Existing staff | Seeded: **Store Admin** (everything) for Homecare `admin`; **Merchandiser** for Homecare `state_manager` and `region_manager`. Everyone else has no portal access until assigned. |
+
+**Changed by A3:**
+- **Accounts:** they are the store's staff list. Logins are created in Roles & Access or linked from Homecare.
+- **Super admin:** it's the `portal_staff.IsSuperAdmin` flag, set by `npm run staff:bootstrap`.
+- **Seeded assignments:** those copied from Homecare roles were removed. The two roles themselves stay.
 
 ### Modules
 
@@ -51,22 +56,22 @@ The Dashboard shows to anyone with at least one module, and only shows tiles for
 ```
 portal_roles             ID, Name (unique), Description, CreatedBy, CreatedAt, UpdatedBy, UpdatedAt
 portal_role_permissions  RoleID, Module, CanView, CanEdit, CanDelete      PK (RoleID, Module)
-portal_staff_roles       AdminID (PK, = homecare.admin_users.admin_id), RoleID, AssignedBy, AssignedAt
+portal_staff_roles       StaffID (PK, FK portal_staff.ID), RoleID, ScopeAll, AssignedBy, AssignedAt
 ```
 
-`server/sql/portal_access.sql` creates them, seeds the two roles and the assignments, and adds `access` to the audit entity list.
+`server/sql/portal_access.sql` creates them, seeds the two roles, and adds `access` to the audit entity list. The column was `AdminID` (a Homecare admin id) until `portal_staff.sql` renamed it; that script also dropped the assignments A1 had copied from Homecare roles.
 
 ### API
 
 | Method | Path | Needs |
 |--------|------|-------|
-| GET | `/auth/admin/me`, POST `/auth/admin/login` | — (response now carries `storeRole` and `permissions`) |
+| GET | `/auth/admin/me`, POST `/auth/admin/login` | — (response carries `storeRole` and `permissions`; A3 adds `kind` and `mustChangePassword`) |
 | GET | `/access/roles` | access view — modules catalogue + roles with permissions and staff count |
 | POST | `/access/roles` | access edit |
 | PUT | `/access/roles/:id` | access edit |
 | DELETE | `/access/roles/:id` | access delete; refused while anyone holds the role |
-| GET | `/access/staff` | access view — active Homecare staff with their store role |
-| PUT | `/access/staff/:adminId` | access edit — `{ roleId }` or `{ roleId: null }` to remove |
+| GET | `/access/staff` | access view — the store's staff list with each person's store role (A3; was every Homecare login) |
+| PUT | `/access/staff/:staffId` | access edit — `{ roleId }` or `{ roleId: null }` to remove |
 
 Every other staff route uses `requirePermission(module, level)` instead of the old fixed role lists. A refusal is 403 with a sentence naming the module, e.g. "You don't have edit access to Orders."
 
@@ -77,7 +82,7 @@ Role and staff changes are written to the audit trail server-side (entity `acces
 - Sidebar and hash routes show only modules the role can view; an unknown or forbidden hash falls back to the first allowed tab.
 - Edit and delete controls are hidden when the role lacks them (the server refuses anyway).
 - Data for a module is only fetched when it can be viewed.
-- New **Roles & Access** tab: Roles (list, create, edit the module grid, delete) and Staff (each active login, its store role, change it).
+- New **Roles & Access** tab: Roles (list, create, edit the module grid, delete) and Staff (each person, their store role, change it). A3 adds Add staff and Manage to the Staff panel.
 - Staff with no role see a "No portal access yet — ask a store admin to assign you a role" screen.
 
 ### As built (A1)
@@ -144,7 +149,7 @@ This section is what the code does. The draft sections after it (tables, API, sc
 - `store_groups` (ID, Name, Kind, ParentID): the free tree. Names are unique among siblings; nesting is capped at 8 levels in the server.
 - `store_group_stores` (StoreID primary key, GroupID): where a store sits. No row means top level.
 - `store_pincodes` (StoreID, PincodeID, IsActive): which store serves a pincode. A generated `ActivePincodeID` with `UNIQUE` allows one active link per pincode and any number of old ones (R1).
-- `portal_staff_scope` (AdminID, NodeType `group`/`store`, NodeID): a person's places.
+- `portal_staff_scope` (StaffID, NodeType `group`/`store`, NodeID): a person's places. The column was `AdminID` until A3.
 - `portal_staff_roles.ScopeAll`: the whole-company switch. The migration sets it to 1 for existing staff (D2).
 - `orders.StoreID`: written at checkout. The migration fills it for existing orders when there is one store.
 - The migration links every active pincode to the store when exactly one store exists, and stops with an error when there is more than one store and some pincode is unlinked (D1).
@@ -152,7 +157,7 @@ This section is what the code does. The draft sections after it (tables, API, sc
 
 **Rules** (`server/src/utils/scope.ts` and its tests):
 
-- Places are loaded from the tables on every request (`AccessService.forAdmin`), never from the token.
+- Places are loaded from the tables on every request (`AccessService.forStaff`), never from the token.
 - A group covers every group and store under it, including ones added later.
 - Super admin is always whole company. A person with a role, no places and no switch sees no orders, pincodes or customers.
 - Orders, order detail, status change and order stats are limited to stores in your places; anything outside answers 404.
@@ -174,7 +179,7 @@ This section is what the code does. The draft sections after it (tables, API, sc
 | `POST /stores`: name, group, the store's own pincode, contact; ID, `ST000n` code and landmark generated | Stores edit |
 | `PUT /stores/:id`: details, move group; `active:false` refused while it serves pincodes | Stores edit (+ delete to deactivate) |
 | `GET /stores/:id/pincodes`, `POST /stores/:id/pincodes` (moves the pincode from its old store if that store is in your places), `DELETE /stores/:id/pincodes/:pincodeId` | Stores view / edit |
-| `PUT /access/staff/:adminId/scope` `{ all, nodes: [{type, id}] }` | Roles & Access edit |
+| `PUT /access/staff/:staffId/scope` `{ all, nodes: [{type, id}] }` | Roles & Access edit |
 
 **Other changes:**
 
@@ -519,7 +524,7 @@ Decided 23 Oct 2026:
 | Sessions | Tokens carry `staffId` plus audience `store-portal`. Tokens with only `adminId` are refused: old store sessions, and Homecare tokens if the JWT secret is ever shared. Everyone signs in once more after the switch. |
 | Adding a store login | Needs Access **edit**. The adder enters name and work email. The portal generates a 12-character temporary password, shown once with Copy. The person must change it at first sign-in. No email is sent (out of scope). |
 | Reset password | Store logins only. Access **edit**. Same flow: a new temporary password is shown once. The person's current sessions end, because tokens issued before `PasswordChangedAt` are refused. |
-| Deactivate / reactivate | Access **delete**. You can't deactivate yourself or a super admin. The person is refused on their next request. Nothing is deleted, and the audit history keeps their name. |
+| Deactivate / reactivate | Access **delete**. You can't deactivate yourself, and only a super admin can deactivate another super admin. The person is refused on their next request. Nothing is deleted, and the audit history keeps their name. The portal calls this "Switch off" / "Switch on". |
 | Own password | Anyone with a store login can use **Change password** (current, then new; at least 10 characters). |
 | Hierarchy | Same rules as A1 and A2: you can only add, link, reset or deactivate someone whose role and places are within yours. |
 | Existing copied roles | Removed: the `portal_staff_roles` and `portal_staff_scope` rows for Homecare ids 2, 3 and 4. The two copy `INSERT`s are dropped from `portal_access.sql`. |
@@ -566,7 +571,7 @@ It never writes to `homecare`. Nobody is linked automatically; links are made on
 | `POST /auth/admin/password` | New. `{ current, next }` for yourself; store logins only. Clears `MustChangePassword`. |
 | `GET /access/staff` | `portal_staff` only, with each linked person's name and email read from Homecare. Each row has `kind`. |
 | `POST /access/staff` | New. `{ name, email }` returns `{ staff, temporaryPassword }`. Needs Access edit. |
-| `GET /access/staff/homecare-match?email=` | New. Exact email only. Returns `{ name }` for an active, not-yet-linked Homecare login, otherwise 404. Needs Access edit. |
+| `GET /access/staff/homecare-match?email=` | New. Exact email only. Returns `{ name, email }` for an active, not-yet-linked Homecare login; 404 when there is no active Homecare login with that email; 409 when it is already linked or a store login uses that email. Needs Access edit. |
 | `POST /access/staff/link` | New. `{ email }` links that Homecare login. Needs Access edit. |
 | `PATCH /access/staff/:id` | New. `{ name?, active? }`. Changing the name needs edit (store logins only); deactivating needs delete. |
 | `POST /access/staff/:id/reset-password` | New. Returns `{ temporaryPassword }`. Store logins only. Needs Access edit. |
@@ -579,7 +584,7 @@ It never writes to `homecare`. Nobody is linked automatically; links are made on
     - **New store login**: a name + email form, then the temporary-password dialog shows the password once, with Copy.
     - **Link a Homecare login**: type the exact email, see "Found: <name>", then confirm.
   - Linked rows carry a "Homecare login" badge.
-  - Each row adds **Deactivate** (confirm dialog); inactive rows get **Reactivate**.
+  - Each row adds **Deactivate** (confirm dialog); inactive rows get **Reactivate**. As built, these and Reset password sit in a per-row **Manage** dialog, worded Switch off / Switch on; see As built (S2).
   - Store-login rows also get **Reset password**.
   - The "Staff logins come from the shared admin accounts" text goes.
 - **First sign-in:** when `mustChangePassword` is set, a Change password screen appears before the portal.
@@ -587,11 +592,11 @@ It never writes to `homecare`. Nobody is linked automatically; links are made on
 
 ### Phases
 
-| Phase | What | Check |
-|---|---|---|
-| **S1** | SQL migration, bootstrap script, auth and access services on `portal_staff`, linking, new endpoints, server tests | Server tsc and tests. Scripted checks: an unlinked Homecare login is refused, a linked one signs in with its Homecare password, a store login works, a linked person deactivated in either place is refused, and an old `adminId` token is refused. |
-| **S2** | Portal: Staff panel actions (new login, link, reset, deactivate), temporary-password dialog, first-sign-in and Change password screens | Web tsc, oxlint, browser check: add, link, sign in both ways, forced change, reset, deactivate |
-| **S3** | Docs (`DATABASE_SCHEMA`, `ARCHITECTURE`, `WEB_SPEC`, this file) and rollout notes | Docs match the code |
+| Phase | What | Check | Status |
+|---|---|---|---|
+| **S1** | SQL migration, bootstrap script, auth and access services on `portal_staff`, linking, new endpoints, server tests | Server tsc and tests. Scripted checks: an unlinked Homecare login is refused, a linked one signs in with its Homecare password, a store login works, a linked person deactivated in either place is refused, and an old `adminId` token is refused. | Done (`33ab3ea`); see As built for the two checks not run live |
+| **S2** | Portal: Staff panel actions (new login, link, reset, deactivate), temporary-password dialog, first-sign-in and Change password screens | Web tsc, oxlint, browser check: add, link, sign in both ways, forced change, reset, deactivate | Done (`a0e234f`); linked sign-in not run (no Homecare test password) |
+| **S3** | Docs (`DATABASE_SCHEMA`, `ARCHITECTURE`, `WEB_SPEC`, `PROJECT_STATUS`, `server/sql/README`, this file) and rollout notes | Docs match the code | Done |
 
 ### As built (S1, 23 Oct 2026)
 
@@ -691,8 +696,32 @@ The server is on `develop`. The portal screens followed in S2 (below).
 
 ### Production rollout order
 
-1. Run `server/sql/portal_staff.sql`.
-2. Run `npm run staff:bootstrap` on the server to create the real super admin: a new store login, or a link to that person's Homecare login.
-3. Restart the API. Everyone signs in again.
-4. The super admin adds store-only staff, links people who work in both, and gives each a role and places.
+The API and the portal ship together. The A3 API answers the old portal's sign-in, but the old portal can't add staff or show the first-sign-in screen.
+
+**Before you start:**
+- `portal_access.sql` (A1) and `portal_scope.sql` (A2) have already run.
+- Take a backup of `techxpertstore.portal_staff_roles` and `portal_staff_scope`. The migration empties them, and there is no undo script.
+
+**Steps:**
+1. Run `server/sql/portal_staff.sql`. It's safe to run again.
+2. Run `npm run staff:bootstrap` on the server to create the real super admin. You choose one of two kinds:
+   - a new store login: name, email, and a password typed twice, never echoed;
+   - a link to that person's Homecare login.
+
+   It lists any active super admins first. Choosing an existing person promotes them instead.
+3. Deploy the API and the portal, then restart the API. Every open session is refused, so everyone signs in again.
+4. The super admin adds store-only staff, links people who work in both, and gives each a role and places in Roles & Access.
+
+**Check:**
+- The super admin signs in.
+- `GET /health` is ok.
+- Roles & Access lists only the people added in step 4.
+- An unlinked Homecare email is refused at sign-in.
+
+**Rolling back:** the old API reads `AdminID`, which no longer exists. To roll back, restore the backup tables and deploy the old API and portal together.
+
+**Locked out:**
+- **Store login:** another super admin resets their password in Roles & Access.
+- **Only super admin forgot their password:** run `npm run staff:bootstrap` again to create a second super admin, who then resets the first.
+- **Linked super admin:** their password is reset in Homecare.
 

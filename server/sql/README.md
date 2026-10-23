@@ -9,9 +9,11 @@ mysql -u root -p < sql/portal_audit_logs_alter_category.sql   # only if the tabl
 mysql -u root -p < sql/shop_s3_checkout.sql
 mysql -u root -p < sql/portal_access.sql
 mysql -u root -p < sql/portal_scope.sql   # before restarting the API on the A2 code
-mysql -u root -p < sql/portal_staff.sql   # before restarting the API on the A3 code
-npm run staff:bootstrap                   # once: the first super admin
+mysql -u root -p < sql/portal_staff.sql   # before restarting the API on the A3 code; back up portal_staff_roles and portal_staff_scope first
+npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
+
+`portal_staff.sql` empties the staff role and places tables (they held Homecare admin ids) and has no undo script. Deploy the A3 API and portal together after it. Rollout, rollback and lock-out recovery: [`docs/PORTAL_ACCESS.md`](../../docs/PORTAL_ACCESS.md) §A3.
 
 | Script | Purpose |
 |---|---|

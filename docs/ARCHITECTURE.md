@@ -114,6 +114,11 @@ All commerce, fulfillment, and catalog assets reside in `techxpertstore`:
    - `cms_banners`: Dynamic promotional banners for the mobile app home screen with image URLs, CTA targets, schedules, and display order.
    - `cms_homepage_sections`: Dynamic ordering and toggle controls for mobile screen sections.
    - `bulk_price_tiers`: Volume quantity pricing thresholds and percentage discount tiers for contractor procurement.
+5. **Portal staff & access** ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md)):
+   - `portal_staff`: who may sign in to the portal. Each person is a store login (own email and bcrypt password) or a linked Homecare login (`HomecareAdminID`).
+   - `portal_roles`, `portal_role_permissions`, `portal_staff_roles`: one store role per person, with View / Edit / Delete per module.
+   - `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes`: the places each person covers.
+   - `portal_audit_logs`: who changed what in the portal.
 
 ---
 
@@ -132,3 +137,4 @@ All commerce, fulfillment, and catalog assets reside in `techxpertstore`:
    - Login/admin never read catalog tables; catalog mutations never write `homecare`. See `GET /health` → `db.users` / `db.store`.
 3. **Admin Operations Portal**:
    - The web portal provides unified operations: staff can inspect customer accounts from `homecare`, review customer order history from `techxpertstore`, modify catalog prices, adjust bulk contractor tiers, and manage hero campaign banners.
+   - Only people on `techxpertstore.portal_staff` can sign in. Someone who also works in Homecare is linked and signs in with their Homecare password; the store reads their `homecare.admin_users` row and never writes it.

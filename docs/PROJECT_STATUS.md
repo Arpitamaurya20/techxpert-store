@@ -36,7 +36,7 @@ Source: [`AGENTS.md`](../AGENTS.md), [`WEB_SPEC.md` §5](./WEB_SPEC.md), [`SHOP_
 | Shop S3 | Order placed from the server cart (COD), one order per cart, honest product page | Done; device run pending | same |
 | Portal access A1 | Store roles with View/Edit/Delete per module, assigned to existing staff; portal shows only what the role allows; no escalation | Done (local + browser proof) | [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) |
 | Portal access A2 | Stores ↔ pincodes, a free tree of groups above stores, staff scope, orders tagged by store | **Built on `develop`** and proven on the local DB (61/61 HTTP checks, browser check); production needs `portal_scope.sql` before the API restart | [`PORTAL_ACCESS.md` §A2](./PORTAL_ACCESS.md) |
-| Portal access A3 | Store-owned staff list: store logins, plus linked Homecare logins for people in both; Homecare logins no longer listed | **Server (S1) and portal (S2) built** on `develop`, proven on the local DB and in the browser; docs pass (S3) next. Production: `portal_staff.sql`, then `npm run staff:bootstrap`, then deploy API and portal together | [`PORTAL_ACCESS.md` §A3](./PORTAL_ACCESS.md) |
+| Portal access A3 | Store-owned staff list: store logins, plus linked Homecare logins for people in both; Homecare logins no longer listed | **Done** on `develop` (server, portal, docs), proven on the local DB and in the browser; a linked sign-in with a real Homecare password is still to try. Production: back up the staff role and scope tables, run `portal_staff.sql`, `npm run staff:bootstrap`, then deploy API and portal together | [`PORTAL_ACCESS.md` §A3](./PORTAL_ACCESS.md) |
 
 ### Staff hierarchy (A1 + A2)
 
@@ -111,8 +111,9 @@ What an auditor should check, where it lives.
 | Super admin always full; permissions loaded from DB per request, never from the token | `middleware/auth.ts` (`resolveAdmin`), `accessService.forStaff` |
 | Audit trail; actor taken from the session | `server/src/services/auditService.ts`, `server/src/routes/audit.ts` |
 | Portal shows only allowed tabs and controls | `web/src/services/access.ts`, `web/src/App.tsx`, `web/src/components/Sidebar.tsx`, each manager component's `canEdit` / `canDelete` |
-| Roles & Access screen (roles, staff role, staff places) | `web/src/components/AccessManager.tsx` |
-| Places: group tree, whole-company switch, scoped orders / pincodes / customers (404 outside), scope no-escalation | `server/src/utils/scope.ts`, `accessService.ts` (`forAdmin`, `setStaffScope`), `orderService.ts`, `deliveryAreaService.ts`, `authService.getAllUsers` |
+| Roles & Access screen (roles, staff role, staff places; add, link, manage staff) | `web/src/components/AccessManager.tsx`, `web/src/components/StaffAccounts.tsx` |
+| First-sign-in and Change password screens | `web/src/components/ChangePassword.tsx`, `web/src/App.tsx` |
+| Places: group tree, whole-company switch, scoped orders / pincodes / customers (404 outside), scope no-escalation | `server/src/utils/scope.ts`, `accessService.ts` (`forStaff`, `setStaffScope`), `orderService.ts`, `deliveryAreaService.ts`, `authService.getAllUsers` |
 | Stores & Groups (tree, stores, pincode links) | `server/src/services/storeTreeService.ts`, `server/src/routes/stores.ts`, `web/src/components/StoreTreeManager.tsx` |
 | Store on each order; refuse pincodes no active store serves | `deliveryAreaService.assertServiceable`, `cartCheckoutService.ts`, `orderService.writeOrder` |
 

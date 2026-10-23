@@ -65,8 +65,8 @@ Portal boots via Vite (`cd web && npm run dev`); API on `:5001`.
 | Stores & Groups | Group tree, create/rename/move groups and stores, link/unlink pincodes | `GET /stores/tree`, `POST/PUT/DELETE /stores/groups`, `POST/PUT /stores`, `GET/POST/DELETE /stores/:id/pincodes` | Stores module (View/Edit/Delete); shows only your places ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md) §A2) |
 | Developer tools | Endpoint tester, phone app connection | `/health` | Super admin only; not a role module |
 | Audit Trail | Timeline viewer | `GET /audit/logs` (Audit view), `POST` (any role; actor taken from the session) | MySQL `portal_audit_logs` + file fallback (**P3**) |
-| Staff Auth | Login gate + logout | `POST /auth/admin/login`, `/logout`, `GET /auth/admin/me` | HttpOnly cookie; login and `/me` return `storeRole` + `permissions` |
-| Roles & Access | Roles (module × View/Edit/Delete), staff role assignment, staff places | `GET/POST/PUT/DELETE /access/roles`, `GET/PUT /access/staff`, `PUT /access/staff/:id/scope` | Every tab and control follows the signed-in role; no escalation of role or places ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md)) |
+| Staff Auth | Login gate + logout, first-sign-in password screen, Change password (sidebar and no-access screen) | `POST /auth/admin/login`, `/logout`, `GET /auth/admin/me`, `POST /auth/admin/password` | HttpOnly cookie; login and `/me` return `kind`, `mustChangePassword`, `storeRole` + `permissions`; linked people change their password in Homecare |
+| Roles & Access | Roles (module × View/Edit/Delete); staff list: add a store login, link a Homecare login, rename, reset password, switch off/on; staff role and places | `GET/POST/PUT/DELETE /access/roles`, `GET/POST /access/staff`, `GET /access/staff/homecare-match`, `POST /access/staff/link`, `PUT/PATCH /access/staff/:id`, `POST /access/staff/:id/reset-password`, `PUT /access/staff/:id/scope` | Every tab and control follows the signed-in role; no escalation of role or places; only the store's staff list can sign in ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md) §A3) |
 
 Restore bootstrap if merge drops it again: `git checkout cdb6adf -- web/package.json web/vite.config.ts web/tsconfig*.json web/src/main.tsx web/src/index.css web/src/App.css web/public web/index.html` (+ shell components as needed).
 
@@ -80,7 +80,7 @@ Restore bootstrap if merge drops it again: `git checkout cdb6adf -- web/package.
 | **P2** | Banner CMS polish (image URL preview + validate CTA) | Safer banner publish without broken images/routes | **Done** |
 | **P3** | Persist audit trail (server table + portal viewer) | Refresh does not wipe change history | **Done** |
 | **P4** | Category / subcategory editor | Portal can maintain hierarchy mobile already browses | **Done** |
-| **P5** | Portal staff auth (`admin_users`) | Portal not open without login | **Done** |
+| **P5** | Portal staff auth (`admin_users`; replaced by the store's own staff list in access A3) | Portal not open without login | **Done** |
 | **P6** | Catalogue browse at scale | Portal search + pagination against MySQL `meta.total` (~110k SKUs); desk does not load full catalogue into memory | **Done** |
 | **Low** | Audit L1–L5 polish | Optimistic audit rollback, ApiExplorer staff samples, SQL scripts, write validation, banner asset URLs | **Done** |
 | **P7** | Banner publish is what the phone receives | `paused` accepted by the API; public list is published and inside the schedule window only | **Done** |
@@ -153,7 +153,8 @@ If `portal_audit_logs.entity` was created before P4, add the enum value:
 - Portal: `VITE_API_BASE_URL` (default `http://localhost:5001`); session via HttpOnly cookie `tx_admin_token` (`credentials: 'include'`); profile cache in `localStorage`.
 - Public `GET /cms/banners` defaults to **published** only; admin session sees all statuses.
 - Staff mutations + sensitive reads require admin plus the module permission from the store role (A1, [PORTAL_ACCESS.md](./PORTAL_ACCESS.md)); `GET /orders/:id` owner or staff with Orders view.
-- Dual-DB: login → `homecare` (`userPool`); catalog/orders/CMS → `techxpertstore` (`storePool`). See `GET /health` → `db`. File-store fallback only with `ALLOW_FILE_STORE=1`.
+- Dual-DB: customer login → `homecare` (`userPool`); staff login → `techxpertstore.portal_staff` (`storePool`), reading `homecare.admin_users` only for linked people; catalog/orders/CMS → `techxpertstore` (`storePool`). See `GET /health` → `db`. File-store fallback only with `ALLOW_FILE_STORE=1`.
+- Staff accounts (A3): `server/sql/portal_staff.sql`, then `npm run staff:bootstrap` for the first super admin, then deploy API and portal together. Temporary passwords are shown once in the portal; until changed, every admin call except `/auth/admin/me` and `/auth/admin/password` answers 403 `PASSWORD_CHANGE_REQUIRED`. Rollout, rollback and lock-out recovery: [PORTAL_ACCESS.md](./PORTAL_ACCESS.md) §A3.
 
 ### Hardening tranche (H1–H4 + Medium M1/M2/M5/M8/M9)
 See [`docs/WEB_PORTAL_AUDIT.md`](./WEB_PORTAL_AUDIT.md) — implemented.

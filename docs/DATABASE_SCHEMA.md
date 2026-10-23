@@ -455,8 +455,8 @@ In [`server/src/db/mysql.ts`](server/src/db/mysql.ts), two connection pools enfo
 
 | Pool / helper | Env | Default DB | Allowed tables |
 |---|---|---|---|
-| `userPool` / `queryUsers` | `DB_USERS` | `homecare` | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| `storePool` / `queryStore` | `DB_STORE` | `techxpertstore` | catalog, carts, orders, CMS, pricing, audit |
+| `userPool` / `queryUsers` | `DB_USERS` | `homecare` | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`; `admin_users` read-only, for linked portal staff |
+| `storePool` / `queryStore` | `DB_STORE` | `techxpertstore` | catalog, carts, orders, CMS, pricing, audit, portal staff and access (`portal_staff`, roles, scope, stores and groups) |
 
 Copy [`server/.env.example`](server/.env.example) → `.env`. Boot logs and `GET /health` report both pools.
 

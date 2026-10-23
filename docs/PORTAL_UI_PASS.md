@@ -64,7 +64,7 @@ No layout changes.
   - "Customers (homecare)" becomes "Customers".
   - "Search MySQL catalogue…" becomes "Search products by name, SKU or brand…".
   - "Reset to SRS Defaults" becomes "Reset to default layout".
-- The sign-in screen says "Sign in with your staff account."
+- The sign-in screen says "Sign in with your staff account." Since access A3 it says to use a store portal login, or your Homecare email and password if you've been linked.
 - Developer detail stays only on Developer tools.
 
 **Check.**

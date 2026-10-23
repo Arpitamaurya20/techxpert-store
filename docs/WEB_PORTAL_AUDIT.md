@@ -40,7 +40,7 @@ Auth middleware (Bearer **or** HttpOnly `tx_admin_token`), catalog, CMS, pricing
 ### High — **Fixed** (prior polish)
 | ID | Issue | Status |
 |---|---|---|
-| **H1** | Deactivated admin JWT still worked | **Fixed** — `assertActiveAdmin` |
+| **H1** | Deactivated admin JWT still worked | **Fixed** — `assertActiveAdmin` (since access A3: `StaffService.assertActive`, which also checks linked Homecare logins and password changes) |
 | **H2** | Prod CORS permissive if unset | **Fixed** — fail boot without `CORS_ORIGINS` |
 | **H3** | `MAX(ID)+1` race on product create | **Fixed** — `GET_LOCK` + transaction |
 | **H4** | Seed admin on any non-prod host | **Fixed** — `ALLOW_DEV_ADMIN=1` only |
