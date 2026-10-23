@@ -35,7 +35,7 @@ Source: [`AGENTS.md`](../AGENTS.md), [`WEB_SPEC.md` §5](./WEB_SPEC.md), [`SHOP_
 | Shop S2 | Delivery pincodes: phone checks before checkout, server refuses others; portal tab | Done; device run pending | same |
 | Shop S3 | Order placed from the server cart (COD), one order per cart, honest product page | Done; device run pending | same |
 | Portal access A1 | Store roles with View/Edit/Delete per module, assigned to existing staff; portal shows only what the role allows; no escalation | Done (local + browser proof) | [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) |
-| Portal access A2 | Stores ↔ pincodes, a free tree of groups above stores, staff scope, orders tagged by store | Decided, not designed in detail or built | [`PORTAL_ACCESS.md` §A2](./PORTAL_ACCESS.md) |
+| Portal access A2 | Stores ↔ pincodes, a free tree of groups above stores, staff scope, orders tagged by store | Detailed design drafted, reviewed (fixes R1–R9), decisions D1–D4 answered; not built | [`PORTAL_ACCESS.md` §A2](./PORTAL_ACCESS.md) |
 
 ### Staff hierarchy (A1 + A2)
 
@@ -133,7 +133,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 1 | Restart the API on :5001 on the new code (portal needs `/me` permissions) | ops | **Done** locally (restarted 23 Oct 11:52; `/api/access/*` answers) |
 | 2 | Device run of shop S1–S3 | **app team** (outside this track); `app/` screens Cart, Checkout | guest cart, merge, pincode, order, repeat-tap all behave as in `SHOP_TRACK.md` |
 | 3 | P11 staging desk proof | `server/src/scripts/deskProof.ts`, `WEB_SPEC.md` P11 note | `npm run proof:desk` exits 0 |
-| 4 | **A2 detailed design**, agreed before build | `docs/PORTAL_ACCESS.md` §A2 | user approves tables, checkout change, screens |
+| 4 | **A2 detailed design**, agreed before build | `docs/PORTAL_ACCESS.md` §A2 (design + review R1–R9) | **Done** — D1–D4 answered 23 Oct; build is next |
 | 5 | A2 build: pincode → store, group tree, staff scope, store on each order, scoped orders / pincodes / customers | expected: new `server/sql/portal_scope.sql`; `accessService.ts`; `cartCheckoutService.ts` + `orderService.writeOrder` (store on order); `deliveryAreaService.ts`; `orderService.getOrders`; new portal tab under `web/src/components/` | local proof + browser check as in A1 |
 | 6 | Portal UI/UX pass | `web/src/components/*`, `web/src/index.css`, `WEB_SPEC.md` §3 | agreed with the user after functionality |
 | 7 | Production rollout | SQL in §5, then API deploy, then phone build | — |

@@ -14,3 +14,4 @@ Welcome to the Techxpert Store repository. This repository is a monorepo consist
 1. **Documentation Integrity**: When implementing features or changing schemas/APIs, maintain documentation consistency across `docs/`.
 2. **Do Not Trust Cached Assumptions**: Always inspect current file state and existing patterns before making changes.
 3. **Commit Cleanliness**: Always review `git status` before committing and avoid checking in environment secrets or build artifacts.
+4. **Working Branch**: All work is committed and pushed on `develop`. Do not commit or push to `main` directly; `main` is updated from `develop` only when the user asks.

@@ -99,12 +99,39 @@ Role and staff changes are written to the audit trail server-side (entity `acces
 | Pincode → store | Exactly one active store-pincode link per pincode. Moving a pincode: deactivate the old link, create a new one. |
 | Stock | Shared company stock for now. Per-store stock is a later step. |
 | Levels above stores | A free tree of **groups** (Zone, Area, Cluster, or any name): staff create, rename and nest groups, and move stores or groups anywhere in the tree. Max depth 8 (enforced server-side). |
-| Staff scope | A role + **zero or more** scope nodes (stores or groups). Zero nodes = company-wide scope (sees everything). A scope node includes all stores under it, including ones added later. You can only assign a scope that is entirely within your own scope. |
+| Staff scope | A role + either **Whole company** (explicit switch) or one or more scope nodes (stores or groups). No switch and no nodes = sees no orders, pincodes or customers. A scope node includes all stores under it, including ones added later. You can only assign a scope that is entirely within your own, and cannot change someone whose scope is wider than yours. Existing staff start as Whole company. |
 | What scope filters | Orders (by `StoreID` recorded at checkout), delivery pincodes (by the store linked to the pincode), customers (users who placed at least one order from a store in scope). Catalogue, banners, sections, pricing — company-wide always. |
-| Checkout change | After pincode validation resolves a `LandmarkID`, we also resolve the active store for that pincode and write `StoreID` on the order row. COD and total checks are unchanged. If no store is linked to the pincode the order is refused (same error as unserviceable pincode). |
+| Checkout change | After the pincode is validated, we also resolve the active store for that pincode and write `StoreID` on the order row (cart checkout and the older `POST /orders`). COD and total checks are unchanged. If no store is linked, or the store is inactive, the order is refused (409, same sentence as an unserviceable pincode). The migration links existing pincodes so checkout never stops. |
+| Stores & Groups permission | New module `stores` (View / Edit / Delete), separate from Delivery Pincodes. |
+| Creating stores | In the portal: name, contact, address, the store's own pincode; `ID`, `StoreCode` and the landmark are generated. |
 | Existing `pincodes` table | It links to `areas` (geographic). We do **not** change it. A new `store_pincodes` join table links pincodes to stores independently. |
 | Existing `user_store_mapping` | Maps customer `users` to stores. We do not change it or use it for staff scope; it is a separate Homecare concept. |
 | A2 audit | All group and scope changes written to `portal_audit_logs` as entity `scope`. |
+
+### Review of this design (23 Oct 2026) — fix before build
+
+Checked against the code and the local DB (MySQL 9.6). The shape below (groups tree, store↔pincode links, staff scope, `orders.StoreID`) stands; these points change it.
+
+| # | Problem | Fix |
+|---|---|---|
+| R1 | `UNIQUE (PincodeID, IsActive)` also blocks a **second inactive** link, so the second time a pincode moves, unlinking fails. | Stored generated column `ActivePincodeID = IF(IsActive = 1, PincodeID, NULL)` with `UNIQUE` on it (many NULLs allowed). |
+| R2 | Foreign keys are written inline (`col INT REFERENCES t(ID)`). MySQL 8 parses and **ignores** that form; production may not be 9.x. | Table-level `FOREIGN KEY … REFERENCES …` everywhere. |
+| R3 | "Zero scope rows = company-wide" fails open: removing someone's last place gives them everything, and a scoped manager could "assign" company-wide by clearing the list. | Explicit whole-company flag; zero places and no flag = sees no orders, pincodes or customers (**decision D2**). |
+| R4 | Unlinked pincode → order refused, and rollout links pincodes *after* the API restart: **checkout stops for everyone** between deploy and linking. | `portal_scope.sql` links every active pincode to the store when exactly one store exists, and stops with a message when there are more (**decision D1**). |
+| R5 | No way to create a store. `stores` has one row, `ID` is not auto-increment and `LandmarkID` is required, so a second store can't be added from the portal. Your two-store example needs this. | **Decision D3.** |
+| R6 | The tree is managed with the `delivery` permission, so anyone who may add pincodes may restructure the company. | Separate `stores` module (View / Edit / Delete) (**decision D4**). |
+| R7 | No-escalation rule for scope is only "assign inside your own". A1 also refuses changing someone who holds more. | Also refuse changing the scope of someone whose scope is wider than yours. |
+| R8 | Out-of-scope order detail returns 403, which reveals the order exists. `GET /orders/stats` (dashboard) and `PUT /orders/:id/status` are not listed. | 404; stats and status change filtered too. |
+| R9 | Factual errors: checkout does not resolve a `LandmarkID` (it validates the pincode string); the refusal is **409**, not 422; the customers list is `GET /auth/users`, not `/customers`; `/delivery/pincodes/search` does **not** exist (routes are `GET /pincodes`, `GET /pincodes/:pincode`, `POST /pincodes`, `PATCH /pincodes/:id`); the older `POST /orders` path also writes orders and needs the store. | Corrected in the build; the search endpoint is new work. |
+
+**Decisions answered (23 Oct 2026):**
+
+- **D1:** refuse unlinked pincodes; `portal_scope.sql` links all active pincodes to the store when exactly one exists, otherwise stops with a message.
+- **D2:** explicit Whole-company switch; existing staff start as whole company; no places = no scoped data.
+- **D3:** stores created in the portal.
+- **D4:** new `stores` module.
+
+Where the sections below disagree with R1–R9 or D1–D4, the review and decisions win.
 
 ---
 
