@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar, type TabId } from './components/Sidebar';
 import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
-import { DashboardOverview } from './components/DashboardOverview';
+import { DashboardOverview, type LoadedPieces } from './components/DashboardOverview';
 import { CatalogOverview } from './components/CatalogOverview';
 import { CategoryManager } from './components/CategoryManager';
-import { OrdersManager } from './components/OrdersManager';
-import { UserManager } from './components/UserManager';
+import { OrdersManager, type Order } from './components/OrdersManager';
+import { UserManager, type CustomerRecord } from './components/UserManager';
 import { BulkPricingManager } from './components/BulkPricingManager';
 import { BannerCMS } from './components/BannerCMS';
 import { SectionLayoutManager } from './components/SectionLayoutManager';
@@ -18,6 +18,7 @@ import { StoreTreeManager } from './components/StoreTreeManager';
 import { ChangePasswordDialog, ChangePasswordScreen } from './components/ChangePassword';
 import { api, setPasswordChangeHandler, setUnauthorizedHandler } from './services/api';
 import { allowedTabs, can, hasAnyAccess, TAB_ORDER } from './services/access';
+import { orderStatusLabel } from './services/orderStatus';
 import {
   loadSession,
   clearSession,
@@ -202,10 +203,19 @@ function PortalApp({
   /** Full catalogue size from API meta.total (not products.length — list is paginated). */
   const [catalogTotal, setCatalogTotal] = useState(0);
   const [categories, setCategories] = useState<any[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
-  /** Sidebar counts stay hidden until they have loaded once, so a failed first load never reads as 0. */
-  const [countsKnown, setCountsKnown] = useState({ products: false, orders: false, users: false });
-  const [users, setUsers] = useState<any[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  /** Counts stay hidden until their data has loaded once, so a failed first load never reads as 0. */
+  const [loaded, setLoaded] = useState<LoadedPieces>({
+    products: false,
+    orders: false,
+    users: false,
+    banners: false,
+    tiers: false,
+    sections: false,
+  });
+  /** Why each piece failed on the last load; absent when it loaded. */
+  const [loadErrors, setLoadErrors] = useState<Partial<Record<keyof LoadedPieces, string>>>({});
+  const [users, setUsers] = useState<CustomerRecord[]>([]);
   const [bulkTiers, setBulkTiers] = useState<BulkPriceTier[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [sections, setSections] = useState<HomepageSection[]>([]);
@@ -261,10 +271,12 @@ function PortalApp({
   const loadData = useCallback(async (announce = false) => {
     if (!hasAnyAccess(permissions)) return;
     const failed: string[] = [];
+    const errors: Partial<Record<keyof LoadedPieces, string>> = {};
     /** A failed piece resolves to undefined so the screen keeps the last data that did load. */
-    const soft = <T,>(request: Promise<T>, what: string): Promise<T | undefined> =>
-      request.catch(() => {
+    const soft = <T,>(request: Promise<T>, what: string, piece?: keyof LoadedPieces): Promise<T | undefined> =>
+      request.catch((err: Error) => {
         failed.push(what);
+        if (piece) errors[piece] = err?.message || "The server didn't answer.";
         return undefined;
       });
     const skip = Promise.resolve(undefined);
@@ -281,13 +293,13 @@ function PortalApp({
         auditData,
         healthy,
       ] = await Promise.all([
-        soft(api.getProducts({ page: 1, limit: 100 }), 'products'),
+        soft(api.getProducts({ page: 1, limit: 100 }), 'products', 'products'),
         soft(api.getCategories(), 'categories'),
-        can(permissions, 'orders', 'view') ? soft(api.getOrders(), 'orders') : skip,
-        can(permissions, 'customers', 'view') ? soft(api.getUsers(), 'customers') : skip,
-        soft(api.getBulkTiers(), 'bulk pricing'),
-        soft(api.getBanners(), 'banners'),
-        soft(api.getSections(), 'homepage sections'),
+        can(permissions, 'orders', 'view') ? soft(api.getOrders(), 'orders', 'orders') : skip,
+        can(permissions, 'customers', 'view') ? soft(api.getUsers(), 'customers', 'users') : skip,
+        soft(api.getBulkTiers(), 'bulk pricing', 'tiers'),
+        soft(api.getBanners(), 'banners', 'banners'),
+        soft(api.getSections(), 'homepage sections', 'sections'),
         can(permissions, 'audit', 'view') ? soft(api.getAuditLogs(100), 'audit trail') : skip,
         api
           .getHealth()
@@ -300,16 +312,25 @@ function PortalApp({
         setCatalogTotal(Number(prodsData.meta?.total) || (prodsData.products || []).length);
       }
       if (catsData) setCategories(catsData);
-      if (ordersData) setOrders(ordersData);
-      if (usersData) setUsers(usersData);
-      setCountsKnown((prev) => ({
+      if (ordersData) setOrders(ordersData as Order[]);
+      if (usersData) setUsers(usersData as CustomerRecord[]);
+      const sectionsOk = Array.isArray(sectionsData);
+      setLoaded((prev) => ({
         products: prev.products || Boolean(prodsData),
         orders: prev.orders || Boolean(ordersData),
         users: prev.users || Boolean(usersData),
+        banners: prev.banners || Boolean(bannersData),
+        tiers: prev.tiers || Boolean(tiersData),
+        sections: prev.sections || sectionsOk,
       }));
+      if (!healthy) {
+        const unreachable = "Can't reach the server.";
+        for (const piece of Object.keys(errors) as (keyof LoadedPieces)[]) errors[piece] = unreachable;
+      }
+      setLoadErrors(errors);
       if (tiersData) setBulkTiers(tiersData);
       if (bannersData) setBanners(bannersData);
-      if (Array.isArray(sectionsData)) {
+      if (sectionsOk) {
         setSections(sectionsData as HomepageSection[]);
         setSectionsError(null);
       } else {
@@ -426,19 +447,18 @@ function PortalApp({
 
   // Order Actions
   const handleUpdateOrderStatus = async (orderId: string, status: string) => {
+    const order = orders.find((o) => String(o.id) === orderId);
+    const number = order?.orderNumber ?? orderId;
+    const label = orderStatusLabel(status).toLowerCase();
     try {
       await api.updateOrderStatus(orderId, status);
-      setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, status } : o))
-      );
-      addAuditLog(
-        'Updated Order Status',
-        'order',
-        `Order ${orderId} marked as ${status}`
-      );
-      toast.success(`Order marked as ${status.replace(/_/g, ' ')}.`);
+      setOrders((prev) => prev.map((o) => (String(o.id) === orderId ? { ...o, status } : o)));
+      addAuditLog('Updated Order Status', 'order', `Order ${number} marked as ${label}`);
+      toast.success(`Order ${number} marked as ${label}.`);
+      return true;
     } catch (err: any) {
-      toast.error(`Couldn't change the order status: ${err.message}`);
+      toast.error(`Couldn't change order ${number}: ${err.message}`);
+      return false;
     }
   };
 
@@ -721,9 +741,9 @@ function PortalApp({
         activeTab={currentTab}
         visibleTabs={tabs}
         onTabChange={(tab) => setActiveTab(tab)}
-        ordersCount={countsKnown.orders ? orders.length : undefined}
-        productsCount={countsKnown.products ? catalogTotal || products.length : undefined}
-        usersCount={countsKnown.users ? users.length : undefined}
+        ordersCount={loaded.orders ? orders.length : undefined}
+        productsCount={loaded.products ? catalogTotal || products.length : undefined}
+        usersCount={loaded.users ? users.length : undefined}
         serverOnline={serverOnline}
         adminName={session.admin.name}
         adminRole={session.admin.storeRole ?? 'No role'}
@@ -750,6 +770,8 @@ function PortalApp({
         <main style={styles.contentArea}>
           {currentTab === 'dashboard' && (
             <DashboardOverview
+              adminName={session.admin.name}
+              loaded={loaded}
               products={products}
               catalogTotal={catalogTotal}
               orders={orders}
@@ -791,6 +813,9 @@ function PortalApp({
               orders={orders}
               onUpdateStatus={handleUpdateOrderStatus}
               loading={loading}
+              loadError={loadErrors.orders ?? null}
+              loaded={loaded.orders}
+              onRetry={() => loadData(true)}
               canEdit={can(permissions, 'orders', 'edit')}
             />
           )}
@@ -810,7 +835,15 @@ function PortalApp({
             />
           )}
 
-          {currentTab === 'users' && <UserManager />}
+          {currentTab === 'users' && (
+            <UserManager
+              customers={users}
+              loading={loading}
+              loadError={loadErrors.users ?? null}
+              loaded={loaded.users}
+              onRetry={() => loadData(true)}
+            />
+          )}
 
           {currentTab === 'pricing' && (
             <BulkPricingManager

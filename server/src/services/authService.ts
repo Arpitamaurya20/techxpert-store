@@ -366,7 +366,8 @@ export class AuthService {
             WHERE a.user_id = u.user_id AND a.is_deleted = 0 
             ORDER BY a.is_default DESC, a.address_id DESC LIMIT 1) as defaultAddress
          FROM (
-           SELECT o.UserID as userId, COUNT(*) as orderCount, COALESCE(SUM(o.GrandTotal), 0) as totalSpent
+           SELECT o.UserID as userId, COUNT(*) as orderCount,
+                  COALESCE(SUM(CASE WHEN o.OrderStatus = 'cancelled' THEN 0 ELSE o.GrandTotal END), 0) as totalSpent
            FROM techxpertstore.orders o
            WHERE o.UserID IS NOT NULL AND o.StoreID IN (?)
            GROUP BY o.UserID
@@ -388,7 +389,8 @@ export class AuthService {
            u.is_active as isActive,
            u.created_at as createdAt,
            (SELECT COUNT(*) FROM techxpertstore.orders o WHERE o.UserID = u.user_id) as orderCount,
-           (SELECT COALESCE(SUM(o.GrandTotal), 0) FROM techxpertstore.orders o WHERE o.UserID = u.user_id) as totalSpent,
+           (SELECT COALESCE(SUM(o.GrandTotal), 0) FROM techxpertstore.orders o
+            WHERE o.UserID = u.user_id AND o.OrderStatus <> 'cancelled') as totalSpent,
            (SELECT CONCAT(a.flat_no, ', ', a.city, ' - ', a.pincode) 
             FROM user_addresses a 
             WHERE a.user_id = u.user_id AND a.is_deleted = 0 
@@ -399,6 +401,7 @@ export class AuthService {
       return rows;
     } catch (err) {
       console.warn('[AuthService] getAllUsers with order spend failed; returning identity-only rows', err);
+      // Order figures are unknown here, not zero: the portal shows them as "Not available".
       const [rows] = await userPool.query<any[]>(
         `SELECT 
            u.user_id as id,
@@ -407,8 +410,8 @@ export class AuthService {
            u.full_name as name,
            u.is_active as isActive,
            u.created_at as createdAt,
-           0 as orderCount,
-           0 as totalSpent,
+           NULL as orderCount,
+           NULL as totalSpent,
            (SELECT CONCAT(a.flat_no, ', ', a.city, ' - ', a.pincode) 
             FROM user_addresses a 
             WHERE a.user_id = u.user_id AND a.is_deleted = 0 

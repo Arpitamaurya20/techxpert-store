@@ -155,6 +155,34 @@ Each batch moves its screens onto U2's pieces and rules, then gets a browser che
 | U5 Storefront | Campaign Banners, Homepage Sections | Banner editor `alert` / `confirm` replaced. Sections error state from U1 on `LoadState`. |
 | U6 Admin and shell | Stores & Groups, Audit Trail, Sign-in, Developer tools, sidebar, header | Audit entries read as staff sentences. |
 
+### U3 — Daily operations — done 23 Oct 2026
+
+- **Loading, per piece:** `App.tsx` now records, for each piece it loads (products, orders, customers, banners, bulk pricing, sections), whether it has loaded once and why it last failed. Orders and Customers use that with `LoadState`. Their counts and the Dashboard's read "—" (shortcuts: "Not loaded yet") until the data has loaded, never 0.
+- **Customers** uses the list `App.tsx` already loads instead of fetching its own copy, so its count matches the sidebar and Dashboard. The explainer panel is gone; `PageIntro` says the list is read-only. Headers are sentence case; "Inactive" became "Switched off".
+- **Order statuses** have one helper, `services/orderStatus.ts`, with labels, which statuses count as open (anything not delivered or cancelled), badge colours and payment wording ("Cash on delivery", "Not paid yet"). Orders and the Dashboard both use it, so "still to deliver" is one number. A status the list doesn't know, such as an old "packed", still shows instead of silently reading as Pending.
+- **Orders:**
+  - The fourth figure is order value without cancelled orders (it used to add cancelled orders as "revenue processed").
+  - The status filter shows a count for each status.
+  - Missing payment method shows nothing instead of an invented "COD".
+  - Cancelling asks first and says stock isn't put back and nothing is refunded from the portal.
+  - The audit entry and toast name the order number ("Order TX-ORD-… marked as processing").
+- **Order detail** reads top to bottom: status (changeable there), payment and store; customer and delivery address side by side; items; totals. The time uses `formatWhen`.
+- **Dashboard:**
+  - "Orders still to deliver" uses the shared open rule (it used to use a different status list from Orders).
+  - "Banners live in the app" uses the server's rule (`services/bannerLive.ts`, same as `bannerEligibility.ts`), so a scheduled banner inside its dates counts and an expired one doesn't.
+  - The greeting uses the staff member's name.
+- **Server truth fixes:** the customer list's order value leaves out cancelled orders. If order figures can't be read, the list returns them as unknown (shown "Not available") instead of 0 orders and ₹0.
+- **`Modal`:** with a confirm open over another dialog, Escape closes only the top one.
+- **Checked:**
+  - Web tsc and oxlint (only the existing set-state-in-effect warnings); 84 server tests.
+  - In the browser:
+    - Orders list and detail, including an order with no name.
+    - The cancel confirm: Escape and "Keep order" leave the order unchanged.
+    - A real status change, which survived a reload, then set back.
+    - Customers.
+    - Dashboard.
+    - With the API stopped: "Couldn't load orders/customers" with Retry, and "—" everywhere. Retry recovers once the API is back.
+
 ## Done when
 
 - Every screen uses `PageIntro`, `LoadState` and `ConfirmDialog` (where it deletes or deactivates), and follows the rules above.

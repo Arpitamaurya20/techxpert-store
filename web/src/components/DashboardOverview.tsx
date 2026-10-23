@@ -13,23 +13,41 @@ import { StatGrid } from './ui';
 import type { StatItem } from './ui';
 import type { TabId } from './Sidebar';
 import type { Banner, BulkPriceTier, Product } from '../types';
+import { isOpenOrder } from '../services/orderStatus';
+import { isBannerLive } from '../services/bannerLive';
+
+/** Which pieces have loaded at least once; until then their figures read "—", never 0. */
+export interface LoadedPieces {
+  products: boolean;
+  orders: boolean;
+  users: boolean;
+  banners: boolean;
+  tiers: boolean;
+  sections: boolean;
+}
 
 interface DashboardOverviewProps {
+  adminName: string;
   products: Product[];
   /** Whole catalogue size (meta.total); `products` is only the loaded page. */
   catalogTotal?: number;
-  orders: any[];
-  users: any[];
+  orders: { status?: string | null }[];
+  users: unknown[];
   banners: Banner[];
   bulkTiers: BulkPriceTier[];
   sectionsCount: number;
   sectionsEnabled: number;
+  loaded: LoadedPieces;
   onNavigate: (tab: TabId) => void;
   /** Tiles and shortcuts only appear for modules the signed-in role can view. */
   canView: (tab: TabId) => boolean;
 }
 
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n.toLocaleString('en-IN')} ${n === 1 ? one : many}`;
+
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
+  adminName,
   products,
   catalogTotal,
   orders,
@@ -38,42 +56,43 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   bulkTiers,
   sectionsCount,
   sectionsEnabled,
+  loaded,
   onNavigate,
   canView,
 }) => {
-  const publishedBanners = banners.filter((b) => b.status === 'published').length;
-  const pendingOrders = orders.filter((o) =>
-    ['pending', 'confirmed', 'processing', 'packed'].includes(String(o.status || '').toLowerCase())
-  ).length;
+  const liveBanners = banners.filter((b) => isBannerLive(b)).length;
+  const openOrders = orders.filter((o) => isOpenOrder(o.status)).length;
   const inStock = products.filter((p) => p.stockStatus === 'in_stock').length;
-  const skuTotal = catalogTotal && catalogTotal > 0 ? catalogTotal : products.length;
+  const productTotal = catalogTotal && catalogTotal > 0 ? catalogTotal : products.length;
+  const name = adminName.trim();
+  const NOT_LOADED = 'Not loaded yet';
 
   const stats: (StatItem & { tab: TabId })[] = [
     {
       tab: 'catalog',
       label: 'Products',
-      value: skuTotal.toLocaleString('en-IN'),
+      value: loaded.products ? productTotal.toLocaleString('en-IN') : '—',
       icon: <Package size={20} />,
       iconColor: 'var(--info)',
     },
     {
       tab: 'orders',
-      label: 'Open orders',
-      value: pendingOrders,
+      label: 'Orders still to deliver',
+      value: loaded.orders ? openOrders : '—',
       icon: <ShoppingBag size={20} />,
       iconColor: 'var(--accent)',
     },
     {
       tab: 'users',
       label: 'Customers',
-      value: users.length,
+      value: loaded.users ? users.length.toLocaleString('en-IN') : '—',
       icon: <Users size={20} />,
       iconColor: 'var(--violet)',
     },
     {
       tab: 'banners',
-      label: 'Live banners',
-      value: publishedBanners,
+      label: 'Banners live in the app',
+      value: loaded.banners ? liveBanners : '—',
       icon: <ImageIcon size={20} />,
       iconColor: 'var(--success)',
     },
@@ -83,10 +102,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     {
       tab: 'catalog',
       title: 'Products',
-      desc:
-        skuTotal > products.length
-          ? `${skuTotal.toLocaleString('en-IN')} products`
-          : `${inStock} of ${products.length} in stock`,
+      desc: !loaded.products
+        ? NOT_LOADED
+        : productTotal > products.length
+          ? 'Names, selling units, prices and stock'
+          : `${inStock} of ${plural(products.length, 'product')} in stock`,
       icon: <Package size={18} color="var(--success)" />,
     },
     {
@@ -98,19 +118,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     {
       tab: 'banners',
       title: 'Campaign Banners',
-      desc: `${publishedBanners} published · ${banners.length} total`,
+      desc: loaded.banners ? `${liveBanners} live now, ${plural(banners.length, 'banner')} in all` : NOT_LOADED,
       icon: <ImageIcon size={18} color="var(--info)" />,
     },
     {
       tab: 'sections',
       title: 'Homepage Sections',
-      desc: `${sectionsEnabled} of ${sectionsCount} shown on the app home screen`,
+      desc: loaded.sections ? `${sectionsEnabled} of ${sectionsCount} shown on the app home screen` : NOT_LOADED,
       icon: <LayoutList size={18} color="var(--violet)" />,
     },
     {
       tab: 'pricing',
       title: 'Bulk Pricing',
-      desc: `${bulkTiers.length} quantity discount ${bulkTiers.length === 1 ? 'rule' : 'rules'}`,
+      desc: loaded.tiers ? plural(bulkTiers.length, 'quantity discount') : NOT_LOADED,
       icon: <Tag size={18} color="var(--warning)" />,
     },
   ];
@@ -122,7 +142,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     <div style={styles.container}>
       <div style={styles.heroRow}>
         <div>
-          <h2 style={styles.heading}>Welcome back</h2>
+          <h2 style={styles.heading}>{name ? `Welcome back, ${name}` : 'Welcome back'}</h2>
           <p style={styles.sub}>
             Everything you change here reaches the customer app straight away: products, prices, banners,
             the home screen, and orders.

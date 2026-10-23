@@ -146,7 +146,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 3 | P11 staging desk proof | `server/src/scripts/deskProof.ts`, `WEB_SPEC.md` P11 note | `npm run proof:desk` exits 0 |
 | 4 | **A2 detailed design**, agreed before build | `docs/PORTAL_ACCESS.md` §A2 (design + review R1–R9) | **Done** — D1–D4 answered 23 Oct |
 | 5 | A2 build: pincode → store, group tree, staff scope, store on each order, scoped orders / pincodes / customers | `server/sql/portal_scope.sql`, `scope.ts`, `storeTreeService.ts`, `routes/stores.ts`, `accessService.ts`, `deliveryAreaService.ts`, `orderService.ts`, `StoreTreeManager.tsx`, `AccessManager.tsx` | **Done** on `develop` 23 Oct: 71/71 unit tests, 61/61 HTTP checks, browser check; local API on :5001 needs a restart to run it |
-| 6 | Portal UI/UX pass: truth and wording (U1), shared building blocks (U2), screens in batches (U3–U6) | [`PORTAL_UI_PASS.md`](./PORTAL_UI_PASS.md); `web/src/components/*` | U1 done 23 Oct, with toasts, light theme in the logo colours and the logo fix; U2 done 23 Oct (shared pieces; Delivery Pincodes and Roles & Access moved onto them); U3 next |
+| 6 | Portal UI/UX pass: truth and wording (U1), shared building blocks (U2), screens in batches (U3–U6) | [`PORTAL_UI_PASS.md`](./PORTAL_UI_PASS.md); `web/src/components/*` | U1 done 23 Oct, with toasts, light theme in the logo colours and the logo fix; U2 done 23 Oct (shared pieces; Delivery Pincodes and Roles & Access moved onto them); U3 done 23 Oct (Orders, Customers, Dashboard); U4 next |
 | 7 | Production rollout | SQL in §5, then API deploy, then phone build | — |
 
 Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices, notifications.

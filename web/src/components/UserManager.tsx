@@ -1,121 +1,78 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Users,
-  ShoppingBag,
-  IndianRupee,
-  RefreshCw,
-  Phone,
-  Mail,
-  MapPin,
-} from 'lucide-react';
-import { api } from '../services/api';
-import { DataTable, StatGrid, Badge, Button, useToast } from './ui';
+import React from 'react';
+import { Users, ShoppingBag, IndianRupee, Phone, Mail, MapPin } from 'lucide-react';
+import { DataTable, StatGrid, Badge, LoadState, NotGiven, PageIntro } from './ui';
 import type { Column, StatItem } from './ui';
+import { formatDay, inr, isMoney } from '../services/format';
 
-
-interface UserRecord {
+export interface CustomerRecord {
   id: number;
   phone: string;
   email: string | null;
   name: string | null;
   isActive: number;
   createdAt: string;
-  orderCount: number;
-  totalSpent: string | number;
+  /** null when the server couldn't read orders for this list. */
+  orderCount: number | null;
+  /** Value of the customer's orders, cancelled orders not counted; null when unknown. */
+  totalSpent: string | number | null;
   defaultAddress: string | null;
 }
 
-export const UserManager: React.FC = () => {
-  const toast = useToast();
-  const [users, setUsers] = useState<UserRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+interface UserManagerProps {
+  customers: CustomerRecord[];
+  loading: boolean;
+  loadError: string | null;
+  /** False until customers have loaded once, so the counts read "—" rather than 0. */
+  loaded: boolean;
+  onRetry: () => void;
+}
 
-  const fetchUsers = async () => {
-    try {
-      setLoading(true);
-      const res = await (api as any).getUsers();
-      setUsers(res || []);
-    } catch (err: any) {
-      toast.error(`Couldn't load customers: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+const known = (value: unknown): boolean => value !== null && value !== undefined;
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  const totalOrders = users.reduce((acc, u) => acc + Number(u.orderCount || 0), 0);
-  const totalGMV = users.reduce((acc, u) => acc + Number(u.totalSpent || 0), 0);
+export const UserManager: React.FC<UserManagerProps> = ({ customers, loading, loadError, loaded, onRetry }) => {
+  const ordersKnown = customers.every((c) => known(c.orderCount));
+  const totalOrders = customers.reduce((acc, c) => acc + Number(c.orderCount || 0), 0);
+  const totalSpent = customers.reduce((acc, c) => acc + Number(c.totalSpent || 0), 0);
+  const unknown = !loaded;
 
   const stats: StatItem[] = [
     {
       label: 'Customers',
-      value: users.length,
+      value: unknown ? '—' : customers.length,
       icon: <Users size={20} />,
       iconColor: 'var(--info)',
     },
     {
       label: 'Orders placed',
-      value: totalOrders,
+      value: unknown || !ordersKnown ? '—' : totalOrders,
       icon: <ShoppingBag size={20} />,
       iconColor: 'var(--accent)',
     },
     {
-      label: 'Total spent',
-      value: `₹${totalGMV.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+      label: 'Order value',
+      value: unknown || !ordersKnown ? '—' : inr(totalSpent, true),
+      subtext: 'Cancelled orders not counted',
       icon: <IndianRupee size={20} />,
       iconColor: 'var(--success)',
     },
   ];
 
-  const columns: Column<UserRecord>[] = [
-    {
-      key: 'id',
-      header: 'USER ID',
-      width: '90px',
-      sortable: true,
-      render: (u) => (
-        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--text-muted)' }}>
-          #{u.id}
-        </span>
-      ),
-    },
+  const columns: Column<CustomerRecord>[] = [
     {
       key: 'name',
-      header: 'CUSTOMER',
+      header: 'Customer',
       sortable: true,
-      render: (u) => {
-        const initials = (u.name || u.phone || 'U').slice(0, 2).toUpperCase();
+      render: (c) => {
+        const initials = (c.name || c.phone || '?').slice(0, 2).toUpperCase();
+        const joined = formatDay(c.createdAt);
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
-                background: 'var(--accent-soft)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--accent)',
-                fontWeight: 700,
-                fontSize: '0.8rem',
-                flexShrink: 0,
-              }}
-            >
+            <div style={styles.avatar} aria-hidden>
               {initials}
             </div>
             <div>
-              <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>
-                {u.name || (
-                  <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontWeight: 400 }}>Name not given</span>
-                )}
-              </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                Joined {new Date(u.createdAt).toLocaleDateString()}
-              </div>
+              <div style={styles.strong}>{c.name || <NotGiven label="Name not given" />}</div>
+              <div style={styles.small}>{joined ? `Joined ${joined}` : 'Join date not recorded'}</div>
             </div>
           </div>
         );
@@ -123,66 +80,66 @@ export const UserManager: React.FC = () => {
     },
     {
       key: 'phone',
-      header: 'CONTACT INFO',
-      render: (u) => (
+      header: 'Contact',
+      render: (c) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            <Phone size={12} color="var(--accent)" />
-            <span>{u.phone ? `+91 ${u.phone}` : 'Not given'}</span>
+          <div style={styles.contact}>
+            <Phone size={12} />
+            <span>{c.phone ? `+91 ${c.phone}` : <NotGiven />}</span>
           </div>
-          {u.email && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+          {c.email ? (
+            <div style={styles.contact}>
               <Mail size={12} />
-              <span>{u.email}</span>
+              <span>{c.email}</span>
             </div>
-          )}
+          ) : null}
         </div>
       ),
     },
     {
       key: 'defaultAddress',
-      header: 'SAVED ADDRESS',
-      render: (u) =>
-        u.defaultAddress ? (
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '280px', lineHeight: 1.35 }}>
+      header: 'Saved address',
+      render: (c) =>
+        c.defaultAddress ? (
+          <div style={styles.address}>
             <MapPin size={14} color="var(--info)" style={{ flexShrink: 0, marginTop: 2 }} />
-            <span>{u.defaultAddress}</span>
+            <span>{c.defaultAddress}</span>
           </div>
         ) : (
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-            No saved address
-          </span>
+          <NotGiven label="No saved address" />
         ),
     },
     {
       key: 'orderCount',
-      header: 'STORE ORDERS',
+      header: 'Orders',
       sortable: true,
       align: 'center',
-      render: (u) => (
-        <Badge variant="brand" icon={<ShoppingBag size={12} />}>
-          {u.orderCount} orders
-        </Badge>
-      ),
+      render: (c) =>
+        known(c.orderCount) ? (
+          <span style={styles.number}>{Number(c.orderCount)}</span>
+        ) : (
+          <NotGiven label="Not available" />
+        ),
     },
     {
       key: 'totalSpent',
-      header: 'LIFETIME VALUE',
+      header: 'Order value',
       sortable: true,
       align: 'right',
-      render: (u) => (
-        <span style={{ fontWeight: 700, color: 'var(--success)', fontFamily: 'monospace', fontSize: '0.92rem' }}>
-          ₹{Number(u.totalSpent || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-        </span>
-      ),
+      render: (c) =>
+        isMoney(c.totalSpent) ? (
+          <span style={styles.number}>{inr(Number(c.totalSpent))}</span>
+        ) : (
+          <NotGiven label="Not available" />
+        ),
     },
     {
       key: 'isActive',
-      header: 'STATUS',
+      header: 'Account',
       align: 'center',
-      render: (u) => (
-        <Badge variant={u.isActive ? 'success' : 'danger'} dot>
-          {u.isActive ? 'Active' : 'Inactive'}
+      render: (c) => (
+        <Badge variant={c.isActive ? 'success' : 'neutral'} size="sm">
+          {c.isActive ? 'Active' : 'Switched off'}
         </Badge>
       ),
     },
@@ -190,61 +147,83 @@ export const UserManager: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div
-        style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--info-border)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '16px 20px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '16px',
+      <StatGrid items={stats} columns={3} />
+
+      <PageIntro>
+        Customers manage their own name, phone and addresses in the app, so this list is read-only. Order value leaves
+        out cancelled orders.
+        {loaded && !ordersKnown ? " Order figures couldn't be read this time, so they show as not available." : ''}
+      </PageIntro>
+
+      <LoadState
+        loading={loading}
+        error={loadError}
+        what="customers"
+        onRetry={onRetry}
+        isEmpty={customers.length === 0}
+        empty={{
+          icon: <Users size={22} />,
+          title: 'No customers yet',
+          description: 'Customers appear here after they sign up in the app.',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div
-            style={{
-              width: '42px',
-              height: '42px',
-              borderRadius: '50%',
-              background: 'var(--accent-soft)',
-              border: '1px solid var(--accent-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <Users size={20} color="var(--accent)" />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.94rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '3px' }}>
-              Customer accounts
-            </div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Everyone who has signed in on the app, with their saved address and store orders.
-            </div>
-          </div>
-        </div>
-        <Button variant="secondary" size="sm" icon={<RefreshCw size={14} className={loading ? 'spin' : ''} />} onClick={fetchUsers}>
-          Refresh
-        </Button>
-      </div>
-
-      {/* Metrics Row */}
-      <StatGrid items={stats} />
-
-      {/* Reusable Data Table */}
-      <DataTable<UserRecord>
-        data={users}
-        columns={columns}
-        keyExtractor={(u) => u.id}
-        searchPlaceholder="Search customer by name, mobile, email or city..."
-        searchKeys={['name', 'phone', 'email', 'defaultAddress']}
-        pageSize={10}
-        loading={loading}
-      />
+        <DataTable<CustomerRecord>
+          data={customers}
+          columns={columns}
+          keyExtractor={(c) => c.id}
+          searchPlaceholder="Search by name, mobile, email or address…"
+          searchKeys={['name', 'phone', 'email', 'defaultAddress']}
+          pageSize={10}
+          emptyTitle="No customers match"
+          emptyDescription="Try another search."
+        />
+      </LoadState>
     </div>
   );
+};
+
+const styles: Record<string, React.CSSProperties> = {
+  avatar: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '50%',
+    background: 'var(--accent-soft)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'var(--accent)',
+    fontWeight: 700,
+    fontSize: '0.8rem',
+    flexShrink: 0,
+  },
+  strong: {
+    fontWeight: 600,
+    color: 'var(--text-main)',
+    fontSize: '0.88rem',
+  },
+  small: {
+    fontSize: '0.72rem',
+    color: 'var(--text-dim)',
+  },
+  contact: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '0.82rem',
+    color: 'var(--text-muted)',
+  },
+  address: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '6px',
+    fontSize: '0.82rem',
+    color: 'var(--text-muted)',
+    maxWidth: '280px',
+    lineHeight: 1.35,
+  },
+  number: {
+    fontWeight: 600,
+    color: 'var(--text-main)',
+    fontVariantNumeric: 'tabular-nums',
+  },
 };
