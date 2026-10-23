@@ -125,7 +125,7 @@ What an auditor should check, where it lives.
 
 ## 5. Database changes
 
-Run in this order on production (all applied to the local DB already). See [`server/sql/README.md`](../server/sql/README.md).
+Run in this order on production (all applied to the local DB already). See [`server/sql/README.md`](../server/sql/README.md), and [`ROLLOUT.md`](./ROLLOUT.md) for the full production checklist with checks and rollback.
 
 1. `server/sql/portal_audit_logs.sql`
 2. `server/sql/portal_audit_logs_alter_category.sql` (only if the table predates the newer entities)
@@ -149,7 +149,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 4 | **A2 detailed design**, agreed before build | `docs/PORTAL_ACCESS.md` §A2 (design + review R1–R9) | **Done** — D1–D4 answered 23 Oct |
 | 5 | A2 build: pincode → store, group tree, staff scope, store on each order, scoped orders / pincodes / customers | `server/sql/portal_scope.sql`, `scope.ts`, `storeTreeService.ts`, `routes/stores.ts`, `accessService.ts`, `deliveryAreaService.ts`, `orderService.ts`, `StoreTreeManager.tsx`, `AccessManager.tsx` | **Done** on `develop` 23 Oct: 71/71 unit tests, 61/61 HTTP checks, browser check; local API on :5001 needs a restart to run it |
 | 6 | Portal UI/UX pass: truth and wording (U1), shared building blocks (U2), screens in batches (U3–U6) | [`PORTAL_UI_PASS.md`](./PORTAL_UI_PASS.md); `web/src/components/*` | U1 done 23 Oct, with toasts, light theme in the logo colours and the logo fix; U2 done 23 Oct (shared pieces; Delivery Pincodes and Roles & Access moved onto them); U3 done 23 Oct (Orders, Customers, Dashboard); U4 done 23 Oct (Products, Categories, Bulk Pricing; adding categories and subcategories fixed on the server); U5 done 23 Oct (Campaign Banners, Homepage Sections); U6 done 23 Oct (Stores & groups, Audit trail, Sign-in, Developer tools, sidebar, header). **Done** |
-| 7 | Production rollout | SQL in §5, then API deploy, then phone build | — |
+| 7 | Production rollout | [`ROLLOUT.md`](./ROLLOUT.md): SQL, settings, API and portal together, phone build, checks, rollback | Checklist written 23 Oct; waits for someone with production access |
 
 Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices, notifications.
 
@@ -193,4 +193,5 @@ Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices,
 | [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) | Roles A1 and scope A2 (both built) |
 | [`PORTAL_UI_PASS.md`](./PORTAL_UI_PASS.md) | Portal UI/UX pass: agreed design and phases U1–U6 |
 | [`../server/sql/README.md`](../server/sql/README.md) | Migration order |
+| [`ROLLOUT.md`](./ROLLOUT.md) | Production rollout and rollback checklist |
 | `PROJECT_STATUS.md` (this file) | Index for audit review |

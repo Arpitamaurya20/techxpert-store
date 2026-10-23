@@ -13,7 +13,7 @@ mysql -u root -p < sql/portal_staff.sql   # before restarting the API on the A3 
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
-`portal_staff.sql` empties the staff role and places tables (they held Homecare admin ids) and has no undo script. Deploy the A3 API and portal together after it. Rollout, rollback and lock-out recovery: [`docs/PORTAL_ACCESS.md`](../../docs/PORTAL_ACCESS.md) §A3.
+`portal_staff.sql` empties the staff role and places tables (they held Homecare admin ids) and has no undo script. Deploy the A3 API and portal together after it. Rollout, rollback and lock-out recovery: [`docs/PORTAL_ACCESS.md`](../../docs/PORTAL_ACCESS.md) §A3. Full production checklist (when to run each script, settings, checks): [`docs/ROLLOUT.md`](../../docs/ROLLOUT.md).
 
 | Script | Purpose |
 |---|---|
