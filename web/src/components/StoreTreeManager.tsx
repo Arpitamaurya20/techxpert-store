@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FolderPlus, MapPin, Network, Pencil, Plus, Power, RefreshCw, Store, Trash2, Unlink } from 'lucide-react';
+import { FolderPlus, MapPin, Network, Pencil, Plus, Power, Store, Trash2, Unlink } from 'lucide-react';
 import { api, type StoreGroup, type StorePincodeLink, type StoreSummary, type StoreTree } from '../services/api';
 import { groupAndBelow, groupPath } from '../services/storeTree';
-import { Badge, Button, EmptyState, Modal, StatGrid, useToast } from './ui';
+import { Badge, Button, EmptyState, FormError, LoadState, Modal, NotGiven, PageIntro, StatGrid, useConfirm, useToast } from './ui';
 import type { StatItem } from './ui';
 
 interface StoreTreeManagerProps {
@@ -10,6 +10,8 @@ interface StoreTreeManagerProps {
   canEdit: boolean;
   /** Stores delete: delete empty groups, deactivate stores. */
   canDelete: boolean;
+  /** Goes up each time the header's Refresh is pressed; the screen reloads its own data. */
+  refreshKey?: number;
 }
 
 type GroupDraft = { id: number | null; name: string; kind: string; parentId: number | null };
@@ -25,8 +27,9 @@ type StoreDraft = {
 
 const TOP = '';
 
-export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, canDelete }) => {
+export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, canDelete, refreshKey = 0 }) => {
   const toast = useToast();
+  const { confirm, dialog } = useConfirm();
   const [tree, setTree] = useState<StoreTree | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -54,7 +57,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   const loadLinks = useCallback(async (storeId: number) => {
     try {
@@ -70,7 +73,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
 
   useEffect(() => {
     if (selectedStoreId != null) loadLinks(selectedStoreId);
-  }, [selectedStoreId, loadLinks]);
+  }, [selectedStoreId, loadLinks, refreshKey]);
 
   const groups = useMemo(() => tree?.groups ?? [], [tree]);
   const stores = useMemo(() => tree?.stores ?? [], [tree]);
@@ -88,11 +91,16 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
     );
 
   const stats: StatItem[] = [
-    { label: 'Stores', value: stores.filter((s) => s.active).length, icon: <Store size={20} />, iconColor: 'var(--success)' },
-    { label: 'Groups', value: groups.length, icon: <Network size={20} />, iconColor: 'var(--accent)' },
+    {
+      label: 'Stores',
+      value: tree ? stores.filter((s) => s.active).length : '—',
+      icon: <Store size={20} />,
+      iconColor: 'var(--success)',
+    },
+    { label: 'Groups', value: tree ? groups.length : '—', icon: <Network size={20} />, iconColor: 'var(--accent)' },
     {
       label: 'Pincodes served',
-      value: stores.reduce((sum, s) => sum + s.pincodeCount, 0),
+      value: tree ? stores.reduce((sum, s) => sum + s.pincodeCount, 0) : '—',
       icon: <MapPin size={20} />,
       iconColor: 'var(--accent)',
     },
@@ -161,7 +169,14 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
     }, 'Could not save this store');
 
   const deleteGroup = async (group: StoreGroup) => {
-    if (!window.confirm(`Delete the group "${group.name}"?`)) return;
+    const ok = await confirm({
+      title: `Delete the group "${group.name}"?`,
+      message:
+        'Only an empty group can be deleted: move its groups and stores out, and change the places of staff who cover it, first. This cannot be undone.',
+      confirmLabel: 'Delete group',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api.deleteStoreGroup(group.id);
       toast.success(`Group "${group.name}" deleted.`);
@@ -172,7 +187,18 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
   };
 
   const setStoreActive = async (store: StoreSummary, active: boolean) => {
-    if (!active && !window.confirm(`Deactivate "${store.name}"? It must not serve any pincode.`)) return;
+    if (!active) {
+      const ok = await confirm({
+        title: `Deactivate "${store.name}"?`,
+        message:
+          store.pincodeCount > 0
+            ? `It still serves ${store.pincodeCount} ${store.pincodeCount === 1 ? 'pincode' : 'pincodes'}, so this will be refused. Move them to another store first.`
+            : 'It serves no pincodes, so no new orders reach it. Its past orders are kept, and you can reactivate it later.',
+        confirmLabel: 'Deactivate store',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     try {
       await api.updateStore(store.id, { active });
       toast.success(active ? `"${store.name}" reactivated.` : `"${store.name}" deactivated.`);
@@ -203,9 +229,13 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
 
   const unlink = async (row: StorePincodeLink) => {
     if (!selectedStore) return;
-    if (!window.confirm(`Stop ${selectedStore.name} serving ${row.pincode}? Orders to it are refused until another store takes it.`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Stop serving ${row.pincode}?`,
+      message: `${selectedStore.name} stops serving ${row.pincode}. New orders to it are refused at checkout until another store takes it. Orders already placed are not affected.`,
+      confirmLabel: 'Stop serving',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       setLinks(await api.unlinkStorePincode(selectedStore.id, row.pincodeId));
       toast.success(`${row.pincode} is no longer served by ${selectedStore.name}.`);
@@ -279,17 +309,26 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
               size="sm"
               icon={<FolderPlus size={13} />}
               title="Add a group inside"
+              aria-label={`Add a group inside ${group.name}`}
               onClick={() => {
                 setDraftError(null);
                 setGroupDraft({ id: null, name: '', kind: '', parentId: group.id });
               }}
             />
-            <Button variant="ghost" size="sm" icon={<Plus size={13} />} title="Add a store here" onClick={() => openNewStore(group.id)} />
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Plus size={13} />}
+              title="Add a store here"
+              aria-label={`Add a store to ${group.name}`}
+              onClick={() => openNewStore(group.id)}
+            />
             <Button
               variant="ghost"
               size="sm"
               icon={<Pencil size={13} />}
               title="Rename or move"
+              aria-label={`Rename or move ${group.name}`}
               onClick={() => {
                 setDraftError(null);
                 setGroupDraft({ id: group.id, name: group.name, kind: group.kind, parentId: group.parentId });
@@ -303,6 +342,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
             size="sm"
             icon={<Trash2 size={13} color="var(--danger)" />}
             title="Delete (only when empty)"
+            aria-label={`Delete ${group.name}`}
             onClick={() => deleteGroup(group)}
           />
         ) : null}
@@ -312,29 +352,18 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
     </React.Fragment>
   );
 
-  if (loading && !tree) return <div style={styles.muted}>Loading stores and groups…</div>;
-  if (loadError) return <div style={{ ...styles.panel, ...styles.error }}>{loadError}</div>;
-
   const editingGroupId = groupDraft?.id ?? undefined;
   const groupPlaces = placeOptions(editingGroupId);
   const storePlaces = placeOptions();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <StatGrid items={stats} columns={3} />
-
-      <div style={styles.toolbar}>
-        <p style={styles.hint}>
-          Each delivery pincode is served by one store, and each order is tagged with that store at checkout. Groups
-          (zones, areas, clusters…) sit above stores; staff given a group in Roles &amp; Access see every store under
-          it. {wholeCompany ? 'You see the whole company.' : 'You see only the places you were given.'}
-        </p>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {canEdit && wholeCompany ? (
+      <PageIntro
+        actions={
+          canEdit && wholeCompany && tree ? (
             <>
               <Button
                 variant="secondary"
-                size="sm"
                 icon={<FolderPlus size={14} />}
                 onClick={() => {
                   setDraftError(null);
@@ -343,149 +372,171 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
               >
                 New group
               </Button>
-              <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => openNewStore(null)}>
+              <Button variant="primary" icon={<Plus size={14} />} onClick={() => openNewStore(null)}>
                 New store
               </Button>
             </>
-          ) : null}
-          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-        </div>
-      </div>
+          ) : null
+        }
+      >
+        Each delivery pincode is served by one store, and each order is tagged with that store at checkout. Groups
+        (zones, areas, clusters…) sit above stores; staff given a group in Roles &amp; access see every store under it.
+        {tree ? (wholeCompany ? ' You see the whole company.' : ' You see only the places you were given.') : ''}
+      </PageIntro>
 
-      <div style={styles.columns}>
-        <div style={{ ...styles.panel, flex: '1 1 420px' }}>
-          <h3 style={styles.panelTitle}>{wholeCompany ? 'Company tree' : 'Your places'}</h3>
-          {groups.length === 0 && stores.length === 0 ? (
-            <EmptyState
-              icon={<Network size={22} />}
-              title="Nothing in your places yet"
-              description={wholeCompany ? 'Add a group or a store to start.' : 'Ask a store admin to give you a group or store.'}
-            />
-          ) : (
-            <div style={styles.list}>
-              {childGroups(null).map((group) => renderGroup(group, 0))}
-              {storesIn(null).map((store) => renderStore(store, 0))}
-            </div>
-          )}
-        </div>
+      <StatGrid items={stats} columns={3} />
 
-        <div style={{ ...styles.panel, flex: '1 1 360px' }}>
-          {!selectedStore ? (
-            <EmptyState icon={<Store size={22} />} title="Pick a store" description="Its details and the pincodes it serves show here." />
-          ) : (
-            <>
-              <div style={styles.panelHeader}>
-                <div>
-                  <h3 style={styles.panelTitle}>{selectedStore.name}</h3>
-                  <div style={styles.meta}>
-                    {selectedStore.code}
-                    {selectedStore.groupId != null && visibleGroupIds.has(selectedStore.groupId)
-                      ? ` · ${groupPath(selectedStore.groupId, groups)}`
-                      : selectedStore.groupId == null
-                        ? ' · top level'
-                        : ''}
+      <LoadState
+        loading={loading}
+        error={loadError}
+        what="stores and groups"
+        onRetry={load}
+        isEmpty={!tree}
+        empty={{ title: 'Nothing to show', description: 'Press Refresh to load stores and groups.' }}
+      >
+        <div style={styles.columns}>
+          <div style={{ ...styles.panel, flex: '1 1 420px' }}>
+            <h3 style={styles.panelTitle}>{wholeCompany ? 'Company tree' : 'Your places'}</h3>
+            {groups.length === 0 && stores.length === 0 ? (
+              <EmptyState
+                icon={<Network size={22} />}
+                title="Nothing in your places yet"
+                description={wholeCompany ? 'Add a group or a store to start.' : 'Ask a store admin to give you a group or store.'}
+              />
+            ) : (
+              <div style={styles.list}>
+                {childGroups(null).map((group) => renderGroup(group, 0))}
+                {storesIn(null).map((store) => renderStore(store, 0))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ ...styles.panel, flex: '1 1 360px' }}>
+            {!selectedStore ? (
+              <EmptyState icon={<Store size={22} />} title="Pick a store" description="Its details and the pincodes it serves show here." />
+            ) : (
+              <>
+                <div style={styles.panelHeader}>
+                  <div>
+                    <h3 style={styles.panelTitle}>{selectedStore.name}</h3>
+                    <div style={styles.meta}>
+                      {selectedStore.code}
+                      {selectedStore.groupId != null && visibleGroupIds.has(selectedStore.groupId)
+                        ? ` · ${groupPath(selectedStore.groupId, groups)}`
+                        : selectedStore.groupId == null
+                          ? ' · top level'
+                          : ''}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {canEdit ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<Pencil size={13} />}
+                        onClick={() => {
+                          setDraftError(null);
+                          setStoreDraft({
+                            id: selectedStore.id,
+                            name: selectedStore.name,
+                            groupId: selectedStore.groupId,
+                            pincode: '',
+                            contactNumber: selectedStore.contactNumber,
+                            email: selectedStore.email,
+                            address: selectedStore.address,
+                          });
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    ) : null}
+                    {selectedStore.active && canDelete ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Power size={13} color="var(--danger)" />}
+                        title="Deactivate"
+                        aria-label={`Deactivate ${selectedStore.name}`}
+                        onClick={() => setStoreActive(selectedStore, false)}
+                      />
+                    ) : null}
+                    {!selectedStore.active && canEdit ? (
+                      <Button variant="ghost" size="sm" icon={<Power size={13} />} onClick={() => setStoreActive(selectedStore, true)}>
+                        Reactivate
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {canEdit ? (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={<Pencil size={13} />}
-                      onClick={() => {
-                        setDraftError(null);
-                        setStoreDraft({
-                          id: selectedStore.id,
-                          name: selectedStore.name,
-                          groupId: selectedStore.groupId,
-                          pincode: '',
-                          contactNumber: selectedStore.contactNumber,
-                          email: selectedStore.email,
-                          address: selectedStore.address,
-                        });
-                      }}
-                    >
-                      Edit
-                    </Button>
-                  ) : null}
-                  {selectedStore.active && canDelete ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Power size={13} color="var(--danger)" />}
-                      title="Deactivate"
-                      onClick={() => setStoreActive(selectedStore, false)}
-                    />
-                  ) : null}
-                  {!selectedStore.active && canEdit ? (
-                    <Button variant="ghost" size="sm" icon={<Power size={13} />} onClick={() => setStoreActive(selectedStore, true)}>
-                      Reactivate
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-              {selectedStore.address || selectedStore.contactNumber || selectedStore.email ? (
-                <div style={styles.meta}>
-                  {[selectedStore.address, selectedStore.contactNumber, selectedStore.email].filter(Boolean).join(' · ')}
-                </div>
-              ) : null}
+                {selectedStore.address || selectedStore.contactNumber || selectedStore.email ? (
+                  <div style={styles.meta}>
+                    {[selectedStore.address, selectedStore.contactNumber, selectedStore.email].filter(Boolean).join(' · ')}
+                  </div>
+                ) : null}
 
-              <h4 style={styles.subTitle}>Pincodes served</h4>
-              {canEdit && selectedStore.active ? (
-                <form style={styles.formRow} onSubmit={link}>
-                  <input
-                    style={{ ...styles.input, width: '140px' }}
-                    inputMode="numeric"
-                    maxLength={6}
-                    placeholder="201309"
-                    aria-label="Pincode to serve"
-                    value={linkInput}
-                    onChange={(e) => setLinkInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  />
-                  <Button type="submit" size="sm" icon={<Plus size={13} />}>
-                    Serve this pincode
-                  </Button>
-                </form>
-              ) : null}
-              {linkError ? <p style={styles.error}>{linkError}</p> : null}
-              {linksLoading ? (
-                <div style={styles.muted}>Loading pincodes…</div>
-              ) : links.length === 0 ? (
-                <p style={styles.hint}>This store serves no pincodes yet. Orders are only accepted for pincodes a store serves.</p>
-              ) : (
-                <div style={styles.list}>
-                  {links.map((row) => (
-                    <div key={row.linkId} style={{ ...styles.row, opacity: row.active ? 1 : 0.5 }}>
-                      <span style={styles.pin}>{row.pincode}</span>
-                      <span style={{ ...styles.meta, flex: 1, marginTop: 0 }}>{row.areaName || '—'}</span>
-                      {row.active ? (
-                        <Badge variant={row.deliveryActive ? 'success' : 'warning'} size="sm">
-                          {row.deliveryActive ? 'Serving' : 'Paused'}
-                        </Badge>
-                      ) : (
-                        <Badge variant="neutral" size="sm">
-                          Earlier
-                        </Badge>
-                      )}
-                      {row.active && canEdit ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon={<Unlink size={13} />}
-                          title="Stop serving this pincode"
-                          onClick={() => unlink(row)}
-                        />
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+                <h4 style={styles.subTitle}>Pincodes served</h4>
+                {canEdit && selectedStore.active ? (
+                  <form style={styles.formRow} onSubmit={link}>
+                    <input
+                      style={{ ...styles.input, width: '140px' }}
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="201309"
+                      aria-label="Pincode to serve"
+                      value={linkInput}
+                      onChange={(e) => setLinkInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    />
+                    <Button type="submit" size="sm" icon={<Plus size={13} />}>
+                      Serve this pincode
+                    </Button>
+                  </form>
+                ) : null}
+                {linkError ? (
+                  <p role="alert" style={styles.error}>
+                    {linkError}
+                  </p>
+                ) : null}
+                {linksLoading ? (
+                  <div style={styles.muted}>Loading pincodes…</div>
+                ) : links.length === 0 ? (
+                  <p style={styles.hint}>This store serves no pincodes yet. Orders are only accepted for pincodes a store serves.</p>
+                ) : (
+                  <div style={styles.list}>
+                    {links.map((row) => (
+                      <div key={row.linkId} style={{ ...styles.row, opacity: row.active ? 1 : 0.5 }}>
+                        <span style={styles.pin}>{row.pincode}</span>
+                        <span style={{ ...styles.meta, flex: 1, marginTop: 0 }}>
+                          {row.areaName || <NotGiven label="No area name" />}
+                        </span>
+                        {row.active ? (
+                          <Badge variant={row.deliveryActive ? 'success' : 'warning'} size="sm">
+                            {row.deliveryActive ? 'Serving' : 'Paused'}
+                          </Badge>
+                        ) : (
+                          <Badge variant="neutral" size="sm">
+                            Earlier
+                          </Badge>
+                        )}
+                        {row.active && canEdit ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon={<Unlink size={13} />}
+                            title="Stop serving this pincode"
+                            aria-label={`Stop serving ${row.pincode}`}
+                            onClick={() => unlink(row)}
+                          />
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      </LoadState>
+
+      {dialog}
 
       <Modal
         isOpen={groupDraft != null}
@@ -547,7 +598,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
                 </option>
               ))}
             </select>
-            {draftError ? <p style={styles.error}>{draftError}</p> : null}
+            {draftError ? <FormError>Not saved: {draftError}</FormError> : null}
           </div>
         ) : null}
       </Modal>
@@ -558,7 +609,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
         title={storeDraft?.id == null ? 'New store' : `Edit "${stores.find((s) => s.id === storeDraft?.id)?.name ?? 'store'}"`}
         subtitle={
           storeDraft?.id == null
-            ? 'The store code is generated. Its own pincode must already be under Delivery Pincodes.'
+            ? 'The store code is generated. Its own pincode must already be under Delivery pincodes.'
             : undefined
         }
         footer={
@@ -657,7 +708,7 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
                 />
               </div>
             </div>
-            {draftError ? <p style={styles.error}>{draftError}</p> : null}
+            {draftError ? <FormError>Not saved: {draftError}</FormError> : null}
           </div>
         ) : null}
       </Modal>
@@ -666,13 +717,6 @@ export const StoreTreeManager: React.FC<StoreTreeManagerProps> = ({ canEdit, can
 };
 
 const styles: Record<string, React.CSSProperties> = {
-  toolbar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
   hint: {
     margin: 0,
     fontSize: '0.82rem',

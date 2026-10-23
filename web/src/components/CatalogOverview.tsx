@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Package, Boxes, Edit2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Package, Boxes, Edit2, Plus, Trash2 } from 'lucide-react';
 import type { Product, Category } from '../types';
 import {
   DataTable,
@@ -45,6 +45,8 @@ interface CatalogOverviewProps {
   onDeleteProduct: (id: string) => Promise<void>;
   canEdit?: boolean;
   canDelete?: boolean;
+  /** Goes up each time the header's Refresh is pressed; the screen reloads its own data. */
+  refreshKey?: number;
 }
 
 /** Form values are kept as typed text so a half-typed number is never silently turned into 0. */
@@ -112,6 +114,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
   onDeleteProduct,
   canEdit = true,
   canDelete = true,
+  refreshKey = 0,
 }) => {
   const { confirm, dialog } = useConfirm();
   const [rows, setRows] = useState<Product[]>(seedProducts);
@@ -158,7 +161,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
 
   useEffect(() => {
     loadPage();
-  }, [loadPage]);
+  }, [loadPage, refreshKey]);
 
   useEffect(() => {
     setPage(1);
@@ -322,16 +325,11 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
 
       <PageIntro
         actions={
-          <>
-            <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={loadPage} disabled={listLoading}>
-              Refresh
+          canEdit ? (
+            <Button size="sm" icon={<Plus size={14} />} onClick={openAdd}>
+              Add product
             </Button>
-            {canEdit ? (
-              <Button size="sm" icon={<Plus size={14} />} onClick={openAdd}>
-                Add product
-              </Button>
-            ) : null}
-          </>
+          ) : null
         }
       >
         Search looks through every product, {PAGE_SIZE} to a page. Customers can't buy a product until it has a

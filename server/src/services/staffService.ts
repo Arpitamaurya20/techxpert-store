@@ -64,7 +64,7 @@ function refusal(statusCode: number, message: string) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-const WRONG_LOGIN = 'Invalid email or password';
+const WRONG_LOGIN = "That email and password don't match a staff login.";
 const SWITCHED_OFF = 'Your store portal access is switched off. Ask a store admin.';
 
 function staffTablesMissing(err: unknown) {

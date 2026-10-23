@@ -25,6 +25,7 @@ export interface LoadedPieces {
   banners: boolean;
   tiers: boolean;
   sections: boolean;
+  audit: boolean;
 }
 
 interface DashboardOverviewProps {
@@ -118,19 +119,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     },
     {
       tab: 'banners',
-      title: 'Campaign Banners',
+      title: 'Campaign banners',
       desc: loaded.banners ? `${liveBanners} live now, ${plural(banners.length, 'banner')} in all` : NOT_LOADED,
       icon: <ImageIcon size={18} color="var(--info)" />,
     },
     {
       tab: 'sections',
-      title: 'Homepage Sections',
+      title: 'Home screen sections',
       desc: loaded.sections ? `${sectionsEnabled} of ${sectionsCount} shown on the app home screen` : NOT_LOADED,
       icon: <LayoutList size={18} color="var(--violet)" />,
     },
     {
       tab: 'pricing',
-      title: 'Bulk Pricing',
+      title: 'Bulk pricing',
       desc: loaded.tiers ? plural(bulkTiers.length, 'quantity discount') : NOT_LOADED,
       icon: <Tag size={18} color="var(--warning)" />,
     },

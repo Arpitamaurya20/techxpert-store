@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { MapPin, Pencil, Plus, RefreshCw, Settings2, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
+import { MapPin, Pencil, Plus, Settings2, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
 import { api, type PortalRole, type ScopeNode, type StaffMember, type StoreTree } from '../services/api';
 import { can, isWithin, type Level, type ModuleInfo, type Permissions } from '../services/access';
 import { groupAndBelow } from '../services/storeTree';
@@ -26,6 +26,8 @@ interface AccessManagerProps {
   permissions: Permissions;
   canEdit: boolean;
   canDelete: boolean;
+  /** Goes up each time the header's Refresh is pressed; the screen reloads its own data. */
+  refreshKey?: number;
 }
 
 type RoleDraft = { id: number | null; name: string; description: string; permissions: Permissions };
@@ -53,7 +55,7 @@ function summary(role: PortalRole, modules: ModuleInfo[]): string {
   return parts.length ? parts.join(' · ') : 'No modules';
 }
 
-export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEdit, canDelete }) => {
+export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEdit, canDelete, refreshKey = 0 }) => {
   const toast = useToast();
   const { confirm, dialog } = useConfirm();
   const [modules, setModules] = useState<ModuleInfo[]>([]);
@@ -91,7 +93,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   const activeStaff = staff.filter((s) => s.active);
   const stats: StatItem[] = [
@@ -357,13 +359,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <PageIntro
-        actions={
-          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-        }
-      >
+      <PageIntro>
         Only people on this staff list can sign in. A role decides which portal modules they see and whether they can
         edit or delete there; super admin always has everything. You can only give out access you have yourself, and
         you can't change your own role.
@@ -633,7 +629,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
             {!places.all ? (
               tree ? (
                 tree.groups.length === 0 && tree.stores.length === 0 ? (
-                  <p style={styles.hint}>You have no groups or stores to give. Add them under Stores &amp; Groups.</p>
+                  <p style={styles.hint}>You have no groups or stores to give. Add them under Stores &amp; groups.</p>
                 ) : (
                   <div style={styles.placeList}>{renderPlaces(null, 0)}</div>
                 )

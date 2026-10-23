@@ -28,6 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Right Controls */}
       <div style={styles.actionsArea}>
         <div
+          role="status"
           style={{
             ...styles.syncStatus,
             background:
@@ -49,12 +50,12 @@ export const Header: React.FC<HeaderProps> = ({
           <span>{serverOnline === null ? 'Checking…' : serverOnline ? 'Connected' : "Can't reach the server"}</span>
         </div>
 
-        {/* Reload Data Button */}
         <button
+          type="button"
           onClick={onRefresh}
           disabled={loading}
           style={styles.refreshBtn}
-          title="Load the latest data"
+          title="Load the latest data on this screen"
         >
           <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
           <span>Refresh</span>

@@ -6,6 +6,9 @@ import {
   Server,
   Smartphone,
 } from 'lucide-react';
+import { getToken } from '../services/session';
+import { PageIntro } from './ui';
+
 const API_BASE =
   (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, '') || 'http://localhost:5001';
 
@@ -15,80 +18,21 @@ export const ApiExplorer: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [responseOutput, setResponseOutput] = useState<any>(null);
 
-  const endpoints = [
-    {
-      method: 'GET',
-      path: '/health',
-      desc: 'Dual-DB health (homecare + techxpertstore)',
-      sampleBody: null,
-    },
-    {
-      method: 'GET',
-      path: '/auth/admin/me',
-      desc: 'Current staff session (cookie auth)',
-      sampleBody: null,
-    },
-    {
-      method: 'GET',
-      path: '/catalog/products?page=1&limit=5',
-      desc: 'Paginated catalogue — check meta.total for full SKU count',
-      sampleBody: null,
-    },
-    {
-      method: 'GET',
-      path: '/catalog/categories',
-      desc: 'Categories for mobile home & category tabs',
-      sampleBody: null,
-    },
-    {
-      method: 'GET',
-      path: '/orders?all=true',
-      desc: 'All store orders (admin cookie required)',
-      sampleBody: null,
-    },
-    {
-      method: 'GET',
-      path: '/cms/banners',
-      desc: 'Promotional banners (published for anonymous; all when staff)',
-      sampleBody: null,
-    },
-    {
-      method: 'GET',
-      path: '/cms/sections',
-      desc: 'Homepage section order/visibility for mobile',
-      sampleBody: null,
-    },
-    {
-      method: 'GET',
-      path: '/audit/logs?limit=20',
-      desc: 'Portal audit trail (admin cookie required)',
-      sampleBody: null,
-    },
-    {
-      method: 'POST',
-      path: '/auth/admin/login',
-      desc: 'Staff login — sets HttpOnly cookie (ALLOW_DEV_ADMIN seed or real admin_users)',
-      sampleBody: JSON.stringify(
-        { email: 'admin@techxpert.in', password: 'admin123' },
-        null,
-        2
-      ),
-    },
-    {
-      method: 'POST',
-      path: '/auth/admin/logout',
-      desc: 'Clear staff HttpOnly cookie',
-      sampleBody: JSON.stringify({}, null, 2),
-    },
-    {
-      method: 'GET',
-      path: '/pricing/bulk-tiers',
-      desc: 'Bulk volume pricing tier rules',
-      sampleBody: null,
-    },
+  /** Read-only on purpose: a request here runs as the signed-in super admin. */
+  const endpoints: { method: 'GET'; path: string; desc: string }[] = [
+    { method: 'GET', path: '/health', desc: 'Server and database health' },
+    { method: 'GET', path: '/auth/admin/me', desc: 'Your staff session and permissions' },
+    { method: 'GET', path: '/catalog/products?page=1&limit=5', desc: 'First 5 products; meta.total is the full count' },
+    { method: 'GET', path: '/catalog/categories', desc: 'Categories the app shows' },
+    { method: 'GET', path: '/orders?all=true', desc: 'Every order you can see' },
+    { method: 'GET', path: '/cms/banners', desc: 'Banners: the app gets only published ones, staff get all' },
+    { method: 'GET', path: '/cms/sections', desc: 'App home screen sections, their order and visibility' },
+    { method: 'GET', path: '/pricing/bulk-tiers', desc: 'Bulk price rules' },
+    { method: 'GET', path: '/audit/logs?limit=20', desc: 'Latest 20 audit trail entries' },
   ];
 
   const currentEp = endpoints[selectedEndpoint];
+  const envLine = `EXPO_PUBLIC_API_BASE_URL=${API_BASE}`;
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -100,28 +44,28 @@ export const ApiExplorer: React.FC = () => {
     try {
       setLoading(true);
       const url = `${API_BASE}${currentEp.path}`;
+      const token = getToken();
       const options: RequestInit = {
         method: currentEp.method,
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'x-client': 'portal',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       };
 
-      if (currentEp.method === 'POST' && currentEp.sampleBody) {
-        options.body = currentEp.sampleBody;
-      }
-
       const res = await fetch(url, options);
-      const data = await res.json();
-      setResponseOutput({
-        status: res.status,
-        data,
-        auth: 'Cookie session (credentials: include)',
-      });
+      const text = await res.text();
+      let data: unknown = text;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Not JSON; show the raw body.
+      }
+      setResponseOutput({ status: res.status, ok: res.ok, data });
     } catch (err: any) {
-      setResponseOutput({ error: err.message || 'Request failed' });
+      setResponseOutput({ error: err.message || "Can't reach the server." });
     } finally {
       setLoading(false);
     }
@@ -129,23 +73,25 @@ export const ApiExplorer: React.FC = () => {
 
   return (
     <div style={styles.container}>
-      {/* Mobile App Connection Banner */}
+      <PageIntro>
+        Read-only checks against the server this portal uses ({API_BASE}). Each request runs with your sign-in, so it
+        returns what you are allowed to see.
+      </PageIntro>
+
+
       <div style={styles.appConnectBanner}>
         <div style={styles.bannerIconBox}>
           <Smartphone size={24} color="var(--accent)" />
         </div>
         <div style={styles.bannerInfo}>
-          <h3 style={styles.bannerTitle}>Connect Mobile App (Expo / React Native)</h3>
+          <h3 style={styles.bannerTitle}>Connect the phone app</h3>
           <p style={styles.bannerDesc}>
             The mobile app in <code>app/</code> uses <code>EXPO_PUBLIC_API_BASE_URL</code> to reach
             this backend. Create <code>app/.env.local</code> with:
           </p>
           <div style={styles.envCodeRow}>
-            <code style={styles.envCode}>EXPO_PUBLIC_API_BASE_URL=http://localhost:5001</code>
-            <button
-              onClick={() =>
-                handleCopy('EXPO_PUBLIC_API_BASE_URL=http://localhost:5001', 'env')
-              }
+            <code style={styles.envCode}>{envLine}</code>
+            <button type="button" onClick={() => handleCopy(envLine, 'env')}
               style={styles.copyBtn}
             >
               {copiedText === 'env' ? <Check size={14} color="var(--success)" /> : <Copy size={14} />}
@@ -159,11 +105,13 @@ export const ApiExplorer: React.FC = () => {
       <div style={styles.splitGrid}>
         {/* Endpoints List */}
         <div style={styles.epListCol}>
-          <div style={styles.colTitle}>Available Backend API Endpoints</div>
+          <div style={styles.colTitle}>Endpoints</div>
           <div style={styles.epList}>
             {endpoints.map((ep, idx) => (
               <button
+                type="button"
                 key={idx}
+                aria-pressed={selectedEndpoint === idx}
                 onClick={() => {
                   setSelectedEndpoint(idx);
                   setResponseOutput(null);
@@ -196,16 +144,17 @@ export const ApiExplorer: React.FC = () => {
           <div style={styles.consoleHeader}>
             <div style={styles.consoleTitle}>
               <Server size={16} color="var(--accent)" />
-              <span>Interactive Request Runner</span>
+              <span>Try a request</span>
             </div>
             <button
+              type="button"
               onClick={handleTestEndpoint}
               disabled={loading}
               className="btn btn-primary"
               style={styles.runBtn}
             >
               <Play size={14} />
-              <span>{loading ? 'Executing...' : 'Send Live Request'}</span>
+              <span>{loading ? 'Sending…' : 'Send request'}</span>
             </button>
           </div>
 
@@ -214,31 +163,33 @@ export const ApiExplorer: React.FC = () => {
             <span style={styles.requestUrl}>{API_BASE}{currentEp.path}</span>
           </div>
 
-          {currentEp.sampleBody && (
-            <div style={styles.reqBodySection}>
-              <div style={styles.bodyLabel}>Request Payload (JSON)</div>
-              <pre style={styles.codeBlock}>{currentEp.sampleBody}</pre>
-            </div>
-          )}
-
           {/* Response Box */}
           <div style={styles.responseSection}>
             <div style={styles.responseHeader}>
               <div style={styles.resLabel}>
-                <span>Live Server Response</span>
+                <span>Response</span>
                 {responseOutput?.status && (
-                  <span style={styles.statusPill}>Status {responseOutput.status} OK</span>
+                  <span
+                    style={{
+                      ...styles.statusPill,
+                      ...(responseOutput.ok ? {} : { background: 'var(--danger-soft)', color: 'var(--danger)' }),
+                    }}
+                  >
+                    Status {responseOutput.status}
+                    {responseOutput.ok ? ' OK' : ''}
+                  </span>
                 )}
               </div>
               {responseOutput && (
                 <button
+                  type="button"
                   onClick={() =>
-                    handleCopy(JSON.stringify(responseOutput.data, null, 2), 'res')
+                    handleCopy(JSON.stringify(responseOutput.data ?? responseOutput.error, null, 2), 'res')
                   }
                   style={styles.copySmallBtn}
                 >
                   {copiedText === 'res' ? <Check size={12} color="var(--success)" /> : <Copy size={12} />}
-                  <span>{copiedText === 'res' ? 'Copied' : 'Copy Response'}</span>
+                  <span>{copiedText === 'res' ? 'Copied' : 'Copy response'}</span>
                 </button>
               )}
             </div>
@@ -250,7 +201,7 @@ export const ApiExplorer: React.FC = () => {
                 </pre>
               ) : (
                 <div style={styles.emptyRes}>
-                  Click "Send Live Request" above to test this endpoint against the live Express server.
+                  Press "Send request" to call this endpoint on the server this portal uses.
                 </div>
               )}
             </div>
@@ -434,26 +385,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
     fontSize: '0.84rem',
     color: 'var(--text-main)',
-  },
-  reqBodySection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-  },
-  bodyLabel: {
-    fontSize: '0.76rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-  },
-  codeBlock: {
-    background: 'var(--bg-app)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '12px',
-    fontFamily: 'monospace',
-    fontSize: '0.8rem',
-    color: 'var(--info)',
-    overflowX: 'auto',
   },
   responseSection: {
     display: 'flex',

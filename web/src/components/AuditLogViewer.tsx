@@ -1,78 +1,156 @@
-import React from 'react';
-import { User, Clock, History } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { History } from 'lucide-react';
 import type { AuditLog } from '../types';
-import { EmptyState } from './ui';
+import { formatDay } from '../services/format';
+import { Badge, LoadState, PageIntro } from './ui';
 
 interface AuditLogViewerProps {
   logs: AuditLog[];
+  /** How many of the newest changes were asked for. */
+  limit: number;
+  loading: boolean;
+  loadError: string | null;
+  loaded: boolean;
+  onRetry: () => void;
 }
 
-function formatTimestamp(value: string): string {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString([], {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+const AREA: Record<AuditLog['entity'], string> = {
+  product: 'Products',
+  category: 'Categories',
+  order: 'Orders',
+  delivery: 'Delivery',
+  store: 'Stores',
+  bulk_tier: 'Bulk prices',
+  banner: 'Banners',
+  section: 'Home screen',
+  publish: 'Publishing',
+  access: 'Staff & access',
+};
+
+const areaOf = (entity: string) => AREA[entity as AuditLog['entity']] ?? 'Other';
+
+/** The sentence staff read. Older section entries were saved as "Quick tools set to hidden". */
+function sentence(log: AuditLog): string {
+  const details = (log.details || '').trim();
+  if (log.entity === 'section') {
+    const old = /^(.+) set to (hidden|visible)$/.exec(details);
+    if (old) return `${old[2] === 'hidden' ? 'Hid' : 'Showed'} "${old[1]}" on the app home screen`;
+  }
+  if (details) return details;
+  const action = (log.action || '').trim();
+  return action ? action.charAt(0) + action.slice(1).toLowerCase() : 'Change with no description';
 }
 
-export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
+/** Saved as "Name (Role)"; the role is left out when there was none. */
+function who(actor: string): { name: string; role: string | null } {
+  const m = /^(.*) \(([^()]*)\)$/.exec((actor || '').trim());
+  if (!m) return { name: actor?.trim() || 'Someone', role: null };
+  return { name: m[1], role: m[2] && m[2] !== 'no role' ? m[2] : null };
+}
+
+const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+const timeOf = (d: Date) => d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, limit, loading, loadError, loaded, onRetry }) => {
+  const [area, setArea] = useState('');
+  const [today] = useState(() => new Date());
+
+  const areas = useMemo(() => Array.from(new Set(logs.map((l) => areaOf(l.entity)))).sort(), [logs]);
+  const shown = area && areas.includes(area) ? logs.filter((l) => areaOf(l.entity) === area) : logs;
+
+  const days = useMemo(() => {
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const groups: { key: string; label: string; entries: { log: AuditLog; at: Date | null }[] }[] = [];
+    for (const log of shown) {
+      const at = log.timestamp ? new Date(log.timestamp) : null;
+      const valid = at && !Number.isNaN(at.getTime()) ? at : null;
+      const key = valid ? dayKey(valid) : 'unknown';
+      const label = !valid
+        ? 'Date not recorded'
+        : key === dayKey(today)
+          ? 'Today'
+          : key === dayKey(yesterday)
+            ? 'Yesterday'
+            : (formatDay(valid) ?? 'Date not recorded');
+      const last = groups[groups.length - 1];
+      if (last && last.key === key) last.entries.push({ log, at: valid });
+      else groups.push({ key, label, entries: [{ log, at: valid }] });
+    }
+    return groups;
+  }, [shown, today]);
+
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <div>
-          <h2 style={styles.title}>Change history</h2>
-          <p style={styles.subtitle}>Every change staff made in this portal, newest first.</p>
-        </div>
-        <span style={styles.countPill}>{logs.length} entries</span>
-      </div>
+      <PageIntro
+        actions={
+          areas.length > 1 ? (
+            <select
+              aria-label="Show changes in"
+              className="tx-input"
+              style={styles.filter}
+              value={area}
+              onChange={(e) => setArea(e.target.value)}
+            >
+              <option value="">All areas</option>
+              {areas.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          ) : null
+        }
+      >
+        Who changed what in this portal, newest first.
+        {loaded && logs.length >= limit ? ` Only the latest ${limit} changes are shown.` : ''}
+      </PageIntro>
 
-      {logs.length === 0 ? (
-        <EmptyState
-          icon={<History size={28} />}
-          title="No changes recorded yet"
-          description="When staff add or change a product, banner, price tier or section, it shows up here."
-        />
-      ) : (
-        <div style={styles.timeline}>
-          {logs.map((log) => (
-            <div key={log.id} style={styles.timelineItem}>
-              <div style={styles.dotLineCol}>
-                <div style={styles.dot} />
-                <div style={styles.line} />
-              </div>
-
-              <div style={styles.logCard}>
-                <div style={styles.cardHeader}>
-                  <div style={styles.actionRow}>
-                    <span style={styles.actionName}>{log.action}</span>
-                    <span
-                      className={`badge badge-${log.entity === 'publish' ? 'published' : 'draft'}`}
-                    >
-                      {log.entity}
-                    </span>
-                  </div>
-                  <div style={styles.timeInfo}>
-                    <Clock size={12} />
-                    <span>{formatTimestamp(log.timestamp)}</span>
-                  </div>
-                </div>
-
-                <p style={styles.detailsText}>{log.details}</p>
-
-                <div style={styles.userRow}>
-                  <User size={13} color="var(--accent)" />
-                  <span>{log.user}</span>
-                </div>
-              </div>
-            </div>
+      <LoadState
+        loading={loading}
+        error={loadError}
+        what="the audit trail"
+        onRetry={onRetry}
+        isEmpty={shown.length === 0}
+        empty={{
+          icon: <History size={28} />,
+          title: area ? `No changes in ${area.toLowerCase()}` : 'No changes recorded yet',
+          description: 'When staff add or change something in the portal, it shows up here.',
+        }}
+      >
+        <div style={styles.days}>
+          {days.map((day) => (
+            <section key={day.key} aria-label={day.label}>
+              <h3 style={styles.dayTitle}>{day.label}</h3>
+              <ol style={styles.list}>
+                {day.entries.map(({ log, at }) => {
+                  const person = who(log.user);
+                  const pending = log.id.startsWith('log-pending-');
+                  return (
+                    <li key={log.id} style={styles.entry}>
+                      <span style={styles.time}>{at ? timeOf(at) : '—'}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={styles.sentence}>{sentence(log)}</div>
+                        <div style={styles.meta}>
+                          <Badge variant="neutral" size="sm">
+                            {areaOf(log.entity)}
+                          </Badge>
+                          <span>
+                            {person.name}
+                            {person.role ? <span style={styles.role}> · {person.role}</span> : null}
+                          </span>
+                          {pending ? <span style={styles.role}>Saving…</span> : null}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
           ))}
         </div>
-      )}
+      </LoadState>
     </div>
   );
 };
@@ -83,107 +161,61 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: '20px',
   },
-  header: {
+  filter: {
+    minWidth: '180px',
+  },
+  days: {
     display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '12px',
-    flexWrap: 'wrap',
+    flexDirection: 'column',
+    gap: '20px',
   },
-  title: {
-    fontSize: '1.2rem',
-    fontWeight: 700,
-    color: 'var(--text-main)',
-  },
-  subtitle: {
+  dayTitle: {
+    margin: '0 0 8px',
     fontSize: '0.8rem',
-    color: 'var(--text-muted)',
-    marginTop: '2px',
-  },
-  countPill: {
-    fontSize: '0.76rem',
     fontWeight: 600,
     color: 'var(--text-muted)',
-    background: 'var(--tint-2)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-full)',
-    padding: '6px 12px',
   },
-  timeline: {
-    display: 'flex',
-    flexDirection: 'column',
-    position: 'relative',
-  },
-  timelineItem: {
-    display: 'flex',
-    gap: '16px',
-  },
-  dotLineCol: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    width: '20px',
-  },
-  dot: {
-    width: '12px',
-    height: '12px',
-    borderRadius: '50%',
-    background: 'var(--accent)',
-    boxShadow: '0 0 10px var(--accent-border)',
-    marginTop: '16px',
-    flexShrink: 0,
-  },
-  line: {
-    width: '2px',
-    flex: 1,
-    background: 'var(--tint-3)',
-  },
-  logCard: {
+  list: {
+    listStyle: 'none',
+    margin: 0,
+    padding: 0,
     background: 'var(--bg-surface)',
     border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-lg)',
-    padding: '16px 20px',
-    flex: 1,
-    marginBottom: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
+    borderRadius: 'var(--radius-md)',
+    overflow: 'hidden',
   },
-  cardHeader: {
+  entry: {
     display: 'flex',
-    justifyContent: 'space-between',
+    gap: '16px',
+    alignItems: 'flex-start',
+    padding: '12px 16px',
+    borderTop: '1px solid var(--border-subtle)',
+    marginTop: '-1px',
+  },
+  time: {
+    flexShrink: 0,
+    width: '44px',
+    fontSize: '0.82rem',
+    color: 'var(--text-dim)',
+    fontVariantNumeric: 'tabular-nums',
+    paddingTop: '1px',
+  },
+  sentence: {
+    fontSize: '0.9rem',
+    color: 'var(--text-main)',
+    lineHeight: 1.45,
+    overflowWrap: 'anywhere',
+  },
+  meta: {
+    display: 'flex',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: '8px',
-  },
-  actionRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-  },
-  actionName: {
-    fontSize: '0.95rem',
-    fontWeight: 700,
-    color: 'var(--text-main)',
-  },
-  timeInfo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '5px',
-    fontSize: '0.74rem',
-    color: 'var(--text-dim)',
-  },
-  detailsText: {
-    fontSize: '0.84rem',
+    marginTop: '6px',
+    fontSize: '0.78rem',
     color: 'var(--text-muted)',
-    lineHeight: 1.45,
   },
-  userRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '0.76rem',
+  role: {
     color: 'var(--text-dim)',
-    marginTop: '4px',
   },
 };

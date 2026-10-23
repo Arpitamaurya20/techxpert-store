@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import {
   Package,
   ShoppingBag,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   Store,
   KeyRound,
+  LogOut,
 } from 'lucide-react';
 
 export type TabId =
@@ -36,8 +38,6 @@ interface SidebarProps {
   ordersCount?: number;
   productsCount?: number;
   usersCount?: number;
-  /** null while the first check is running. */
-  serverOnline: boolean | null;
   adminName?: string;
   adminRole?: string;
   onChangePassword?: () => void;
@@ -52,7 +52,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ordersCount,
   productsCount,
   usersCount,
-  serverOnline,
   adminName = 'Staff',
   adminRole = 'No role',
   onChangePassword,
@@ -66,23 +65,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
     .map((p) => p[0]?.toUpperCase())
     .join('') || 'SA';
   type NavItem = { id: TabId; label: string; icon: React.ReactNode; badge?: string };
-  const allNavItems: NavItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
-    { id: 'catalog', label: 'Products', icon: <Package size={18} />, badge: productsCount?.toLocaleString('en-IN') },
-    { id: 'categories', label: 'Categories', icon: <FolderTree size={18} /> },
-    { id: 'orders', label: 'Orders', icon: <ShoppingBag size={18} />, badge: ordersCount?.toLocaleString('en-IN') },
-    { id: 'delivery', label: 'Delivery Pincodes', icon: <MapPin size={18} /> },
-    { id: 'stores', label: 'Stores & Groups', icon: <Store size={18} /> },
-    { id: 'users', label: 'Customers', icon: <Users size={18} />, badge: usersCount?.toLocaleString('en-IN') },
-    { id: 'pricing', label: 'Bulk Pricing', icon: <Tag size={18} /> },
-    { id: 'banners', label: 'Campaign Banners', icon: <ImageIcon size={18} /> },
-    { id: 'sections', label: 'Homepage Sections', icon: <LayoutList size={18} /> },
-    { id: 'api', label: 'Developer tools', icon: <Code size={18} /> },
-    { id: 'audit', label: 'Audit Trail', icon: <History size={18} /> },
-    { id: 'access', label: 'Roles & Access', icon: <ShieldCheck size={18} /> },
+  const allGroups: { label: string; items: NavItem[] }[] = [
+    {
+      label: 'Daily work',
+      items: [
+        { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
+        { id: 'orders', label: 'Orders', icon: <ShoppingBag size={18} />, badge: ordersCount?.toLocaleString('en-IN') },
+        { id: 'users', label: 'Customers', icon: <Users size={18} />, badge: usersCount?.toLocaleString('en-IN') },
+        { id: 'delivery', label: 'Delivery pincodes', icon: <MapPin size={18} /> },
+      ],
+    },
+    {
+      label: 'Catalogue',
+      items: [
+        { id: 'catalog', label: 'Products', icon: <Package size={18} />, badge: productsCount?.toLocaleString('en-IN') },
+        { id: 'categories', label: 'Categories', icon: <FolderTree size={18} /> },
+        { id: 'pricing', label: 'Bulk pricing', icon: <Tag size={18} /> },
+      ],
+    },
+    {
+      label: 'App storefront',
+      items: [
+        { id: 'banners', label: 'Campaign banners', icon: <ImageIcon size={18} /> },
+        { id: 'sections', label: 'Home screen sections', icon: <LayoutList size={18} /> },
+      ],
+    },
+    {
+      label: 'Admin',
+      items: [
+        { id: 'stores', label: 'Stores & groups', icon: <Store size={18} /> },
+        { id: 'access', label: 'Roles & access', icon: <ShieldCheck size={18} /> },
+        { id: 'audit', label: 'Audit trail', icon: <History size={18} /> },
+        { id: 'api', label: 'Developer tools', icon: <Code size={18} /> },
+      ],
+    },
   ];
-  const navItems = allNavItems.filter((item) => visibleTabs.includes(item.id));
-  const statusColor = serverOnline === null ? 'var(--text-dim)' : serverOnline ? 'var(--success)' : 'var(--danger)';
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest' });
+  }, [activeTab]);
+
+  const groups = allGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => visibleTabs.includes(item.id)) }))
+    .filter((group) => group.items.length > 0);
 
 
   return (
@@ -93,84 +118,68 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <span style={styles.brandSubtitle}>Store portal</span>
       </div>
 
-      <div style={styles.envContainer}>
-        <div
-          style={{
-            ...styles.envPill,
-            borderColor:
-              serverOnline === null
-                ? 'var(--border-subtle)'
-                : serverOnline
-                  ? 'var(--success-border)'
-                  : 'var(--danger-border)',
-          }}
-        >
-          <span
-            style={{
-              ...styles.envDot,
-              background: statusColor,
-              boxShadow: serverOnline === null ? 'none' : `0 0 8px ${statusColor}`,
-            }}
-          />
-          <span style={{ color: statusColor, fontWeight: 600 }}>
-            {serverOnline === null ? 'Checking…' : serverOnline ? 'Connected' : "Can't reach the server"}
-          </span>
-        </div>
-      </div>
-
-      {/* Navigation */}
-      <nav style={styles.nav}>
-        <div style={styles.navSectionLabel}>STORE MANAGEMENT</div>
-        {navItems.map((item) => {
-          const isActive = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onTabChange(item.id)}
-              style={{
-                ...styles.navBtn,
-                ...(isActive ? styles.navBtnActive : {}),
-              }}
-            >
-              <span
-                style={{
-                  ...styles.navIcon,
-                  color: isActive ? 'var(--accent)' : 'var(--text-muted)',
-                }}
-              >
-                {item.icon}
-              </span>
-              <span style={styles.navLabel}>{item.label}</span>
-              {item.badge && (
-                <span style={{ ...styles.navBadge, ...(isActive ? styles.navBadgeActive : {}) }}>
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      <nav ref={navRef} style={styles.nav} aria-label="Portal">
+        {groups.map((group) => (
+          <div key={group.label} style={styles.navGroup}>
+            <div style={styles.navSectionLabel}>{group.label}</div>
+            {group.items.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => onTabChange(item.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  style={{
+                    ...styles.navBtn,
+                    ...(isActive ? styles.navBtnActive : {}),
+                  }}
+                >
+                  <span
+                    style={{
+                      ...styles.navIcon,
+                      color: isActive ? 'var(--accent)' : 'var(--text-muted)',
+                    }}
+                  >
+                    {item.icon}
+                  </span>
+                  <span style={styles.navLabel}>{item.label}</span>
+                  {item.badge && (
+                    <span style={{ ...styles.navBadge, ...(isActive ? styles.navBadgeActive : {}) }}>
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
-      {/* Footer Info */}
       <div style={styles.footer}>
         <div style={styles.userCard}>
-          <div style={styles.userAvatar}>{initials}</div>
+          <div style={styles.userAvatar} aria-hidden="true">
+            {initials}
+          </div>
           <div style={styles.userInfo}>
             <div style={styles.userName}>{adminName}</div>
             <div style={styles.userRole}>{adminRole}</div>
           </div>
+        </div>
+        <div style={styles.footerRow}>
+          {onChangePassword && (
+            <button type="button" onClick={onChangePassword} style={styles.footerBtn}>
+              <KeyRound size={14} />
+              Change password
+            </button>
+          )}
           {onLogout && (
-            <button type="button" onClick={onLogout} style={styles.logoutBtn} title="Sign out">
-              Out
+            <button type="button" onClick={onLogout} style={styles.footerBtn}>
+              <LogOut size={14} />
+              Sign out
             </button>
           )}
         </div>
-        {onChangePassword && (
-          <button type="button" onClick={onChangePassword} style={styles.passwordBtn}>
-            <KeyRound size={14} />
-            Change password
-          </button>
-        )}
       </div>
     </aside>
   );
@@ -210,44 +219,30 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
   },
-  envContainer: {
-    padding: '12px 20px',
-  },
-  envPill: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    background: 'var(--tint-2)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-full)',
-    padding: '6px 12px',
-    fontSize: '0.74rem',
-  },
-  envDot: {
-    width: '6px',
-    height: '6px',
-    borderRadius: '50%',
-  },
   nav: {
     flex: 1,
     padding: '12px 14px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: '10px',
     overflowY: 'auto',
   },
+  navGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
   navSectionLabel: {
-    fontSize: '0.68rem',
-    fontWeight: 700,
+    fontSize: '0.72rem',
+    fontWeight: 600,
     color: 'var(--text-dim)',
-    letterSpacing: '0.08em',
-    padding: '8px 10px 4px',
+    padding: '2px 14px',
   },
   navBtn: {
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
-    padding: '10px 14px',
+    padding: '8px 14px',
     borderRadius: 'var(--radius-md)',
     color: 'var(--text-muted)',
     fontSize: '0.88rem',
@@ -286,11 +281,11 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--accent)',
   },
   footer: {
-    padding: '16px 16px 20px',
+    padding: '12px 14px 14px',
     borderTop: '1px solid var(--border-subtle)',
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px',
+    gap: '4px',
   },
   userCard: {
     display: 'flex',
@@ -314,22 +309,31 @@ const styles: Record<string, React.CSSProperties> = {
   },
   userInfo: {
     overflow: 'hidden',
+    minWidth: 0,
   },
   userName: {
     fontSize: '0.82rem',
     fontWeight: 600,
     color: 'var(--text-main)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   userRole: {
     fontSize: '0.7rem',
     color: 'var(--text-dim)',
   },
-  passwordBtn: {
+  footerRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '4px',
+  },
+  footerBtn: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    width: '100%',
-    padding: '7px 10px',
+    gap: '6px',
+    padding: '7px 8px',
+    whiteSpace: 'nowrap',
     background: 'none',
     border: '1px solid transparent',
     borderRadius: 'var(--radius-md)',
@@ -338,17 +342,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     cursor: 'pointer',
     textAlign: 'left',
-  },
-  logoutBtn: {
-    marginLeft: 'auto',
-    flexShrink: 0,
-    background: 'var(--danger-soft)',
-    border: '1px solid var(--danger-border)',
-    color: 'var(--danger)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '4px 8px',
-    fontSize: '0.68rem',
-    fontWeight: 700,
-    cursor: 'pointer',
   },
 };

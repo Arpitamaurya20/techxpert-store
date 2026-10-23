@@ -197,7 +197,7 @@ export class StoreTreeService {
       parentId !== currentParent ? `moved to ${placeLabel(parentId, names)}` : '',
     ].filter(Boolean);
     if (changes.length || kind !== (existing.kind ?? '')) {
-      await audit(actor, 'Updated Group', `Group "${name}"${changes.length ? `: ${changes.join(', ')}` : ''}`);
+      await audit(actor, 'Updated Group', `Changed group "${name}"${changes.length ? `: ${changes.join(', ')}` : ''}`);
     }
     return { id: groupId, name, kind: kind ?? '', parentId };
   }
@@ -248,7 +248,7 @@ export class StoreTreeService {
     const [pins] = await storePool.query<any[]>(`SELECT ID as id FROM pincodes WHERE Pincode = ? ORDER BY ID ASC LIMIT 1`, [
       pincode,
     ]);
-    if (!pins.length) throw refusal(409, `Add ${pincode} under Delivery Pincodes first.`);
+    if (!pins.length) throw refusal(409, `Add ${pincode} under Delivery pincodes first.`);
     const pincodeId = Number(pins[0].id);
 
     const conn = await storePool.getConnection();
@@ -388,7 +388,7 @@ export class StoreTreeService {
     await audit(
       actor,
       'Updated Store',
-      `Store "${updated.name}"${changes.length ? `: ${changes.join(', ')}` : ': details changed'}`
+      changes.length ? `Changed store "${updated.name}": ${changes.join(', ')}` : `Changed the details of store "${updated.name}"`
     );
     return updated;
   }
@@ -429,7 +429,7 @@ export class StoreTreeService {
     const [pins] = await storePool.query<any[]>(`SELECT ID as id FROM pincodes WHERE Pincode = ? ORDER BY ID ASC LIMIT 1`, [
       pincode,
     ]);
-    if (!pins.length) throw refusal(409, `Add ${pincode} under Delivery Pincodes first.`);
+    if (!pins.length) throw refusal(409, `Add ${pincode} under Delivery pincodes first.`);
     const pincodeId = Number(pins[0].id);
 
     const conn = await storePool.getConnection();

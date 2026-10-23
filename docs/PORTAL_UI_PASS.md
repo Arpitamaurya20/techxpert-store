@@ -256,9 +256,63 @@ Each batch moves its screens onto U2's pieces and rules, then gets a browser che
     - Sections: Hide and Show, moving up and back down, and the Reset confirm cancelled.
     - With the API stopped: both screens show "Couldn't load …" with Retry, and "—". Retry recovers once the API is back.
 
+### U6 — Admin and shell — done 23 Oct 2026
+
+- **Names in sentence case everywhere:** Delivery pincodes, Stores & groups, Bulk pricing, Campaign banners, Home screen sections (was Homepage Sections), Audit trail, Roles & access. That covers the sidebar, page titles, Dashboard tiles, hints, and the server messages that name a screen ("Add 201309 under Delivery pincodes first.").
+- **Sidebar:**
+  - Grouped under Daily work, Catalogue, App storefront and Admin instead of one "STORE MANAGEMENT" list.
+  - The active item has `aria-current="page"` and is scrolled into view.
+  - The second connection pill is gone; the header's stays.
+  - "Out" became "Sign out", next to "Change password".
+  - At 1440×900 the whole list fits without scrolling.
+- **One Refresh:**
+  - The header's Refresh now also reloads the screens that fetch their own data: Products, Categories, Delivery pincodes, Stores & groups and Roles & access. It does this through a `refreshKey` prop added to their existing load effects, so searches and filters are kept.
+  - Those screens' own Refresh buttons are gone.
+- **Audit trail** (rewritten on `PageIntro` and `LoadState`; it is now a loaded piece with its own error and Retry):
+  - Each entry leads with the sentence that was saved ("Deleted group "U6 check group""), then the area (Products, Orders, Banners, Home screen, Staff & access…), who did it, and the time. Entries are grouped under Today, Yesterday, or the date.
+  - An area filter appears when there is more than one area.
+  - The intro says when only the latest 100 are shown.
+  - The role is left out when the person had none. Older "Quick tools set to hidden" entries read "Hid "Quick tools" on the app home screen".
+  - The portal now writes those sentences itself:
+    - "Marked order … as processing";
+    - "Published banner …";
+    - "Showed / Hid "…" on the app home screen";
+    - "Added delivery to 201309 (Noida), served by …";
+    - "Changed store …" and "Changed group …".
+  - Action names are sentence case ("Saved product", not "Updated Material SKU").
+- **Stores & groups:**
+  - Moved onto `PageIntro` and `LoadState`, with "—" in the figures before loading.
+  - The three `window.confirm`s are now `ConfirmDialog`s that say what happens:
+    - Deleting a group: only an empty group, with no staff covering it, can be deleted.
+    - Deactivating a store: when it still serves pincodes, the dialog says this will be refused.
+    - Stopping a pincode: new orders to it are refused, and orders already placed are kept.
+  - Icon buttons are labelled with what they act on. A form refusal reads "Not saved: …", and a missing area name reads "No area name".
+- **Sign-in:**
+  - The email is no longer filled in.
+  - Empty or malformed fields are flagged under the field. The server's refusal shows as "Not signed in: …".
+  - A wrong password now reads "That email and password don't match a staff login." (server message) instead of "Invalid email or password". "Login response missing admin profile" is gone.
+  - The local seed hint still shows only in development builds.
+- **Developer tools** (super admin only):
+  - Has a `PageIntro` naming the server it calls.
+  - Only read-only requests are left. The login and logout entries are removed: one carried the seed password, and the other signed the super admin out.
+  - Requests send the same sign-in as the rest of the portal.
+  - The status pill no longer says "OK" for a 401 or 404. A non-JSON body is shown as text.
+  - The phone app line uses the portal's real API address instead of a fixed `localhost:5001`.
+- **Dashboard** keeps its own welcome heading and sentence instead of a `PageIntro`. Its figures read "—" until loaded (U3).
+- **Checked:**
+  - Web tsc and oxlint (still only the 9 existing set-state-in-effect warnings); server tsc; 84 server tests.
+  - In the browser:
+    - Audit trail: area filter, day grouping, the role left out.
+    - Stores & groups: the deactivate and stop-serving confirms, then Cancel. A real group was added and deleted through the new confirm, and both entries showed in the audit trail after the header Refresh.
+    - Header Refresh: reloads delivery pincodes and stores.
+    - Developer tools: a request returned 200 with the session.
+    - Sign-in: empty, then a wrong password, then a real sign-in.
+
 ## Done when
 
 - Every screen uses `PageIntro`, `LoadState` and `ConfirmDialog` (where it deletes or deactivates), and follows the rules above.
 - No staff-facing developer wording remains.
 - No invented values are shown.
 - `PROJECT_STATUS.md` plan item 6 is marked done.
+
+All four met 23 Oct 2026 with U6. The Dashboard is the one screen without `PageIntro`, as noted above.

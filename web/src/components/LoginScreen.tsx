@@ -1,38 +1,44 @@
 import React, { useState } from 'react';
-import { Lock, Mail, AlertCircle } from 'lucide-react';
+import { Lock, Mail } from 'lucide-react';
 import { api } from '../services/api';
 import { saveSession, sessionFrom, type PortalSession } from '../services/session';
-import { Button } from './ui';
+import { Button, FormError } from './ui';
 
 interface LoginScreenProps {
   onSuccess: (session: PortalSession) => void;
 }
 
+type FieldErrors = { email?: string; password?: string };
+
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
-  const [email, setEmail] = useState('admin@techxpert.in');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!email.trim() || !password) {
-      setError('Email and password are required.');
-      return;
-    }
+    const address = email.trim();
+    const problems: FieldErrors = {};
+    if (!address) problems.email = 'Enter your work email.';
+    else if (!/^[^\s@]+@[^\s@]+$/.test(address)) problems.email = "That isn't an email address.";
+    if (!password) problems.password = 'Enter your password.';
+    setFieldErrors(problems);
+    if (problems.email || problems.password) return;
 
     try {
       setLoading(true);
-      const result = await api.adminLogin(email.trim(), password);
+      const result = await api.adminLogin(address, password);
       if (!result?.admin) {
-        throw new Error('Login response missing admin profile');
+        throw new Error("You couldn't be signed in. Try again.");
       }
       const session = sessionFrom(result.admin);
       saveSession(session);
       onSuccess(session);
     } catch (err: any) {
-      setError(err.message || 'Invalid email or password');
+      setError(err.message || 'That email and password do not match a staff login.');
     } finally {
       setLoading(false);
     }
@@ -52,45 +58,63 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
           email and password.
         </p>
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          {error && (
-            <div style={styles.errorBox}>
-              <AlertCircle size={16} color="var(--danger)" />
-              <span>{error}</span>
-            </div>
-          )}
-
+        <form onSubmit={handleSubmit} style={styles.form} noValidate>
           <div>
-            <label style={styles.label}>Work email</label>
-            <div style={styles.inputWrap}>
+            <label style={styles.label} htmlFor="login-email">
+              Work email
+            </label>
+            <div style={{ ...styles.inputWrap, ...(fieldErrors.email ? styles.inputWrapInvalid : {}) }}>
               <Mail size={16} color="var(--text-dim)" />
               <input
+                id="login-email"
                 type="email"
                 autoComplete="username"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                }}
                 style={styles.input}
-                placeholder="admin@techxpert.in"
-                required
+                placeholder="name@techxpert.in"
+                aria-invalid={fieldErrors.email ? true : undefined}
+                aria-describedby={fieldErrors.email ? 'login-email-error' : undefined}
               />
             </div>
+            {fieldErrors.email ? (
+              <p id="login-email-error" style={styles.fieldError}>
+                {fieldErrors.email}
+              </p>
+            ) : null}
           </div>
 
           <div>
-            <label style={styles.label}>Password</label>
-            <div style={styles.inputWrap}>
+            <label style={styles.label} htmlFor="login-password">
+              Password
+            </label>
+            <div style={{ ...styles.inputWrap, ...(fieldErrors.password ? styles.inputWrapInvalid : {}) }}>
               <Lock size={16} color="var(--text-dim)" />
               <input
+                id="login-password"
                 type="password"
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                }}
                 style={styles.input}
-                placeholder="••••••••"
-                required
+                aria-invalid={fieldErrors.password ? true : undefined}
+                aria-describedby={fieldErrors.password ? 'login-password-error' : undefined}
               />
             </div>
+            {fieldErrors.password ? (
+              <p id="login-password-error" style={styles.fieldError}>
+                {fieldErrors.password}
+              </p>
+            ) : null}
           </div>
+
+          {error ? <FormError>Not signed in: {error}</FormError> : null}
 
           <Button type="submit" variant="primary" loading={loading} style={{ width: '100%' }}>
             {loading ? 'Signing in…' : 'Sign in'}
@@ -193,16 +217,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.9rem',
     padding: '12px 0',
   },
-  errorBox: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '10px 12px',
-    borderRadius: 'var(--radius-md)',
-    background: 'var(--danger-soft)',
-    border: '1px solid var(--danger-border)',
+  inputWrapInvalid: {
+    borderColor: 'var(--danger-border)',
+  },
+  fieldError: {
+    margin: '6px 0 0',
+    fontSize: '0.78rem',
     color: 'var(--danger)',
-    fontSize: '0.82rem',
   },
   devHint: {
     marginTop: '18px',

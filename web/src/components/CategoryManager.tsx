@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Boxes, FolderTree, Plus, Edit2, Trash2, RefreshCw } from 'lucide-react';
+import { Boxes, FolderTree, Plus, Edit2, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import type { Category, Subcategory } from '../types';
 import {
@@ -22,6 +22,8 @@ interface CategoryManagerProps {
   onAudit?: (action: string, details: string) => void;
   canEdit?: boolean;
   canDelete?: boolean;
+  /** Goes up each time the header's Refresh is pressed; the screen reloads its own data. */
+  refreshKey?: number;
 }
 
 /** Shared by categories and subcategories; `description` is only shown for categories. */
@@ -73,6 +75,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
   onAudit,
   canEdit = true,
   canDelete = true,
+  refreshKey = 0,
 }) => {
   const toast = useToast();
   const { confirm, dialog } = useConfirm();
@@ -125,11 +128,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
 
   useEffect(() => {
     loadCategories();
-  }, [loadCategories]);
+  }, [loadCategories, refreshKey]);
 
   useEffect(() => {
     loadSubs(selectedId);
-  }, [selectedId, loadSubs]);
+  }, [selectedId, loadSubs, refreshKey]);
 
   const selected = categories.find((c) => String(c.id) === selectedId) || null;
   const subsShown = subsFor === selectedId ? subcategories : [];
@@ -159,11 +162,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     };
     if (editing) {
       await api.updateCategory(String(editing.id), payload);
-      onAudit?.('Updated Category', `Saved category "${payload.name}"`);
+      onAudit?.('Saved category', `Saved category "${payload.name}"`);
       toast.success(`Category "${payload.name}" saved.`);
     } else {
       const created = await api.createCategory(payload);
-      onAudit?.('Created Category', `Added category "${payload.name}"`);
+      onAudit?.('Added category', `Added category "${payload.name}"`);
       toast.success(`Category "${payload.name}" added.`);
       if (created?.id) setSelectedId(String(created.id));
     }
@@ -190,7 +193,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     if (!ok) return;
     try {
       await api.deleteCategory(String(cat.id));
-      onAudit?.('Deleted Category', `Removed category "${cat.name}" and its subcategories`);
+      onAudit?.('Deleted category', `Removed category "${cat.name}" and its subcategories`);
       toast.success(`Category "${cat.name}" removed.`);
       await loadCategories();
       onHierarchyChanged?.();
@@ -210,11 +213,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     };
     if (editing) {
       await api.updateSubcategory(String(editing.id), payload);
-      onAudit?.('Updated Subcategory', `Saved subcategory "${payload.name}" in ${selected.name}`);
+      onAudit?.('Saved subcategory', `Saved subcategory "${payload.name}" in ${selected.name}`);
       toast.success(`Subcategory "${payload.name}" saved.`);
     } else {
       await api.createSubcategory(payload);
-      onAudit?.('Created Subcategory', `Added subcategory "${payload.name}" to ${selected.name}`);
+      onAudit?.('Added subcategory', `Added subcategory "${payload.name}" to ${selected.name}`);
       toast.success(`Subcategory "${payload.name}" added to ${selected.name}.`);
     }
     setSubDialog(null);
@@ -237,7 +240,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     if (!ok) return;
     try {
       await api.deleteSubcategory(String(sub.id));
-      onAudit?.('Deleted Subcategory', `Removed subcategory "${sub.name}"${selected ? ` from ${selected.name}` : ''}`);
+      onAudit?.('Deleted subcategory', `Removed subcategory "${sub.name}"${selected ? ` from ${selected.name}` : ''}`);
       toast.success(`Subcategory "${sub.name}" removed.`);
       await loadSubs(selectedId);
       onHierarchyChanged?.();
@@ -252,22 +255,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <StatGrid items={stats} columns={2} />
 
-      <PageIntro
-        actions={
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<RefreshCw size={14} />}
-            onClick={() => {
-              loadCategories();
-              loadSubs(selectedId);
-            }}
-            disabled={catLoading}
-          >
-            Refresh
-          </Button>
-        }
-      >
+      <PageIntro>
         What customers browse and filter by in the app. Choose a category to see its subcategories.
         {canEdit ? '' : ' Your role can see categories but not change them.'}
       </PageIntro>

@@ -39,6 +39,8 @@ function getTabFromHash(): TabId {
   return TAB_ORDER.includes(hash) ? hash : 'dashboard';
 }
 
+const AUDIT_LIMIT = 100;
+
 export function App() {
   const [session, setSession] = useState<PortalSession | null>(() => loadSession());
   const [authChecking, setAuthChecking] = useState<boolean>(() => Boolean(loadSession()));
@@ -215,6 +217,7 @@ function PortalApp({
     banners: false,
     tiers: false,
     sections: false,
+    audit: false,
   });
   /** Why each piece failed on the last load; absent when it loaded. */
   const [loadErrors, setLoadErrors] = useState<Partial<Record<keyof LoadedPieces, string>>>({});
@@ -223,6 +226,8 @@ function PortalApp({
   const [banners, setBanners] = useState<Banner[]>([]);
   const [sections, setSections] = useState<HomepageSection[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  /** Screens that load their own data reload when this goes up. */
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const addAuditLog = (action: string, entity: AuditLog['entity'], details: string) => {
     const actor = `${session.admin.name} (${session.admin.storeRole ?? 'no role'})`;
@@ -301,8 +306,8 @@ function PortalApp({
         can(permissions, 'customers', 'view') ? soft(api.getUsers(), 'customers', 'users') : skip,
         soft(api.getBulkTiers(), 'bulk pricing', 'tiers'),
         soft(api.getBanners(), 'banners', 'banners'),
-        soft(api.getSections(), 'homepage sections', 'sections'),
-        can(permissions, 'audit', 'view') ? soft(api.getAuditLogs(100), 'audit trail') : skip,
+        soft(api.getSections(), 'home screen sections', 'sections'),
+        can(permissions, 'audit', 'view') ? soft(api.getAuditLogs(AUDIT_LIMIT), 'audit trail', 'audit') : skip,
         api
           .getHealth()
           .then(() => true)
@@ -325,6 +330,7 @@ function PortalApp({
         banners: prev.banners || Boolean(bannersData),
         tiers: prev.tiers || Boolean(tiersData),
         sections: prev.sections || sectionsOk,
+        audit: prev.audit || Array.isArray(auditData),
       }));
       if (!healthy) {
         const unreachable = "Can't reach the server.";
@@ -386,7 +392,7 @@ function PortalApp({
     };
     setProducts((prev) => prev.map((p) => (p.id === updated.id ? next : p)));
     addAuditLog(
-      'Updated Material SKU',
+      'Saved product',
       'product',
       `Saved ${next.name}: price ${next.price == null ? 'not set' : inr(next.price)}, stock ${next.stockQuantity}`
     );
@@ -412,7 +418,7 @@ function PortalApp({
     };
     setProducts((prev) => [product, ...prev]);
     setCatalogTotal((n) => n + 1);
-    addAuditLog('Created Material SKU', 'product', `Added ${product.name} at ${inr(Number(product.price))}`);
+    addAuditLog('Added product', 'product', `Added ${product.name} at ${inr(Number(product.price))}`);
     toast.success(`"${product.name}" added to products.`);
   };
 
@@ -422,7 +428,7 @@ function PortalApp({
       const removed = products.find((p) => p.id === id);
       setProducts((prev) => prev.filter((p) => p.id !== id));
       setCatalogTotal((n) => Math.max(0, n - 1));
-      addAuditLog('Deleted Material SKU', 'product', `Removed ${removed?.name || id}`);
+      addAuditLog('Removed product', 'product', `Removed ${removed?.name || id}`);
       toast.success(removed ? `"${removed.name}" removed from products.` : 'Product removed.');
     } catch (err: any) {
       toast.error(`Couldn't remove the product: ${err.message}`);
@@ -438,7 +444,7 @@ function PortalApp({
     try {
       await api.updateOrderStatus(orderId, status);
       setOrders((prev) => prev.map((o) => (String(o.id) === orderId ? { ...o, status } : o)));
-      addAuditLog('Updated Order Status', 'order', `Order ${number} marked as ${label}`);
+      addAuditLog('Changed order status', 'order', `Marked order ${number} as ${label}`);
       toast.success(`Order ${number} marked as ${label}.`);
       return true;
     } catch (err: any) {
@@ -452,7 +458,7 @@ function PortalApp({
   const handleAddTier = async (newTier: BulkPriceTier) => {
     const created = await api.createBulkTier(newTier);
     setBulkTiers((prev) => [...prev, created]);
-    addAuditLog('Created Bulk Tier', 'bulk_tier', `Added ${tierSummary(newTier)}`);
+    addAuditLog('Added bulk price', 'bulk_tier', `Added ${tierSummary(newTier)}`);
     toast.success(`Bulk price added for ${newTier.productName || 'the product'}.`);
   };
 
@@ -470,7 +476,7 @@ function PortalApp({
     setBulkTiers((prev) =>
       prev.map((row) => (row.id === tier.id ? { ...row, ...saved, id: String(saved?.id ?? tier.id) } : row))
     );
-    addAuditLog('Updated Bulk Tier', 'bulk_tier', `Saved ${tierSummary(tier)}`);
+    addAuditLog('Saved bulk price', 'bulk_tier', `Saved ${tierSummary(tier)}`);
     toast.success(`Bulk price saved for ${tier.productName || 'the product'}.`);
   };
 
@@ -480,7 +486,7 @@ function PortalApp({
     try {
       await api.deleteBulkTier(id);
       setBulkTiers((prev) => prev.filter((t) => t.id !== id));
-      addAuditLog('Deleted Bulk Tier', 'bulk_tier', tier ? `Removed ${tierSummary(tier)}` : `Removed ${what}`);
+      addAuditLog('Removed bulk price', 'bulk_tier', tier ? `Removed ${tierSummary(tier)}` : `Removed ${what}`);
       toast.success(`Removed ${what}.`);
     } catch (err: any) {
       toast.error(`Couldn't remove ${what}: ${err.message}`);
@@ -492,12 +498,12 @@ function PortalApp({
     if (isNew) {
       const created: Banner = await api.createBanner(banner);
       setBanners((prev) => [...prev, created]);
-      addAuditLog('Created Campaign Banner', 'banner', `Added banner "${banner.title}"`);
+      addAuditLog('Added banner', 'banner', `Added banner "${banner.title}"`);
       toast.success(`Banner "${banner.title}" added.`);
     } else {
       const saved: Banner = await api.updateBanner(banner.id, banner);
       setBanners((prev) => prev.map((b) => (b.id === banner.id ? saved : b)));
-      addAuditLog('Saved Campaign Banner', 'banner', `Saved banner "${banner.title}"`);
+      addAuditLog('Saved banner', 'banner', `Saved banner "${banner.title}"`);
       toast.success(`Banner "${banner.title}" saved.`);
     }
   };
@@ -507,7 +513,7 @@ function PortalApp({
     try {
       await api.deleteBanner(id);
       setBanners((prev) => prev.filter((b) => b.id !== id));
-      addAuditLog('Deleted Banner', 'banner', `Removed banner "${title}"`);
+      addAuditLog('Deleted banner', 'banner', `Deleted banner "${title}"`);
       toast.success(`Banner "${title}" removed.`);
     } catch (err: any) {
       toast.error(`Couldn't remove "${title}": ${err.message}`);
@@ -530,7 +536,7 @@ function PortalApp({
     setBanners(renumbered);
     try {
       for (const b of changed) await api.updateBanner(b.id, { position: b.position });
-      addAuditLog('Reordered Banners', 'banner', `Moved banner "${sorted[index].title}" ${direction}`);
+      addAuditLog('Moved banner', 'banner', `Moved banner "${sorted[index].title}" ${direction}`);
     } catch (err: any) {
       toast.error(`Couldn't save the banner order: ${err.message}`);
       loadData();
@@ -543,7 +549,15 @@ function PortalApp({
     try {
       const saved: Banner = await api.updateBanner(id, { status: newStatus });
       setBanners((prev) => prev.map((b) => (b.id === id ? saved : b)));
-      addAuditLog('Changed Banner Status', 'banner', `Banner "${title}" ${verb}`);
+      addAuditLog(
+        'Changed banner status',
+        'banner',
+        newStatus === 'published'
+          ? `Published banner "${title}"`
+          : newStatus === 'paused'
+            ? `Paused banner "${title}"`
+            : `Set banner "${title}" to ${newStatus}`
+      );
       toast.success(`Banner "${title}" ${verb}.`);
     } catch (err: any) {
       toast.error(`Couldn't change "${title}": ${err.message}`);
@@ -559,9 +573,9 @@ function PortalApp({
     try {
       await api.updateSection(id, { enabled: nextEnabled });
       addAuditLog(
-        nextEnabled ? 'Enabled Homepage Section' : 'Disabled Homepage Section',
+        nextEnabled ? 'Showed home screen section' : 'Hid home screen section',
         'section',
-        `${current.title} set to ${nextEnabled ? 'visible' : 'hidden'}`
+        `${nextEnabled ? 'Showed' : 'Hid'} "${current.title}" on the app home screen`
       );
       toast.success(`"${current.title}" is now ${nextEnabled ? 'shown' : 'hidden'} on the app home screen.`);
     } catch (err: any) {
@@ -588,8 +602,8 @@ function PortalApp({
         { id: sorted[index].id, position: sorted[index].position },
         { id: sorted[targetIndex].id, position: sorted[targetIndex].position },
       ]);
-      addAuditLog('Reordered Homepage Sections', 'section', `Moved "${sorted[index].title}" ${direction}`);
-      toast.success('Homepage section order saved.');
+      addAuditLog('Moved home screen section', 'section', `Moved "${sorted[index].title}" ${direction} on the app home screen`);
+      toast.success('Home screen order saved.');
     } catch (err: any) {
       toast.error(`Couldn't save the section order: ${err.message}`);
       loadData();
@@ -601,10 +615,10 @@ function PortalApp({
       const reset = await api.resetSections();
       if (Array.isArray(reset) && reset.length) setSections(reset as HomepageSection[]);
       else await loadData();
-      addAuditLog('Reset Homepage Layout', 'section', 'Restored the default section order and visibility');
-      toast.success('Homepage sections reset to the default layout.');
+      addAuditLog('Reset home screen layout', 'section', 'Reset the app home screen to the default sections and order');
+      toast.success('The app home screen is back to the default sections and order.');
     } catch (err: any) {
-      toast.error(`Couldn't reset the homepage sections: ${err.message}`);
+      toast.error(`Couldn't reset the home screen: ${err.message}`);
     }
   };
 
@@ -626,11 +640,11 @@ function PortalApp({
       subtitle: 'Orders placed in the app, and where each one is in fulfilment',
     },
     delivery: {
-      title: 'Delivery Pincodes',
+      title: 'Delivery pincodes',
       subtitle: 'Where each store delivers; checkout refuses pincodes that are paused or have no store',
     },
     stores: {
-      title: 'Stores & Groups',
+      title: 'Stores & groups',
       subtitle: 'Which store serves which pincode, and the zones, areas and clusters they sit in',
     },
     users: {
@@ -638,15 +652,15 @@ function PortalApp({
       subtitle: 'People who signed up in the app, their saved addresses and what they have ordered',
     },
     pricing: {
-      title: 'Bulk Pricing',
+      title: 'Bulk pricing',
       subtitle: 'Discounts for buying larger quantities',
     },
     banners: {
-      title: 'Campaign Banners',
+      title: 'Campaign banners',
       subtitle: 'The promotional banners on the app home screen',
     },
     sections: {
-      title: 'Homepage Sections',
+      title: 'Home screen sections',
       subtitle: 'Which blocks the app home screen shows, and in what order. Changes appear without an app update',
     },
     api: {
@@ -654,11 +668,11 @@ function PortalApp({
       subtitle: 'For developers: test server endpoints and connect the phone app (super admin only)',
     },
     audit: {
-      title: 'Audit Trail',
+      title: 'Audit trail',
       subtitle: 'Who changed what in the portal, and when',
     },
     access: {
-      title: 'Roles & Access',
+      title: 'Roles & access',
       subtitle: 'Who can open which module, and whether they can edit or delete there',
     },
   };
@@ -670,7 +684,7 @@ function PortalApp({
         <h2 style={styles.noAccessTitle}>No portal access yet</h2>
         <p style={styles.noAccessText}>
           You're signed in as {session.admin.name}, but no store role has been given to this login. Ask a store
-          admin to assign you a role in Roles &amp; Access.
+          admin to assign you a role in Roles &amp; access.
         </p>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button type="button" onClick={() => setChangingPassword(true)} style={styles.noAccessButton}>
@@ -700,7 +714,6 @@ function PortalApp({
         ordersCount={loaded.orders ? orders.length : undefined}
         productsCount={loaded.products ? catalogTotal || products.length : undefined}
         usersCount={loaded.users ? users.length : undefined}
-        serverOnline={serverOnline}
         adminName={session.admin.name}
         adminRole={session.admin.storeRole ?? 'No role'}
         onChangePassword={() => setChangingPassword(true)}
@@ -718,7 +731,10 @@ function PortalApp({
         <Header
           title={titles[currentTab].title}
           subtitle={titles[currentTab].subtitle}
-          onRefresh={() => loadData(true)}
+          onRefresh={() => {
+            setRefreshKey((n) => n + 1);
+            loadData(true);
+          }}
           loading={loading}
           serverOnline={serverOnline}
         />
@@ -753,6 +769,7 @@ function PortalApp({
               canEdit={can(permissions, 'products', 'edit')}
               canDelete={can(permissions, 'products', 'delete')}
               onDeleteProduct={handleDeleteProduct}
+              refreshKey={refreshKey}
             />
           )}
 
@@ -762,6 +779,7 @@ function PortalApp({
               canDelete={can(permissions, 'categories', 'delete')}
               onHierarchyChanged={loadData}
               onAudit={(action, details) => addAuditLog(action, 'category', details)}
+              refreshKey={refreshKey}
             />
           )}
 
@@ -782,6 +800,7 @@ function PortalApp({
               canManage={can(permissions, 'delivery', 'edit')}
               canSeeStores={can(permissions, 'stores', 'view')}
               onAudit={(action, details) => addAuditLog(action, 'delivery', details)}
+              refreshKey={refreshKey}
             />
           )}
 
@@ -789,6 +808,7 @@ function PortalApp({
             <StoreTreeManager
               canEdit={can(permissions, 'stores', 'edit')}
               canDelete={can(permissions, 'stores', 'delete')}
+              refreshKey={refreshKey}
             />
           )}
 
@@ -853,13 +873,23 @@ function PortalApp({
 
           {currentTab === 'api' && <ApiExplorer />}
 
-          {currentTab === 'audit' && <AuditLogViewer logs={auditLogs} />}
+          {currentTab === 'audit' && (
+            <AuditLogViewer
+              logs={auditLogs}
+              limit={AUDIT_LIMIT}
+              loading={loading}
+              loadError={loadErrors.audit ?? null}
+              loaded={loaded.audit}
+              onRetry={() => loadData(true)}
+            />
+          )}
 
           {currentTab === 'access' && (
             <AccessManager
               permissions={permissions}
               canEdit={can(permissions, 'access', 'edit')}
               canDelete={can(permissions, 'access', 'delete')}
+              refreshKey={refreshKey}
             />
           )}
         </main>

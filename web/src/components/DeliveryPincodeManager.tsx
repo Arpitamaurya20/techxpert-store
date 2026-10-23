@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { MapPin, PauseCircle, PlayCircle, Plus, RefreshCw } from 'lucide-react';
+import { MapPin, PauseCircle, PlayCircle, Plus } from 'lucide-react';
 import { api, type DeliveryPincode, type StoreTree } from '../services/api';
 import {
   Badge,
@@ -22,6 +22,8 @@ interface DeliveryPincodeManagerProps {
   /** Stores view: lets the add form offer your stores. */
   canSeeStores: boolean;
   onAudit?: (action: string, details: string) => void;
+  /** Goes up each time the header's Refresh is pressed; the screen reloads its own data. */
+  refreshKey?: number;
 }
 
 const NO_STORE = '';
@@ -37,6 +39,7 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
   canManage,
   canSeeStores,
   onAudit,
+  refreshKey = 0,
 }) => {
   const toast = useToast();
   const { confirm, dialog } = useConfirm();
@@ -74,7 +77,7 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   const activeCount = rows.filter((row) => row.active).length;
   /** Before the first successful load, a count is unknown rather than zero. */
@@ -116,8 +119,10 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
       setPincode('');
       setAreaName('');
       onAudit?.(
-        'Added Delivery Pincode',
-        `${created.pincode} (${created.areaName})${created.storeName ? ` served by ${created.storeName}` : ', no store yet'}`
+        'Added delivery pincode',
+        `Added delivery to ${created.pincode}${created.areaName ? ` (${created.areaName})` : ''}${
+          created.storeName ? `, served by ${created.storeName}` : ', with no store yet'
+        }`
       );
       toast.success(
         created.storeName
@@ -150,7 +155,10 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
       setBusyId(row.id);
       const saved = await api.setDeliveryPincodeActive(row.id, !row.active);
       setRows((prev) => prev.map((r) => (r.id === row.id ? saved : r)));
-      onAudit?.(saved.active ? 'Resumed Delivery Pincode' : 'Paused Delivery Pincode', `${saved.pincode} (${saved.areaName})`);
+      onAudit?.(
+        saved.active ? 'Resumed delivery pincode' : 'Paused delivery pincode',
+        `${saved.active ? 'Resumed' : 'Paused'} delivery to ${saved.pincode}${saved.areaName ? ` (${saved.areaName})` : ''}`
+      );
       toast.success(saved.active ? `Delivery to ${saved.pincode} resumed.` : `Delivery to ${saved.pincode} paused.`);
     } catch (err: any) {
       toast.error(`Couldn't change ${row.pincode}: ${err.message}`);
@@ -163,13 +171,7 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <StatGrid items={stats} columns={2} />
 
-      <PageIntro
-        actions={
-          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-        }
-      >
+      <PageIntro>
         The phone checks the delivery pincode at checkout, and the server refuses orders to pincodes that are not
         active here or not served by an active store. Pausing stops new orders to that pincode; nothing is deleted.
         {canManage ? '' : ' Your role can see pincodes but not add, pause or resume them.'}
