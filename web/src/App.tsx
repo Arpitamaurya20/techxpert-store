@@ -222,7 +222,6 @@ function PortalApp({
   const [bulkTiers, setBulkTiers] = useState<BulkPriceTier[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [sections, setSections] = useState<HomepageSection[]>([]);
-  const [sectionsError, setSectionsError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   const addAuditLog = (action: string, entity: AuditLog['entity'], details: string) => {
@@ -334,12 +333,7 @@ function PortalApp({
       setLoadErrors(errors);
       if (tiersData) setBulkTiers(tiersData);
       if (bannersData) setBanners(bannersData);
-      if (sectionsOk) {
-        setSections(sectionsData as HomepageSection[]);
-        setSectionsError(null);
-      } else {
-        setSectionsError("Couldn't load homepage sections.");
-      }
+      if (sectionsOk) setSections(sectionsData as HomepageSection[]);
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -494,32 +488,29 @@ function PortalApp({
   };
 
   // Banner Actions
-  const handleSaveBanner = async (banner: Banner) => {
-    try {
-      const exists = banners.some((b) => b.id === banner.id);
-      let resultBanner: Banner;
-      if (exists) {
-        resultBanner = await api.updateBanner(banner.id, banner);
-        setBanners((prev) => prev.map((b) => (b.id === banner.id ? resultBanner : b)));
-      } else {
-        resultBanner = await api.createBanner(banner);
-        setBanners((prev) => [...prev, resultBanner]);
-      }
-      addAuditLog('Saved Campaign Banner', 'banner', `Saved "${banner.title}"`);
+  const handleSaveBanner = async (banner: Banner, isNew: boolean) => {
+    if (isNew) {
+      const created: Banner = await api.createBanner(banner);
+      setBanners((prev) => [...prev, created]);
+      addAuditLog('Created Campaign Banner', 'banner', `Added banner "${banner.title}"`);
+      toast.success(`Banner "${banner.title}" added.`);
+    } else {
+      const saved: Banner = await api.updateBanner(banner.id, banner);
+      setBanners((prev) => prev.map((b) => (b.id === banner.id ? saved : b)));
+      addAuditLog('Saved Campaign Banner', 'banner', `Saved banner "${banner.title}"`);
       toast.success(`Banner "${banner.title}" saved.`);
-    } catch (err: any) {
-      toast.error(`Couldn't save the banner: ${err.message}`);
     }
   };
 
   const handleDeleteBanner = async (id: string) => {
+    const title = banners.find((b) => b.id === id)?.title ?? `#${id}`;
     try {
       await api.deleteBanner(id);
       setBanners((prev) => prev.filter((b) => b.id !== id));
-      addAuditLog('Deleted Banner', 'banner', `Removed banner ${id}`);
-      toast.success('Banner removed.');
+      addAuditLog('Deleted Banner', 'banner', `Removed banner "${title}"`);
+      toast.success(`Banner "${title}" removed.`);
     } catch (err: any) {
-      toast.error(`Couldn't remove the banner: ${err.message}`);
+      toast.error(`Couldn't remove "${title}": ${err.message}`);
     }
   };
 
@@ -531,17 +522,15 @@ function PortalApp({
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= sorted.length) return;
 
-    const currentPos = sorted[index].position;
-    const targetPos = sorted[targetIndex].position;
+    const order = [...sorted];
+    [order[index], order[targetIndex]] = [order[targetIndex], order[index]];
+    const renumbered = order.map((b, i) => ({ ...b, position: i + 1 }));
+    const changed = renumbered.filter((b) => sorted.find((s) => s.id === b.id)?.position !== b.position);
 
-    sorted[index].position = targetPos;
-    sorted[targetIndex].position = currentPos;
-
-    setBanners([...sorted]);
+    setBanners(renumbered);
     try {
-      await api.updateBanner(sorted[index].id, { position: targetPos });
-      await api.updateBanner(sorted[targetIndex].id, { position: currentPos });
-      toast.success('Banner order saved.');
+      for (const b of changed) await api.updateBanner(b.id, { position: b.position });
+      addAuditLog('Reordered Banners', 'banner', `Moved banner "${sorted[index].title}" ${direction}`);
     } catch (err: any) {
       toast.error(`Couldn't save the banner order: ${err.message}`);
       loadData();
@@ -549,27 +538,15 @@ function PortalApp({
   };
 
   const handleStatusChangeBanner = async (id: string, newStatus: Banner['status']) => {
+    const title = banners.find((b) => b.id === id)?.title ?? `#${id}`;
+    const verb = newStatus === 'published' ? 'published' : newStatus === 'paused' ? 'paused' : `set to ${newStatus}`;
     try {
-      if (newStatus === 'published') {
-        const banner = banners.find((b) => b.id === id);
-        if (banner) {
-          const imageOk =
-            Boolean(banner.imageUrl?.trim()) &&
-            (banner.imageUrl.startsWith('/') || /^https?:\/\//i.test(banner.imageUrl));
-          const ctaOk = Boolean(banner.ctaLabel?.trim());
-          if (!imageOk || !ctaOk || !banner.title?.trim()) {
-            toast.error("Can't publish yet: the banner needs a title, an image and a button label.");
-            return;
-          }
-        }
-      }
-      await api.updateBanner(id, { status: newStatus });
-      setBanners((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status: newStatus } : b))
-      );
-      toast.success(newStatus === 'draft' ? 'Banner moved back to draft.' : `Banner ${newStatus}.`);
+      const saved: Banner = await api.updateBanner(id, { status: newStatus });
+      setBanners((prev) => prev.map((b) => (b.id === id ? saved : b)));
+      addAuditLog('Changed Banner Status', 'banner', `Banner "${title}" ${verb}`);
+      toast.success(`Banner "${title}" ${verb}.`);
     } catch (err: any) {
-      toast.error(`Couldn't change the banner: ${err.message}`);
+      toast.error(`Couldn't change "${title}": ${err.message}`);
     }
   };
 
@@ -845,21 +822,26 @@ function PortalApp({
           {currentTab === 'banners' && (
             <BannerCMS
               banners={banners}
+              categories={categories}
+              loading={loading}
+              loadError={loadErrors.banners ?? null}
+              loaded={loaded.banners}
+              onRetry={() => loadData(true)}
               onSaveBanner={handleSaveBanner}
               canEdit={can(permissions, 'banners', 'edit')}
               canDelete={can(permissions, 'banners', 'delete')}
               onDeleteBanner={handleDeleteBanner}
               onReorder={handleReorderBanner}
               onStatusChange={handleStatusChangeBanner}
-              selectedBannerId={banners[0]?.id}
-              onSelectBanner={() => {}}
             />
           )}
 
           {currentTab === 'sections' && (
             <SectionLayoutManager
               sections={sections}
-              loadError={sectionsError}
+              loading={loading}
+              loadError={loadErrors.sections ?? null}
+              loaded={loaded.sections}
               onRetry={() => loadData(true)}
               onToggleSection={handleToggleSection}
               onReorderSection={handleReorderSection}

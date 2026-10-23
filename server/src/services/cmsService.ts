@@ -74,7 +74,7 @@ export class CmsService {
     const { title, subtitle, imageUrl, ctaLabel, ctaType, ctaTarget, status, termsText, locationScope, startsAt, endsAt } = data;
 
     if (!title || !imageUrl) {
-      throw new Error('Title and imageUrl are required');
+      throw Object.assign(new Error('A banner needs a title and an image.'), { statusCode: 400 });
     }
 
     try {
@@ -163,7 +163,7 @@ export class CmsService {
          WHERE id = ?`,
         [
           title || null,
-          subtitle || null,
+          subtitle !== undefined && subtitle !== null ? String(subtitle) : null,
           imageUrl || null,
           ctaLabel || null,
           ctaType || null,
@@ -180,12 +180,11 @@ export class CmsService {
         ]
       );
 
-      return {
-        id: String(id),
-        ...data,
-        updatedAt: new Date().toISOString().slice(0, 10),
-      };
-    } catch (err) {
+      const saved = (await CmsService.getBanners()).find((b: any) => String(b.id) === String(id));
+      if (!saved) throw Object.assign(new Error('That banner no longer exists.'), { statusCode: 404 });
+      return saved;
+    } catch (err: any) {
+      if (err?.statusCode) throw err;
       return mysqlOrFileStore('cms.updateBanner', err, () => {
         const updated = store.updateBanner(String(id), { ...data, updatedAt: new Date().toLocaleDateString() });
         if (!updated) throw Object.assign(new Error('Banner not found'), { statusCode: 404 });

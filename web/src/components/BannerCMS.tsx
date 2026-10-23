@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Image as ImageIcon,
   Plus,
@@ -8,116 +8,127 @@ import {
   Trash2,
   Play,
   Pause,
-  MapPin,
   Calendar,
-  AlertCircle,
-  CheckCircle2,
-  ExternalLink,
+  MousePointerClick,
+  EyeOff,
 } from 'lucide-react';
 import type { Banner, BannerStatus, CtaType } from '../types';
 import { api, resolvePortalAsset } from '../services/api';
-import { StatGrid, Badge, Button, Modal, useToast } from './ui';
+import { isBannerLive } from '../services/bannerLive';
+import { formatWhen } from '../services/format';
+import { StatGrid, Badge, Button, Field, FormError, LoadState, Modal, PageIntro, useConfirm } from './ui';
 import type { StatItem, BadgeVariant } from './ui';
+
+interface CategoryOption {
+  id: string | number;
+  name: string;
+  slug?: string;
+}
 
 interface BannerCMSProps {
   banners: Banner[];
-  onSaveBanner: (banner: Banner) => void;
-  onDeleteBanner: (id: string) => void;
-  canEdit?: boolean;
-  canDelete?: boolean;
+  /** For the button's destination: the app opens categories by id. */
+  categories: CategoryOption[];
+  loading: boolean;
+  loadError: string | null;
+  loaded: boolean;
+  onRetry: () => void;
+  /** Rejects when the server refuses, so the form can stay open and say why. */
+  onSaveBanner: (banner: Banner, isNew: boolean) => Promise<void>;
+  onDeleteBanner: (id: string) => Promise<void>;
   onReorder: (id: string, direction: 'up' | 'down') => void;
   onStatusChange: (id: string, newStatus: BannerStatus) => void;
-  selectedBannerId?: string;
-  onSelectBanner: (id: string) => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
-const statusMap: Record<BannerStatus, { variant: BadgeVariant; label: string }> = {
-  published: { variant: 'success', label: 'Published' },
-  scheduled: { variant: 'info', label: 'Scheduled' },
-  draft: { variant: 'neutral', label: 'Draft' },
-  paused: { variant: 'warning', label: 'Paused' },
-  archived: { variant: 'danger', label: 'Archived' },
+const STATUS_LABEL: Record<BannerStatus, string> = {
+  published: 'Published',
+  scheduled: 'Scheduled',
+  draft: 'Draft',
+  paused: 'Paused',
+  archived: 'Archived',
 };
 
-const CTA_HINTS: Record<CtaType, { label: string; placeholder: string; example: string }> = {
-  category: {
-    label: 'Category ID or slug',
-    placeholder: 'e.g. 1 or cement-plaster',
-    example: 'Opens category browse on mobile',
-  },
-  product: {
-    label: 'Product ID or SKU',
-    placeholder: 'e.g. 42 or TX-1204',
-    example: 'Deep-links to product detail',
-  },
-  external: {
-    label: 'External HTTPS URL',
-    placeholder: 'https://…',
-    example: 'Opens in browser / in-app webview',
-  },
-  deals: {
-    label: 'Deals route (optional)',
-    placeholder: '/deals or leave blank',
-    example: 'Defaults to in-app deals rail',
-  },
+const STATUS_HINT: Record<BannerStatus, string> = {
+  published: 'In the app now. If you set dates, only between them.',
+  scheduled: 'In the app only between the start and end below.',
+  draft: 'Not in the app. Publish it when it is ready.',
+  paused: 'Not in the app until you publish it again.',
+  archived: 'Not in the app.',
 };
 
-function isHttpUrl(value: string): boolean {
+/** Where the banner stands in the app right now, in one short phrase. */
+function showing(banner: Banner, now: Date): { label: string; variant: BadgeVariant } {
+  if (isBannerLive(banner, now)) return { label: 'Live in the app', variant: 'success' };
+  if (banner.status !== 'published' && banner.status !== 'scheduled') {
+    return { label: `${STATUS_LABEL[banner.status] ?? banner.status}, not in the app`, variant: 'neutral' };
+  }
+  if (banner.status === 'scheduled' && !banner.startsAt) {
+    return { label: 'Scheduled with no start, never shows', variant: 'warning' };
+  }
+  const start = banner.startsAt ? new Date(banner.startsAt) : null;
+  if (start && start.getTime() > now.getTime()) return { label: `Starts ${formatWhen(start)}`, variant: 'info' };
+  return { label: `Ended ${formatWhen(banner.endsAt) ?? ''}`.trim(), variant: 'neutral' };
+}
+
+/** What the app opens when the button is tapped (same rules as the app's `mapCtaHref`). */
+function destination(banner: Banner, categories: CategoryOption[]): { text: string; problem?: string } {
+  const target = banner.ctaTarget.trim();
+  const categoryName = (id: string) =>
+    categories.find((c) => String(c.id) === id || c.slug === id)?.name;
+  if (target.startsWith('/')) {
+    if (target === '/products') return { text: 'All products' };
+    const cat = target.match(/^\/category\/([^/?#]+)/);
+    if (cat) return { text: categoryName(cat[1]) ?? `Category ${cat[1]}` };
+    const prod = target.match(/^\/products\/([^/?#]+)/);
+    if (prod) return { text: `Product ${prod[1]}` };
+    return { text: `App page ${target}`, problem: "The app may not have this page; check it on a phone." };
+  }
+  if (banner.ctaType === 'category') {
+    const name = categoryName(target);
+    if (name) return { text: name };
+    return {
+      text: `Category ${target || '1'}`,
+      problem: categories.length ? 'No category with this id is in the list.' : undefined,
+    };
+  }
+  if (banner.ctaType === 'product') return target ? { text: `Product ${target}` } : { text: 'All products' };
+  if (banner.ctaType === 'external') {
+    return { text: 'All products', problem: "The app doesn't open outside links, so it shows all products." };
+  }
+  return { text: 'All products' };
+}
+
+type Errors = Partial<Record<'title' | 'imageUrl' | 'ctaLabel' | 'ctaTarget' | 'startsAt' | 'endsAt' | 'form', string>>;
+
+function isImageUrl(value: string): boolean {
+  const v = value.trim();
+  if (v.startsWith('/')) return v.length > 1;
   try {
-    const u = new URL(value);
+    const u = new URL(v);
     return u.protocol === 'http:' || u.protocol === 'https:';
   } catch {
     return false;
   }
 }
 
-function isImageUrl(value: string): boolean {
-  const v = value.trim();
-  if (!v) return false;
-  if (v.startsWith('/')) return true; // site-relative asset
-  return isHttpUrl(v);
-}
-
-function validateBanner(banner: Banner): string[] {
-  const errors: string[] = [];
-
-  if (!banner.title.trim()) errors.push('Headline is required.');
-  if (!isImageUrl(banner.imageUrl)) {
-    errors.push('Image URL must be https://… or a site path starting with /.');
+function checkBanner(b: Banner): Errors {
+  const errors: Errors = {};
+  if (!b.title.trim()) errors.title = 'Enter the headline customers will see.';
+  if (!b.imageUrl.trim()) errors.imageUrl = 'Upload an image or paste its address.';
+  else if (!isImageUrl(b.imageUrl)) errors.imageUrl = 'Use an https:// address or a path starting with /.';
+  if (!b.ctaLabel.trim()) errors.ctaLabel = 'Enter the button text, e.g. "Shop now".';
+  if (b.ctaType === 'category' && !b.ctaTarget.trim()) errors.ctaTarget = 'Choose the category the button opens.';
+  if (b.ctaType === 'product' && !b.ctaTarget.trim()) errors.ctaTarget = 'Enter the product number the button opens.';
+  if (b.status === 'scheduled' && !b.startsAt) errors.startsAt = 'A scheduled banner needs a start time.';
+  if (b.startsAt && b.endsAt && new Date(b.endsAt).getTime() <= new Date(b.startsAt).getTime()) {
+    errors.endsAt = 'End after the start time.';
   }
-  if (!banner.ctaLabel.trim()) errors.push('CTA button label is required.');
-
-  const target = banner.ctaTarget.trim();
-  switch (banner.ctaType) {
-    case 'category':
-    case 'product':
-      if (!target) errors.push(`CTA target is required for ${banner.ctaType} links.`);
-      break;
-    case 'external':
-      if (!isHttpUrl(target)) errors.push('External CTA must be a full http(s) URL.');
-      break;
-    case 'deals':
-      if (target && !target.startsWith('/') && !isHttpUrl(target)) {
-        errors.push('Deals target should be a path like /deals or a full URL.');
-      }
-      break;
-  }
-
-  if (banner.status === 'published' && errors.length === 0 && !isImageUrl(banner.imageUrl)) {
-    errors.push('Cannot publish without a valid image URL.');
-  }
-
-  if (banner.status === 'scheduled' && !banner.startsAt) {
-    errors.push('Scheduled banners need a start time. The phone stays on the previous campaign until then.');
-  }
-  if (banner.startsAt && banner.endsAt && new Date(banner.endsAt).getTime() < new Date(banner.startsAt).getTime()) {
-    errors.push('End time must be on or after the start time.');
-  }
-
   return errors;
 }
 
-function toLocalInput(iso?: string) {
+function toLocalInput(iso?: string | null) {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -126,87 +137,28 @@ function toLocalInput(iso?: string) {
 }
 
 function fromLocalInput(value: string) {
-  if (!value) return '';
+  if (!value) return undefined;
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
-function formatWindow(banner: Banner) {
-  const start = banner.startsAt ? new Date(banner.startsAt) : null;
-  const end = banner.endsAt ? new Date(banner.endsAt) : null;
-  const fmt = (d: Date) =>
-    d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  if (start && end) return `${fmt(start)} – ${fmt(end)}`;
-  if (start) return `From ${fmt(start)}`;
-  if (end) return `Until ${fmt(end)}`;
-  return '';
-}
-
-const BannerImagePreview: React.FC<{
-  src: string;
-  alt: string;
-  height?: number;
-  showUrlStatus?: boolean;
-}> = ({ src, alt, height = 170, showUrlStatus = false }) => {
+/** Remount with `key={src}` so a new address gets a fresh try. */
+const BannerImage: React.FC<{ src: string; alt: string; height: number }> = ({ src, alt, height }) => {
   const [failed, setFailed] = useState(false);
-  const displaySrc = resolvePortalAsset(src);
-  const validShape = isImageUrl(src);
-
-  useEffect(() => {
-    setFailed(false);
-  }, [src]);
-
+  const usable = isImageUrl(src);
   return (
-    <div>
-      <div
-        style={{
-          position: 'relative',
-          height,
-          background: 'var(--bg-surface)',
-          borderRadius: 'var(--radius-md)',
-          overflow: 'hidden',
-          border: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        {validShape && !failed ? (
-          <img
-            src={displaySrc}
-            alt={alt}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={() => setFailed(true)}
-            onLoad={() => setFailed(false)}
-          />
-        ) : (
-          <div style={styles.imageFallback}>
-            <ImageIcon size={28} color="var(--text-dim)" />
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textAlign: 'center' }}>
-              {!src.trim()
-                ? 'Paste an image URL to preview'
-                : !validShape
-                  ? 'Invalid URL format'
-                  : 'Image failed to load'}
-            </span>
-          </div>
-        )}
-      </div>
-      {showUrlStatus && (
-        <div style={styles.urlStatusRow}>
-          {validShape && !failed ? (
-            <>
-              <CheckCircle2 size={13} color="var(--success)" />
-              <span style={{ color: 'var(--success)' }}>Preview OK — image loads</span>
-            </>
-          ) : (
-            <>
-              <AlertCircle size={13} color="var(--warning)" />
-              <span style={{ color: 'var(--warning)' }}>
-                {!validShape ? 'Fix URL format before publish' : 'Broken or unreachable image'}
-              </span>
-            </>
-          )}
+    <div style={{ ...styles.imageBox, height }}>
+      {usable && !failed ? (
+        <img
+          src={resolvePortalAsset(src)}
+          alt={alt}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <div style={styles.imageFallback}>
+          <ImageIcon size={26} color="var(--text-dim)" />
+          <span>{!src.trim() ? 'No image yet' : usable ? "This image doesn't load" : 'Not an image address'}</span>
         </div>
       )}
     </div>
@@ -215,583 +167,528 @@ const BannerImagePreview: React.FC<{
 
 export const BannerCMS: React.FC<BannerCMSProps> = ({
   banners,
+  categories,
+  loading,
+  loadError,
+  loaded,
+  onRetry,
   onSaveBanner,
   onDeleteBanner,
-  canEdit = true,
-  canDelete = true,
   onReorder,
   onStatusChange,
+  canEdit = true,
+  canDelete = true,
 }) => {
-  const toast = useToast();
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [editingBanner, setEditingBanner] = useState<Banner | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formErrors, setFormErrors] = useState<string[]>([]);
-  const [triedSave, setTriedSave] = useState(false);
+  const { confirm, dialog } = useConfirm();
+  const [filter, setFilter] = useState<'all' | BannerStatus>('all');
+  const [editor, setEditor] = useState<{ banner: Banner; isNew: boolean; showErrors: boolean } | null>(null);
+  /** Live / starts / ended are worked out as of when the screen opened. */
+  const [now] = useState(() => new Date());
 
-  const activeCount = banners.filter((b) => b.status === 'published').length;
-  const scheduledCount = banners.filter((b) => b.status === 'scheduled').length;
-  const draftCount = banners.filter((b) => b.status === 'draft').length;
+  const sorted = [...banners].sort((a, b) => a.position - b.position);
+  const shown = filter === 'all' ? sorted : sorted.filter((b) => b.status === filter);
+  const liveCount = banners.filter((b) => isBannerLive(b, now)).length;
+  const countOf = (status: BannerStatus) => banners.filter((b) => b.status === status).length;
 
   const stats: StatItem[] = [
+    { label: 'Banners', value: loaded ? banners.length : '—', icon: <ImageIcon size={20} />, iconColor: 'var(--accent)' },
     {
-      label: 'Campaign Banners',
-      value: banners.length,
-      icon: <ImageIcon size={20} />,
-      iconColor: 'var(--accent)',
-    },
-    {
-      label: 'Published on Mobile App',
-      value: activeCount,
+      label: 'Live in the app now',
+      value: loaded ? liveCount : '—',
+      subtext: loaded && liveCount === 0 ? 'The app shows its own built-in slides' : undefined,
       icon: <Play size={20} />,
       iconColor: 'var(--success)',
     },
     {
-      label: 'Scheduled Campaigns',
-      value: scheduledCount,
-      icon: <Calendar size={20} />,
-      iconColor: 'var(--info)',
-    },
-    {
-      label: 'Draft / Paused',
-      value: draftCount + banners.filter((b) => b.status === 'paused').length,
-      icon: <Pause size={20} />,
+      label: 'Not in the app',
+      value: loaded ? banners.length - liveCount : '—',
+      subtext: loaded
+        ? [
+            [countOf('draft'), 'draft'],
+            [countOf('paused'), 'paused'],
+            [banners.length - liveCount - countOf('draft') - countOf('paused') - countOf('archived'), 'outside their dates'],
+            [countOf('archived'), 'archived'],
+          ]
+            .filter(([n]) => Number(n) > 0)
+            .map(([n, what]) => `${n} ${what}`)
+            .join(', ') || undefined
+        : undefined,
+      icon: <EyeOff size={20} />,
       iconColor: 'var(--warning)',
     },
   ];
 
-  const filteredBanners = banners
-    .filter((b) => (filterStatus === 'all' ? true : b.status === filterStatus))
-    .sort((a, b) => a.position - b.position);
-
-  const liveErrors = useMemo(
-    () => (editingBanner ? validateBanner(editingBanner) : []),
-    [editingBanner]
-  );
-
-  const ctaHint = editingBanner ? CTA_HINTS[editingBanner.ctaType] : CTA_HINTS.category;
-
-  const handleOpenCreate = () => {
-    setEditingBanner({
-      id: `banner-${Date.now()}`,
-      title: 'New Campaign Offer',
-      subtitle: 'Exclusive discounts for homeowners and trade contractors',
-      imageUrl: '',
-      ctaLabel: 'Shop Now',
-      ctaType: 'category',
-      ctaTarget: '',
-      status: 'draft',
-      position: banners.length + 1,
-      termsText: 'Standard trade procurement terms apply.',
-      locationScope: 'All serviceable zones',
-      updatedAt: new Date().toISOString().slice(0, 10),
+  const openNew = () =>
+    setEditor({
+      isNew: true,
+      showErrors: false,
+      banner: {
+        id: '',
+        title: '',
+        subtitle: '',
+        imageUrl: '',
+        ctaLabel: 'Shop now',
+        ctaType: 'category',
+        ctaTarget: '',
+        status: 'draft',
+        position: banners.length + 1,
+        updatedAt: '',
+      },
     });
-    setFormErrors([]);
-    setTriedSave(false);
-    setUploadError(null);
-    setIsModalOpen(true);
-  };
 
-  const handleOpenEdit = (banner: Banner) => {
-    setEditingBanner({ ...banner });
-    setFormErrors([]);
-    setTriedSave(false);
-    setUploadError(null);
-    setIsModalOpen(true);
-  };
-
-  const handleUploadImage = async (file: File | undefined) => {
-    if (!file) return;
-    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-    if (file.type && !allowed.includes(file.type)) {
-      setUploadError('Use a JPEG, PNG, or WebP image.');
+  const publish = (banner: Banner) => {
+    const asPublished = { ...banner, status: 'published' as BannerStatus };
+    if (Object.keys(checkBanner(asPublished)).length) {
+      setEditor({ isNew: false, showErrors: true, banner: asPublished });
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setUploadError('Image must be 2 MB or smaller.');
-      return;
-    }
-    setUploadingImage(true);
-    setUploadError(null);
-    try {
-      const stored = await api.uploadBannerImage(file);
-      setEditingBanner((current) => (current ? { ...current, imageUrl: stored.imageUrl } : current));
-    } catch (err: unknown) {
-      setUploadError(err instanceof Error ? err.message : 'Could not store that image');
-    } finally {
-      setUploadingImage(false);
-    }
+    onStatusChange(banner.id, 'published');
   };
 
-  const handleSaveModal = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!editingBanner) return;
-
-    const errors = validateBanner(editingBanner);
-    setTriedSave(true);
-    setFormErrors(errors);
-    if (errors.length > 0) return;
-
-    const normalized: Banner = {
-      ...editingBanner,
-      title: editingBanner.title.trim(),
-      subtitle: editingBanner.subtitle.trim(),
-      imageUrl: editingBanner.imageUrl.trim(),
-      ctaLabel: editingBanner.ctaLabel.trim(),
-      ctaTarget:
-        editingBanner.ctaType === 'deals' && !editingBanner.ctaTarget.trim()
-          ? '/deals'
-          : editingBanner.ctaTarget.trim(),
-      updatedAt: new Date().toISOString().slice(0, 10),
-    };
-
-    onSaveBanner(normalized);
-    setIsModalOpen(false);
-    setEditingBanner(null);
-    setFormErrors([]);
-    setTriedSave(false);
+  const remove = async (banner: Banner) => {
+    const ok = await confirm({
+      title: `Delete "${banner.title}"?`,
+      message:
+        'It leaves the app straight away and is deleted for good. To take it out of the app for a while, pause it instead.',
+      confirmLabel: 'Delete banner',
+      destructive: true,
+    });
+    if (ok) await onDeleteBanner(banner.id);
   };
-
-  const showErrors = triedSave ? formErrors : [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <StatGrid items={stats} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <StatGrid items={stats} columns={3} />
 
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '16px',
-          flexWrap: 'wrap',
+      <PageIntro
+        actions={
+          canEdit ? (
+            <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>
+              Add banner
+            </Button>
+          ) : undefined
+        }
+      >
+        Banners take turns at the top of the app's home screen, in the order shown here. Every customer sees the same
+        banners. When none is live, the app shows its own built-in slides.
+        {canEdit ? '' : ' Your role can see banners but not change them.'}
+      </PageIntro>
+
+      <LoadState
+        loading={loading}
+        error={loadError}
+        what="banners"
+        onRetry={onRetry}
+        isEmpty={banners.length === 0}
+        empty={{
+          icon: <ImageIcon size={22} />,
+          title: 'No banners yet',
+          description: 'The app shows its own built-in slides until a banner is live.',
+          actionLabel: canEdit ? 'Add banner' : undefined,
+          onAction: canEdit ? openNew : undefined,
         }}
       >
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          style={styles.select}
-        >
-          <option value="all">All Campaign Statuses ({banners.length})</option>
-          <option value="published">Published</option>
-          <option value="scheduled">Scheduled</option>
-          <option value="draft">Draft</option>
-          <option value="paused">Paused</option>
-        </select>
+        <div style={styles.toolbar}>
+          <select
+            className="tx-input"
+            aria-label="Show banners"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as typeof filter)}
+            style={{ width: 'auto' }}
+          >
+            <option value="all">All banners ({banners.length})</option>
+            {(['published', 'scheduled', 'draft', 'paused'] as BannerStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABEL[s]} ({countOf(s)})
+              </option>
+            ))}
+          </select>
+          {filter !== 'all' ? <span style={styles.toolbarNote}>Show all banners to change the order.</span> : null}
+        </div>
 
-        {canEdit ? (
-          <Button variant="primary" size="sm" icon={<Plus size={16} />} onClick={handleOpenCreate}>
-            New Campaign Banner
-          </Button>
-        ) : null}
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-          gap: '20px',
-        }}
-      >
-        {filteredBanners.map((banner, index) => {
-          const s = statusMap[banner.status] || {
-            variant: 'neutral' as BadgeVariant,
-            label: banner.status,
-          };
-          return (
-            <div key={banner.id} style={styles.card}>
-              <div style={{ position: 'relative' }}>
-                <BannerImagePreview src={banner.imageUrl} alt={banner.title} height={170} />
-                <div style={styles.cardBadges}>
-                  <Badge variant={s.variant} dot>
-                    {s.label}
-                  </Badge>
-                  <span style={styles.posPill}>#{banner.position}</span>
-                </div>
-              </div>
-
-              <div style={styles.cardBody}>
-                <div>
-                  <h4 style={styles.cardTitle}>{banner.title}</h4>
-                  {banner.subtitle && <p style={styles.cardSub}>{banner.subtitle}</p>}
-                </div>
-
-                <div style={styles.metaRow}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <MapPin size={12} color="var(--accent)" />
-                    <span>{banner.locationScope || 'All zones'}</span>
+        {shown.length === 0 ? (
+          <p style={styles.toolbarNote}>No {STATUS_LABEL[filter as BannerStatus]?.toLowerCase()} banners.</p>
+        ) : (
+          <div style={styles.grid}>
+            {shown.map((banner, index) => {
+              const state = showing(banner, now);
+              const goes = destination(banner, categories);
+              const from = formatWhen(banner.startsAt);
+              const until = formatWhen(banner.endsAt);
+              return (
+                <article key={banner.id} style={styles.card} aria-label={banner.title}>
+                  <div style={{ position: 'relative' }}>
+                    <BannerImage key={banner.imageUrl} src={banner.imageUrl} alt="" height={160} />
+                    {filter === 'all' ? (
+                      <span style={styles.posPill}>
+                        {index + 1} of {sorted.length}
+                      </span>
+                    ) : null}
                   </div>
-                  {formatWindow(banner) && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Calendar size={12} color="var(--accent)" />
-                      <span>{formatWindow(banner)}</span>
+
+                  <div style={styles.cardBody}>
+                    <div>
+                      <Badge variant={state.variant} dot>
+                        {state.label}
+                      </Badge>
                     </div>
-                  )}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    {banner.ctaType === 'external' && <ExternalLink size={11} />}
-                    <span>
-                      CTA: <strong>{banner.ctaLabel}</strong>
-                      <span style={{ color: 'var(--text-dim)' }}> · {banner.ctaType}</span>
-                    </span>
-                  </div>
-                </div>
+                    <div>
+                      <h4 style={styles.cardTitle}>{banner.title}</h4>
+                      {banner.subtitle ? <p style={styles.cardSub}>{banner.subtitle}</p> : null}
+                    </div>
 
-                {canEdit || canDelete ? (
-                  <div style={styles.cardActions}>
-                    {canEdit ? (
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon={<ArrowUp size={13} />}
-                          onClick={() => onReorder(banner.id, 'up')}
-                          disabled={index === 0}
-                          title="Move up"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon={<ArrowDown size={13} />}
-                          onClick={() => onReorder(banner.id, 'down')}
-                          disabled={index === filteredBanners.length - 1}
-                          title="Move down"
-                        />
+                    <div style={styles.metaRow}>
+                      <span style={styles.metaLine}>
+                        <MousePointerClick size={12} />
+                        <span>
+                          "{banner.ctaLabel}" opens <strong>{goes.text}</strong>
+                        </span>
+                      </span>
+                      {goes.problem ? <span style={styles.problem}>{goes.problem}</span> : null}
+                      {from || until ? (
+                        <span style={styles.metaLine}>
+                          <Calendar size={12} />
+                          <span>{from && until ? `${from} to ${until}` : from ? `From ${from}` : `Until ${until}`}</span>
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {canEdit || canDelete ? (
+                      <div style={styles.cardActions}>
+                        {canEdit && filter === 'all' ? (
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={<ArrowUp size={13} />}
+                              onClick={() => onReorder(banner.id, 'up')}
+                              disabled={index === 0}
+                              aria-label={`Move "${banner.title}" earlier`}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={<ArrowDown size={13} />}
+                              onClick={() => onReorder(banner.id, 'down')}
+                              disabled={index === shown.length - 1}
+                              aria-label={`Move "${banner.title}" later`}
+                            />
+                          </div>
+                        ) : (
+                          <div />
+                        )}
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {canEdit ? (
+                            <>
+                              {banner.status === 'published' || banner.status === 'scheduled' ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  icon={<Pause size={13} />}
+                                  onClick={() => onStatusChange(banner.id, 'paused')}
+                                >
+                                  Pause
+                                </Button>
+                              ) : (
+                                <Button variant="ghost" size="sm" icon={<Play size={13} />} onClick={() => publish(banner)}>
+                                  Publish
+                                </Button>
+                              )}
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                icon={<Edit2 size={13} />}
+                                onClick={() => setEditor({ isNew: false, showErrors: false, banner: { ...banner } })}
+                              >
+                                Edit
+                              </Button>
+                            </>
+                          ) : null}
+                          {canDelete ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={<Trash2 size={13} color="var(--danger)" />}
+                              onClick={() => remove(banner)}
+                              aria-label={`Delete "${banner.title}"`}
+                            />
+                          ) : null}
+                        </div>
                       </div>
-                    ) : <div />}
-
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      {canEdit ? (
-                        <>
-                          {banner.status === 'published' ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              icon={<Pause size={13} />}
-                              onClick={() => onStatusChange(banner.id, 'paused')}
-                            >
-                              Pause
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              icon={<Play size={13} />}
-                              onClick={() => {
-                                const errors = validateBanner({ ...banner, status: 'published' });
-                                if (errors.length > 0) {
-                                  toast.error(
-                                    `Can't publish "${banner.title}" yet: ${errors.join('; ')}. Open Edit to fix it.`
-                                  );
-                                  return;
-                                }
-                                onStatusChange(banner.id, 'published');
-                              }}
-                            >
-                              Publish
-                            </Button>
-                          )}
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            icon={<Edit2 size={13} />}
-                            onClick={() => handleOpenEdit(banner)}
-                          >
-                            Edit
-                          </Button>
-                        </>
-                      ) : null}
-                      {canDelete ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon={<Trash2 size={13} color="var(--danger)" />}
-                          onClick={() => {
-                            if (window.confirm(`Delete banner "${banner.title}"?`)) {
-                              onDeleteBanner(banner.id);
-                            }
-                          }}
-                        />
-                      ) : null}
-                    </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </LoadState>
 
-      {isModalOpen && editingBanner && (
-        <Modal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          title={editingBanner.id.startsWith('banner-') ? 'Create Campaign Banner' : 'Edit Campaign Banner'}
-          subtitle="Live image preview + CTA validation before publish to mobile home"
-          maxWidth="680px"
-          footer={
-            <>
-              <Button variant="secondary" size="sm" onClick={() => setIsModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => handleSaveModal()}
-                disabled={triedSave && liveErrors.length > 0}
-              >
-                Save Banner
-              </Button>
-            </>
-          }
-        >
-          <form onSubmit={handleSaveModal} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {showErrors.length > 0 && (
-              <div style={styles.errorBox}>
-                <AlertCircle size={16} color="var(--danger)" />
-                <ul style={styles.errorList}>
-                  {showErrors.map((err) => (
-                    <li key={err}>{err}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <BannerImagePreview
-              src={editingBanner.imageUrl}
-              alt={editingBanner.title || 'Banner preview'}
-              height={180}
-              showUrlStatus
-            />
-
-            <div>
-              <label style={styles.label}>Campaign image</label>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                disabled={uploadingImage}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = '';
-                  void handleUploadImage(file);
-                }}
-                style={{ ...styles.input, colorScheme: 'dark' }}
-              />
-              <p style={styles.hint}>
-                {uploadingImage
-                  ? 'Storing the image…'
-                  : 'JPEG, PNG, or WebP, up to 2 MB. The banner keeps the stored address.'}
-              </p>
-              {uploadError && (
-                <p style={{ ...styles.hint, color: 'var(--danger)' }}>{uploadError}</p>
-              )}
-            </div>
-
-            <div>
-              <label style={styles.label}>Image URL *</label>
-              <input
-                type="text"
-                value={editingBanner.imageUrl}
-                onChange={(e) => setEditingBanner({ ...editingBanner, imageUrl: e.target.value })}
-                style={{
-                  ...styles.input,
-                  borderColor:
-                    triedSave && !isImageUrl(editingBanner.imageUrl)
-                      ? 'var(--danger-border)'
-                      : 'var(--border-subtle)',
-                }}
-                placeholder="https://cdn.example.com/hero.jpg or /images/home-banner.jpg"
-                required
-              />
-              <p style={styles.hint}>
-                An upload fills this in. A CDN URL still works. Stored files use <code>/uploads/…</code> and
-                the phone loads them from the API.
-              </p>
-            </div>
-
-            <div>
-              <label style={styles.label}>Banner Headline / Title *</label>
-              <input
-                type="text"
-                value={editingBanner.title}
-                onChange={(e) => setEditingBanner({ ...editingBanner, title: e.target.value })}
-                style={styles.input}
-                required
-              />
-            </div>
-
-            <div>
-              <label style={styles.label}>Subtitle / Campaign Copy</label>
-              <input
-                type="text"
-                value={editingBanner.subtitle || ''}
-                onChange={(e) => setEditingBanner({ ...editingBanner, subtitle: e.target.value })}
-                style={styles.input}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              <div>
-                <label style={styles.label}>CTA Button Label *</label>
-                <input
-                  type="text"
-                  value={editingBanner.ctaLabel}
-                  onChange={(e) => setEditingBanner({ ...editingBanner, ctaLabel: e.target.value })}
-                  style={styles.input}
-                  placeholder="Shop Now"
-                />
-              </div>
-
-              <div>
-                <label style={styles.label}>Status</label>
-                <select
-                  value={editingBanner.status}
-                  onChange={(e) =>
-                    setEditingBanner({ ...editingBanner, status: e.target.value as BannerStatus })
-                  }
-                  style={{ ...styles.select, width: '100%' }}
-                >
-                  <option value="draft" style={{ background: 'var(--bg-surface)' }}>
-                    Draft
-                  </option>
-                  <option value="scheduled" style={{ background: 'var(--bg-surface)' }}>
-                    Scheduled
-                  </option>
-                  <option value="published" style={{ background: 'var(--bg-surface)' }}>
-                    Published
-                  </option>
-                  <option value="paused" style={{ background: 'var(--bg-surface)' }}>
-                    Paused
-                  </option>
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              <div>
-                <label style={styles.label}>Starts</label>
-                <input
-                  type="datetime-local"
-                  value={toLocalInput(editingBanner.startsAt)}
-                  onChange={(e) =>
-                    setEditingBanner({ ...editingBanner, startsAt: fromLocalInput(e.target.value) || undefined })
-                  }
-                  style={{ ...styles.input, colorScheme: 'dark' }}
-                />
-              </div>
-              <div>
-                <label style={styles.label}>Ends</label>
-                <input
-                  type="datetime-local"
-                  value={toLocalInput(editingBanner.endsAt)}
-                  onChange={(e) =>
-                    setEditingBanner({ ...editingBanner, endsAt: fromLocalInput(e.target.value) || undefined })
-                  }
-                  style={{ ...styles.input, colorScheme: 'dark' }}
-                />
-              </div>
-            </div>
-            <p style={{ ...styles.hint, marginTop: '-6px' }}>
-              Leave both empty for a published banner to stay on the phone until you pause it. A scheduled
-              banner appears only between these times.
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              <div>
-                <label style={styles.label}>CTA Type *</label>
-                <select
-                  value={editingBanner.ctaType}
-                  onChange={(e) =>
-                    setEditingBanner({
-                      ...editingBanner,
-                      ctaType: e.target.value as CtaType,
-                      ctaTarget: '',
-                    })
-                  }
-                  style={{ ...styles.select, width: '100%' }}
-                >
-                  <option value="category" style={{ background: 'var(--bg-surface)' }}>
-                    Category
-                  </option>
-                  <option value="product" style={{ background: 'var(--bg-surface)' }}>
-                    Product
-                  </option>
-                  <option value="deals" style={{ background: 'var(--bg-surface)' }}>
-                    Deals rail
-                  </option>
-                  <option value="external" style={{ background: 'var(--bg-surface)' }}>
-                    External URL
-                  </option>
-                </select>
-              </div>
-
-              <div>
-                <label style={styles.label}>
-                  {ctaHint.label}
-                  {editingBanner.ctaType !== 'deals' ? ' *' : ''}
-                </label>
-                <input
-                  type="text"
-                  value={editingBanner.ctaTarget}
-                  onChange={(e) => setEditingBanner({ ...editingBanner, ctaTarget: e.target.value })}
-                  style={styles.input}
-                  placeholder={ctaHint.placeholder}
-                />
-                <p style={styles.hint}>{ctaHint.example}</p>
-              </div>
-            </div>
-
-            <div>
-              <label style={styles.label}>Serviceable Delivery Location Scope</label>
-              <input
-                type="text"
-                value={editingBanner.locationScope || ''}
-                onChange={(e) => setEditingBanner({ ...editingBanner, locationScope: e.target.value })}
-                style={styles.input}
-                placeholder="e.g. All serviceable zones, NCR & Western UP"
-              />
-            </div>
-          </form>
-        </Modal>
-      )}
+      {editor ? (
+        <BannerDialog
+          key={editor.banner.id || 'new'}
+          initial={editor.banner}
+          isNew={editor.isNew}
+          showErrorsAtOnce={editor.showErrors}
+          categories={categories}
+          onClose={() => setEditor(null)}
+          onSave={async (banner) => {
+            await onSaveBanner(banner, editor.isNew);
+            setEditor(null);
+          }}
+        />
+      ) : null}
+      {dialog}
     </div>
   );
 };
 
+const BannerDialog: React.FC<{
+  initial: Banner;
+  isNew: boolean;
+  showErrorsAtOnce: boolean;
+  categories: CategoryOption[];
+  onClose: () => void;
+  onSave: (banner: Banner) => Promise<void>;
+}> = ({ initial, isNew, showErrorsAtOnce, categories, onClose, onSave }) => {
+  const [banner, setBanner] = useState<Banner>(initial);
+  const [tried, setTried] = useState(showErrorsAtOnce);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [openedAt] = useState(() => Date.now());
+
+  const errors: Errors = tried ? checkBanner(banner) : {};
+  const set = (patch: Partial<Banner>) => {
+    setBanner((prev) => ({ ...prev, ...patch }));
+    setServerError(null);
+  };
+  const formId = isNew ? 'banner-new' : `banner-${initial.id}`;
+  const endPassed = banner.endsAt && new Date(banner.endsAt).getTime() < openedAt;
+  const ctaChoice: CtaType = banner.ctaType;
+  const categoryKnown = categories.some((c) => String(c.id) === banner.ctaTarget);
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setUploadError('Use a JPEG, PNG or WebP image.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadError('Use an image of 2 MB or less.');
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const stored = await api.uploadBannerImage(file);
+      set({ imageUrl: stored.imageUrl });
+    } catch (err) {
+      setUploadError(`Not uploaded: ${err instanceof Error ? err.message : "the server didn't answer."}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const submit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setTried(true);
+    if (Object.keys(checkBanner(banner)).length) return;
+    const target =
+      banner.ctaType === 'deals' && !banner.ctaTarget.trim().startsWith('/') ? '/products' : banner.ctaTarget.trim();
+    try {
+      setSaving(true);
+      await onSave({
+        ...banner,
+        title: banner.title.trim(),
+        subtitle: banner.subtitle.trim(),
+        imageUrl: banner.imageUrl.trim(),
+        ctaLabel: banner.ctaLabel.trim(),
+        ctaTarget: target,
+        startsAt: banner.startsAt ?? '',
+        endsAt: banner.endsAt ?? '',
+      });
+    } catch (err) {
+      setServerError(`Not saved: ${err instanceof Error ? err.message : "the server didn't answer."}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={isNew ? 'Add banner' : `Edit "${initial.title}"`}
+      subtitle="Changes reach the app as soon as they're saved."
+      maxWidth="680px"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" type="submit" form={formId} loading={saving} disabled={uploading}>
+            {isNew ? 'Add banner' : 'Save changes'}
+          </Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={submit} noValidate style={styles.form}>
+        {serverError ? <FormError>{serverError}</FormError> : null}
+
+        <BannerImage key={banner.imageUrl} src={banner.imageUrl} alt="Banner preview" height={170} />
+
+        <Field
+          id={`${formId}-upload`}
+          label="Upload an image"
+          error={uploadError}
+          hint={uploading ? 'Uploading…' : 'JPEG, PNG or WebP, up to 2 MB. Fills in the address below.'}
+        >
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={uploading}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              void upload(file);
+            }}
+          />
+        </Field>
+
+        <Field
+          id={`${formId}-image`}
+          label="Image address"
+          error={errors.imageUrl}
+          hint="Filled in by an upload, or paste an https:// address."
+        >
+          <input
+            value={banner.imageUrl}
+            onChange={(e) => set({ imageUrl: e.target.value })}
+            placeholder="https://… or /uploads/…"
+          />
+        </Field>
+
+        <Field id={`${formId}-title`} label="Headline" error={errors.title}>
+          <input data-autofocus value={banner.title} onChange={(e) => set({ title: e.target.value })} />
+        </Field>
+
+        <Field id={`${formId}-subtitle`} label="Line under the headline" hint="Optional.">
+          <input value={banner.subtitle} onChange={(e) => set({ subtitle: e.target.value })} />
+        </Field>
+
+        <div style={styles.row}>
+          <Field id={`${formId}-cta`} label="Button text" error={errors.ctaLabel} style={{ flex: 1 }}>
+            <input value={banner.ctaLabel} onChange={(e) => set({ ctaLabel: e.target.value })} placeholder="Shop now" />
+          </Field>
+          <Field id={`${formId}-cta-type`} label="Button opens" style={{ flex: 1 }}>
+            <select
+              value={ctaChoice}
+              onChange={(e) => {
+                const next = e.target.value as CtaType;
+                set({ ctaType: next, ctaTarget: next === 'deals' ? '/products' : '' });
+              }}
+            >
+              <option value="category">A category</option>
+              <option value="product">A product</option>
+              <option value="deals">All products</option>
+              {initial.ctaType === 'external' ? <option value="external">An outside link (not supported)</option> : null}
+            </select>
+          </Field>
+        </div>
+
+        {ctaChoice === 'category' ? (
+          <Field id={`${formId}-target`} label="Category" error={errors.ctaTarget}>
+            <select value={banner.ctaTarget} onChange={(e) => set({ ctaTarget: e.target.value })}>
+              <option value="">Choose a category</option>
+              {banner.ctaTarget && !categoryKnown ? (
+                <option value={banner.ctaTarget}>Category {banner.ctaTarget} (not in the list)</option>
+              ) : null}
+              {categories.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+        {ctaChoice === 'product' ? (
+          <Field
+            id={`${formId}-target`}
+            label="Product number"
+            error={errors.ctaTarget}
+            hint="The number at the end of the product's link, e.g. 42."
+          >
+            <input inputMode="numeric" value={banner.ctaTarget} onChange={(e) => set({ ctaTarget: e.target.value.trim() })} />
+          </Field>
+        ) : null}
+        {ctaChoice === 'external' ? (
+          <p style={styles.problem}>
+            The app doesn't open outside links; this button shows all products. Choose another option.
+          </p>
+        ) : null}
+
+        <Field id={`${formId}-status`} label="Status" hint={STATUS_HINT[banner.status]}>
+          <select value={banner.status} onChange={(e) => set({ status: e.target.value as BannerStatus })}>
+            <option value="draft">Draft</option>
+            <option value="published">Published</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="paused">Paused</option>
+          </select>
+        </Field>
+
+        <div style={styles.row}>
+          <Field
+            id={`${formId}-starts`}
+            label="Starts"
+            error={errors.startsAt}
+            hint={banner.status === 'scheduled' ? 'Needed.' : 'Optional.'}
+            style={{ flex: 1 }}
+          >
+            <input
+              type="datetime-local"
+              value={toLocalInput(banner.startsAt)}
+              onChange={(e) => set({ startsAt: fromLocalInput(e.target.value) })}
+            />
+          </Field>
+          <Field
+            id={`${formId}-ends`}
+            label="Ends"
+            error={errors.endsAt}
+            hint={endPassed ? "Already passed, so it won't show." : 'Optional. Empty means no end.'}
+            style={{ flex: 1 }}
+          >
+            <input
+              type="datetime-local"
+              value={toLocalInput(banner.endsAt)}
+              onChange={(e) => set({ endsAt: fromLocalInput(e.target.value) })}
+            />
+          </Field>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
 const styles: Record<string, React.CSSProperties> = {
-  label: {
-    display: 'block',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    marginBottom: '6px',
+  toolbar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap',
+    marginBottom: '16px',
   },
-  hint: {
-    margin: '6px 0 0',
-    fontSize: '0.72rem',
+  toolbarNote: {
+    margin: 0,
+    fontSize: '0.8rem',
     color: 'var(--text-dim)',
-    lineHeight: 1.4,
   },
-  select: {
-    background: 'var(--bg-surface)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '8px 12px',
-    color: 'var(--text-main)',
-    fontSize: '0.84rem',
-    outline: 'none',
-    cursor: 'pointer',
-  },
-  input: {
-    width: '100%',
-    background: 'var(--tint-2)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '9px 14px',
-    color: 'var(--text-main)',
-    fontSize: '0.86rem',
-    outline: 'none',
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+    gap: '20px',
   },
   card: {
     background: 'var(--bg-surface)',
@@ -802,24 +699,39 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     boxShadow: 'var(--shadow-sm)',
   },
-  cardBadges: {
-    position: 'absolute',
-    top: '12px',
-    left: '12px',
+  imageBox: {
+    position: 'relative',
+    background: 'var(--tint-2)',
+    overflow: 'hidden',
     display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 'var(--radius-md)',
+  },
+  imageFallback: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
     gap: '8px',
-    zIndex: 1,
+    padding: '16px',
+    fontSize: '0.78rem',
+    color: 'var(--text-dim)',
+    textAlign: 'center',
   },
   posPill: {
-    background: 'var(--tint-3)',
+    position: 'absolute',
+    top: '12px',
+    right: '12px',
+    background: 'var(--bg-surface)',
     color: 'var(--text-main)',
     fontSize: '0.72rem',
     fontWeight: 700,
     padding: '2px 8px',
     borderRadius: 'var(--radius-full)',
+    border: '1px solid var(--border-subtle)',
   },
   cardBody: {
-    padding: '18px 20px',
+    padding: '16px 18px',
     display: 'flex',
     flexDirection: 'column',
     gap: '10px',
@@ -842,46 +754,35 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: '6px',
     fontSize: '0.78rem',
-    color: 'var(--text-dim)',
+    color: 'var(--text-muted)',
     marginTop: 'auto',
-    paddingTop: '8px',
+    paddingTop: '10px',
     borderTop: '1px solid var(--border-subtle)',
+  },
+  metaLine: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  problem: {
+    margin: 0,
+    fontSize: '0.76rem',
+    color: 'var(--warning)',
   },
   cardActions: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: '10px',
+    marginTop: '6px',
   },
-  imageFallback: {
+  form: {
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '16px',
+    gap: '14px',
   },
-  urlStatusRow: {
+  row: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    marginTop: '8px',
-    fontSize: '0.74rem',
-    fontWeight: 600,
-  },
-  errorBox: {
-    display: 'flex',
-    gap: '10px',
-    alignItems: 'flex-start',
-    padding: '12px 14px',
-    borderRadius: 'var(--radius-md)',
-    background: 'var(--danger-soft)',
-    border: '1px solid var(--danger-border)',
-  },
-  errorList: {
-    margin: 0,
-    paddingLeft: '18px',
-    color: 'var(--danger)',
-    fontSize: '0.82rem',
-    lineHeight: 1.5,
+    gap: '14px',
+    flexWrap: 'wrap',
   },
 };

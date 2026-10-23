@@ -227,6 +227,35 @@ Each batch moves its screens onto U2's pieces and rules, then gets a browser che
     - Bulk Pricing: price check, form validation, Remove confirm then Cancel.
     - With the API stopped: "Couldn't load …" with Retry and "—", and the forms show "Not saved: Can't reach the server." Retry recovers once the API is back.
 
+### U5 — Storefront — done 23 Oct 2026
+
+- **Campaign Banners** (rewritten on U2's pieces; no `alert` / `window.confirm` left):
+  - The figures are Banners, "Live in the app now" and "Not in the app" (for example "1 paused"). Live uses the server's rule (`bannerLive.ts`). When nothing is live, the figure says the app shows its own built-in slides, which it does (`getHeroSlides` in the app).
+  - Each card says where the banner stands: "Live in the app", "Starts 25 Oct, 10:00", "Ended …", "Paused, not in the app", or "Scheduled with no start, never shows".
+  - Each card says what the button opens, worked out by the app's own rules (`mapCtaHref`): a named category, a product, or all products.
+  - Old "external" buttons are flagged, because the app doesn't open outside links and shows all products instead. The editor no longer offers them, and "Deals rail" became "All products" (`/products`), because the app has no `/deals` page.
+  - The editor:
+    - Field errors sit under each field. The category is picked from the list instead of typed as an id.
+    - The status hint says what each status means in the app.
+    - The end must come after the start, and an end that has passed is pointed out.
+    - Server refusals show as "Not saved: …".
+  - "Serviceable delivery location scope" and the invented default terms text are gone: the app shows every live banner to everyone and never reads either field.
+  - Delete asks first and suggests Pause for a break. Reordering works only on the full list, renumbers 1…n (two banners sharing a number used to make the arrows do nothing) and no longer changes React state in place.
+  - The audit and toasts name the banner instead of its id.
+- **Homepage Sections:**
+  - It moved onto `PageIntro` and `LoadState` (its own error box is gone) and loads with the other pieces.
+  - Blocks are a numbered list with a Shown / Hidden badge and Hide / Show buttons. The "type: hero_carousel" tag is gone, and the arrows have labels.
+  - "Reset layout" asks first and says names and descriptions go back too.
+- **Server:**
+  - Updating a banner can clear its subtitle, and returns the saved row instead of echoing the request.
+  - A banner without a title or image is a 400 with a plain message.
+- **Checked:**
+  - Web tsc and oxlint (9 warnings, one fewer than before: the banner preview no longer resets in an effect); server tsc; 84 server tests.
+  - In the browser:
+    - Banners: an empty Add, end before start, then a real draft. Then a subtitle added and cleared (checked in the DB), Publish (live, and in the public list), Pause, moving up and back down, and Delete through the confirm. The order was the same as before after a reload.
+    - Sections: Hide and Show, moving up and back down, and the Reset confirm cancelled.
+    - With the API stopped: both screens show "Couldn't load …" with Retry, and "—". Retry recovers once the API is back.
+
 ## Done when
 
 - Every screen uses `PageIntro`, `LoadState` and `ConfirmDialog` (where it deletes or deactivates), and follows the rules above.

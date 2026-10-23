@@ -1,31 +1,27 @@
 import React from 'react';
-import {
-  ArrowUp,
-  ArrowDown,
-  Eye,
-  EyeOff,
-  GripVertical,
-  Info,
-  RefreshCw,
-} from 'lucide-react';
+import { ArrowUp, ArrowDown, Eye, EyeOff, LayoutList, RotateCcw } from 'lucide-react';
 import type { HomepageSection } from '../types';
-import { Button } from './ui';
+import { Badge, Button, LoadState, PageIntro, useConfirm } from './ui';
 
 interface SectionLayoutManagerProps {
   sections: HomepageSection[];
-  /** Set when the list could not be loaded; nothing else is shown in its place. */
-  loadError?: string | null;
-  onRetry?: () => void;
+  loading: boolean;
+  loadError: string | null;
+  loaded: boolean;
+  onRetry: () => void;
   onToggleSection: (id: string) => void;
   onReorderSection: (id: string, direction: 'up' | 'down') => void;
   onResetDefaultOrder: () => void;
   canEdit?: boolean;
+  /** Resetting the layout needs delete rights. */
   canDelete?: boolean;
 }
 
 export const SectionLayoutManager: React.FC<SectionLayoutManagerProps> = ({
   sections,
+  loading,
   loadError,
+  loaded,
   onRetry,
   onToggleSection,
   onReorderSection,
@@ -33,199 +29,141 @@ export const SectionLayoutManager: React.FC<SectionLayoutManagerProps> = ({
   canEdit = true,
   canDelete = true,
 }) => {
-  const sortedSections = [...sections].sort((a, b) => a.position - b.position);
+  const { confirm, dialog } = useConfirm();
+  const sorted = [...sections].sort((a, b) => a.position - b.position);
+  const shownCount = sections.filter((s) => s.enabled).length;
 
-  if (loadError) {
-    return (
-      <div style={styles.errorBox}>
-        <p style={{ margin: 0 }}>{loadError} Check the connection and try again.</p>
-        {onRetry ? (
-          <Button variant="secondary" size="sm" icon={<RefreshCw size={14} />} onClick={onRetry}>
-            Retry
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
+  const reset = async () => {
+    const ok = await confirm({
+      title: 'Reset the home screen layout?',
+      message:
+        'Every block goes back to the standard order, hidden blocks are shown again, and their names and descriptions go back to the standard ones. The app picks this up the next time it loads the home screen.',
+      confirmLabel: 'Reset layout',
+    });
+    if (ok) onResetDefaultOrder();
+  };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.infoBanner}>
-        <div style={styles.infoIconBox}>
-          <Info size={18} color="var(--accent)" />
-        </div>
-        <div style={styles.infoText}>
-          <strong>Phone home order.</strong> This list is the blocks the app can draw. Hidden
-          blocks are left out of the public list. Reorder or show one here and the phone follows
-          on refresh, without an app release. Search and the header stay above this list.
-        </div>
-        {canDelete ? (
-          <button onClick={onResetDefaultOrder} style={styles.resetBtn}>
-            Reset to default layout
-          </button>
-        ) : null}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <PageIntro
+        actions={
+          canDelete && loaded ? (
+            <Button variant="secondary" size="sm" icon={<RotateCcw size={14} />} onClick={reset}>
+              Reset layout
+            </Button>
+          ) : undefined
+        }
+      >
+        Listed top to bottom as they appear in the app, which picks up a change the next time it loads the home
+        screen. Search and the header always stay above these blocks.
+        {loaded ? ` ${shownCount} of ${sections.length} blocks are shown.` : ''}
+        {canEdit ? '' : ' Your role can see the layout but not change it.'}
+      </PageIntro>
 
-      {/* Sections Table/List */}
-      <div style={styles.sectionList}>
-        {sortedSections.map((sec, index) => (
-          <div
-            key={sec.id}
-            style={{
-              ...styles.sectionRow,
-              opacity: sec.enabled ? 1 : 0.6,
-              background: sec.enabled ? 'var(--bg-surface)' : 'var(--bg-surface-elevated)',
-            }}
-          >
-            {/* Drag / Position indicator */}
-            <div style={styles.positionCol}>
-              <GripVertical size={16} color="var(--text-dim)" />
-              <span style={styles.positionNumber}>#{sec.position}</span>
-            </div>
+      <LoadState
+        loading={loading}
+        error={loadError}
+        what="the home screen layout"
+        onRetry={onRetry}
+        isEmpty={sections.length === 0}
+        empty={{
+          icon: <LayoutList size={22} />,
+          title: 'No blocks to show',
+          description: 'The server returned no home screen blocks.',
+        }}
+      >
+        <ol style={styles.list}>
+          {sorted.map((sec, index) => (
+            <li key={sec.id} style={{ ...styles.row, ...(sec.enabled ? {} : styles.rowHidden) }}>
+              <span style={styles.position} aria-hidden>
+                {index + 1}
+              </span>
 
-            {/* Title & Description */}
-            <div style={styles.contentCol}>
-              <div style={styles.titleLine}>
-                <span style={styles.sectionTitle}>{sec.title}</span>
-                <span style={styles.typeTag}>type: {sec.type}</span>
-                {sec.enabled ? (
-                  <span className="badge badge-published">Active</span>
-                ) : (
-                  <span className="badge badge-draft">Disabled</span>
-                )}
+              <div style={styles.content}>
+                <div style={styles.titleLine}>
+                  <span style={styles.title}>{sec.title}</span>
+                  <Badge variant={sec.enabled ? 'success' : 'neutral'} size="sm">
+                    {sec.enabled ? 'Shown' : 'Hidden'}
+                  </Badge>
+                </div>
+                {sec.description ? <p style={styles.description}>{sec.description}</p> : null}
               </div>
-              <p style={styles.sectionDesc}>{sec.description}</p>
-            </div>
 
-            {/* Actions */}
-            {canEdit ? (
-              <div style={styles.actionsCol}>
-                {/* Visibility Toggle */}
-                <button
-                  onClick={() => onToggleSection(sec.id)}
-                  style={{
-                    ...styles.toggleBtn,
-                    color: sec.enabled ? 'var(--success)' : 'var(--text-dim)',
-                    background: sec.enabled
-                      ? 'var(--success-soft)'
-                      : 'var(--tint-2)',
-                  }}
-                  title={sec.enabled ? 'Hide Section' : 'Show Section'}
-                >
-                  {sec.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
-                  <span>{sec.enabled ? 'Visible' : 'Hidden'}</span>
-                </button>
-
-                {/* Order buttons */}
-                <div style={styles.orderBtns}>
-                  <button
+              {canEdit ? (
+                <div style={styles.actions}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={sec.enabled ? <EyeOff size={14} /> : <Eye size={14} />}
+                    onClick={() => onToggleSection(sec.id)}
+                    aria-label={`${sec.enabled ? 'Hide' : 'Show'} "${sec.title}"`}
+                  >
+                    {sec.enabled ? 'Hide' : 'Show'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<ArrowUp size={14} />}
                     onClick={() => onReorderSection(sec.id, 'up')}
                     disabled={index === 0}
-                    style={{
-                      ...styles.orderBtn,
-                      opacity: index === 0 ? 0.3 : 1,
-                    }}
-                    title="Move Up"
-                  >
-                    <ArrowUp size={15} />
-                  </button>
-                  <button
+                    aria-label={`Move "${sec.title}" up`}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<ArrowDown size={14} />}
                     onClick={() => onReorderSection(sec.id, 'down')}
-                    disabled={index === sortedSections.length - 1}
-                    style={{
-                      ...styles.orderBtn,
-                      opacity: index === sortedSections.length - 1 ? 0.3 : 1,
-                    }}
-                    title="Move Down"
-                  >
-                    <ArrowDown size={15} />
-                  </button>
+                    disabled={index === sorted.length - 1}
+                    aria-label={`Move "${sec.title}" down`}
+                  />
                 </div>
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </LoadState>
+      {dialog}
     </div>
   );
 };
 
 const styles: Record<string, React.CSSProperties> = {
-  errorBox: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '12px',
-    padding: '16px',
-    borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--danger-border)',
-    background: 'var(--danger-soft)',
-    color: 'var(--danger)',
-    fontSize: '0.88rem',
-  },
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px',
-  },
-  infoBanner: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '14px',
-    padding: '16px 20px',
-    background: 'var(--accent-soft)',
-    border: '1px solid var(--accent-border)',
-    borderRadius: 'var(--radius-lg)',
-  },
-  infoIconBox: {
-    flexShrink: 0,
-  },
-  infoText: {
-    fontSize: '0.82rem',
-    color: 'var(--text-muted)',
-    lineHeight: 1.5,
-    flex: 1,
-  },
-  resetBtn: {
-    padding: '7px 12px',
-    borderRadius: 'var(--radius-md)',
-    background: 'var(--bg-surface-elevated)',
-    border: '1px solid var(--border-medium)',
-    color: 'var(--text-main)',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    flexShrink: 0,
-  },
-  sectionList: {
+  list: {
+    listStyle: 'none',
+    margin: 0,
+    padding: 0,
     display: 'flex',
     flexDirection: 'column',
     gap: '10px',
   },
-  sectionRow: {
+  row: {
     display: 'flex',
     alignItems: 'center',
     gap: '16px',
-    padding: '16px 20px',
+    padding: '14px 18px',
     borderRadius: 'var(--radius-lg)',
     border: '1px solid var(--border-subtle)',
-    transition: 'all var(--transition-fast)',
+    background: 'var(--bg-surface)',
   },
-  positionCol: {
+  rowHidden: {
+    background: 'var(--tint-2)',
+  },
+  position: {
+    width: '28px',
+    height: '28px',
+    flexShrink: 0,
+    borderRadius: 'var(--radius-full)',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent)',
+    fontWeight: 700,
+    fontSize: '0.82rem',
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    width: '60px',
-    flexShrink: 0,
+    justifyContent: 'center',
   },
-  positionNumber: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 700,
-    fontSize: '0.9rem',
-    color: 'var(--accent)',
-  },
-  contentCol: {
+  content: {
     flex: 1,
+    minWidth: 0,
     display: 'flex',
     flexDirection: 'column',
     gap: '4px',
@@ -236,56 +174,20 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '10px',
     flexWrap: 'wrap',
   },
-  sectionTitle: {
-    fontSize: '0.95rem',
+  title: {
+    fontSize: '0.92rem',
     fontWeight: 700,
     color: 'var(--text-main)',
   },
-  typeTag: {
-    fontSize: '0.7rem',
-    fontFamily: 'monospace',
-    color: 'var(--text-dim)',
-    background: 'var(--tint-2)',
-    padding: '2px 6px',
-    borderRadius: '4px',
-  },
-  sectionDesc: {
+  description: {
+    margin: 0,
     fontSize: '0.78rem',
     color: 'var(--text-muted)',
   },
-  actionsCol: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    flexShrink: 0,
-  },
-  toggleBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '6px 12px',
-    borderRadius: 'var(--radius-md)',
-    border: '1px solid var(--border-subtle)',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-  },
-  orderBtns: {
+  actions: {
     display: 'flex',
     alignItems: 'center',
     gap: '4px',
-  },
-  orderBtn: {
-    width: '32px',
-    height: '32px',
-    borderRadius: 'var(--radius-md)',
-    background: 'var(--bg-surface-elevated)',
-    border: '1px solid var(--border-subtle)',
-    color: 'var(--text-main)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
+    flexShrink: 0,
   },
 };
