@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff_roles` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -109,7 +109,7 @@ CREATE TABLE homecare.refresh_tokens (
 ```
 
 ### 2.5 `homecare.admin_users`
-Staff and internal administrator credentials for the Merchandising & Admin Portal.
+Staff and internal administrator credentials for the Merchandising & Admin Portal. Shared with Homecare; the live enum has more roles than shown here. The store portal reads `role` only to recognise `super_admin` (always full access); everything else comes from `techxpertstore.portal_staff_roles` (see [PORTAL_ACCESS.md](./PORTAL_ACCESS.md)).
 
 ```sql
 CREATE TABLE homecare.admin_users (
@@ -201,6 +201,7 @@ CREATE TABLE techxpertstore.orders (
   ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   OrderNumber VARCHAR(50) NOT NULL UNIQUE,
   UserID INT NULL, -- Logical foreign reference to homecare.users.user_id
+  CartID INT NULL, -- Cart the order was placed from; unique, so one cart becomes at most one order (shop S3)
   GuestEmail VARCHAR(255) NULL,
   GuestPhone VARCHAR(50) NULL,
   GuestName VARCHAR(255) NULL,
@@ -220,6 +221,7 @@ CREATE TABLE techxpertstore.orders (
   UpdatedTime TIME NULL,
   CreatedBy INT NULL,
   INDEX idx_orders_user (UserID),
+  UNIQUE INDEX uq_orders_cart (CartID),
   INDEX idx_orders_status (OrderStatus),
   INDEX idx_orders_date (CreatedDate)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -267,7 +269,7 @@ CREATE TABLE techxpertstore.carts (
   UserID INT NULL, -- Logical foreign reference to homecare.users.user_id
   SessionID VARCHAR(255) NULL,
   CurrencyID INT NOT NULL DEFAULT 1,
-  Status ENUM('active', 'merged', 'abandoned') NOT NULL DEFAULT 'active',
+  Status ENUM('active', 'merged', 'abandoned', 'ordered') NOT NULL DEFAULT 'active', -- 'ordered': became an order (server/sql/shop_s3_checkout.sql)
   CreatedDate DATE NOT NULL,
   CreatedTime TIME NOT NULL,
   INDEX idx_carts_user (UserID),
@@ -323,6 +325,44 @@ CREATE TABLE techxpertstore.cms_homepage_sections (
   description TEXT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Portal merchandising audit trail (admin change history)
+CREATE TABLE techxpertstore.portal_audit_logs (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  action VARCHAR(255) NOT NULL,
+  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access') NOT NULL,
+  details TEXT NULL,
+  actor VARCHAR(255) NOT NULL DEFAULT 'Store Admin',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_audit_created (created_at),
+  INDEX idx_audit_entity (entity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Portal roles: per-module View / Edit / Delete (server/sql/portal_access.sql)
+CREATE TABLE techxpertstore.portal_roles (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Name VARCHAR(80) NOT NULL UNIQUE,
+  Description VARCHAR(255) NULL,
+  CreatedBy INT NULL, CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedBy INT NULL, UpdatedAt TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.portal_role_permissions (
+  RoleID INT NOT NULL,              -- FK portal_roles.ID, cascade delete
+  Module VARCHAR(40) NOT NULL,      -- products, categories, orders, delivery, customers, pricing, banners, sections, audit, api, access
+  CanView TINYINT(1) NOT NULL DEFAULT 0,
+  CanEdit TINYINT(1) NOT NULL DEFAULT 0,
+  CanDelete TINYINT(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (RoleID, Module)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- One store role per staff login; AdminID = homecare.admin_users.admin_id (no cross-schema FK)
+CREATE TABLE techxpertstore.portal_staff_roles (
+  AdminID INT NOT NULL PRIMARY KEY,
+  RoleID INT NOT NULL,              -- FK portal_roles.ID; a held role cannot be deleted
+  AssignedBy INT NULL,
+  AssignedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Bulk Contractor Price Tiers
 CREATE TABLE techxpertstore.bulk_price_tiers (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -346,11 +386,18 @@ CREATE TABLE techxpertstore.bulk_price_tiers (
 
 ## 4. Query Execution & Connection Pooling
 
-In [`server/src/db/mysql.ts`](file:///Users/satwik/Desktop/techxpert-store/server/src/db/mysql.ts), two high-throughput connection pools are maintained:
-1. `storePool`: Directed to `techxpertstore` (Catalog, Pricing, Orders, Carts, CMS).
-2. `userPool`: Directed to `homecare` (Users, User Addresses, OTP attempts, Refresh Tokens).
+In [`server/src/db/mysql.ts`](server/src/db/mysql.ts), two connection pools enforce the dual-DB contract:
 
-Cross-database joins are executed efficiently on the same MySQL host:
+| Pool / helper | Env | Default DB | Allowed tables |
+|---|---|---|---|
+| `userPool` / `queryUsers` | `DB_USERS` | `homecare` | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
+| `storePool` / `queryStore` | `DB_STORE` | `techxpertstore` | catalog, carts, orders, CMS, pricing, audit |
+
+Copy [`server/.env.example`](server/.env.example) → `.env`. Boot logs and `GET /health` report both pools.
+
+**File-store (`database.json`):** disabled by default. Set `ALLOW_FILE_STORE=1` only for local demo without MySQL. Otherwise MySQL failures return HTTP 503 — the portal must not silently show seed catalog.
+
+**Same-host cross-DB JOINs** (both schemas on one MySQL instance) enrich identity ↔ commerce:
 ```sql
 SELECT 
   o.ID,
@@ -359,6 +406,7 @@ SELECT
   o.OrderStatus,
   u.full_name AS customerName,
   u.phone AS customerMobile
-FROM techxpertstore.orders o
+FROM orders o
 LEFT JOIN homecare.users u ON o.UserID = u.user_id;
 ```
+If the JOIN fails (identity DB down), order list degrades to guest/shipping fields only; customer directory degrades to zero spend rather than serving `database.json`.

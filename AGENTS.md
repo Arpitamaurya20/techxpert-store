@@ -4,7 +4,7 @@ Welcome to the Techxpert Store repository. This repository is a monorepo consist
 
 ## Monorepo Layout
 
-- `docs/`: Central project documentation ([`docs/SRS.md`](./docs/SRS.md), [`docs/DATABASE_SCHEMA.md`](./docs/DATABASE_SCHEMA.md), [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), [`docs/WEB_SPEC.md`](./docs/WEB_SPEC.md)).
+- `docs/`: Central project documentation ([`docs/SRS.md`](./docs/SRS.md), [`docs/DATABASE_SCHEMA.md`](./docs/DATABASE_SCHEMA.md), [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), [`docs/APP_WORKFLOW.md`](./docs/APP_WORKFLOW.md), [`docs/WEB_SPEC.md`](./docs/WEB_SPEC.md)).
 - `app/`: Customer Mobile Application (Expo / React Native / TypeScript).
   - When working inside `app/`, read and strictly follow [`app/AGENTS.md`](./app/AGENTS.md).
 - `web/`: Web Application & Merchandising Portal.

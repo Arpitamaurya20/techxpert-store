@@ -44,3 +44,115 @@ The web workspace (`web/`) serves as the administrative and operational control 
 - **Theme**: Premium industrial & modern commerce aesthetic (Navy `#0f172a`, Construction Amber/Orange `#f97316`, Clean Slate `#f8fafc`).
 - **Layout**: Collapsible sidebar navigation, high-density data tables, responsive modals, and real-time live preview panel.
 - **Performance**: Instant filtering, search-as-you-type, optimistic UI updates, and zero layout shift.
+
+---
+
+## 4. What exists today (inventory)
+
+Portal boots via Vite (`cd web && npm run dev`); API on `:5001`.
+
+| Module | UI | API wired | Gaps |
+|---|---|---|---|
+| Dashboard | KPIs + shortcuts | Live aggregate load | — |
+| Products & Inventory | List, filter, edit, **add, delete** | `GET/POST/PUT/DELETE /catalog/products` | Create writes MySQL (+ file fallback) |
+| Categories & Subs | Hierarchy editor | `GET/POST/PUT/DELETE /catalog/categories` + `/subcategories` | Soft-delete via `IsActive` (**P4**) |
+| Orders & Fulfillment | List, status change | `GET`, `PUT …/status` | No cancel/refund UX |
+| Customers (homecare) | Directory read | `GET /auth/users` | Read-only |
+| Bulk Pricing | List, add, delete tiers | Full CRUD used | No edit-in-place |
+| Campaign Banners | CRUD + reorder + **live image preview + CTA validation** | Full CMS banners | File upload still out of scope (P2 uses URL/path) |
+| Homepage Sections | Toggle, reorder, reset | `GET/PUT` sections | Mobile home consumes `GET /cms/sections` |
+| Delivery Pincodes | List, add, pause/resume | `GET/POST/PATCH /delivery/pincodes` | Add/pause need Delivery edit; checkout refuses unlisted pincodes (shop **S2**) |
+| API Explorer | Endpoint tester | `/health` | Cookie session |
+| Audit Trail | Timeline viewer | `GET /audit/logs` (Audit view), `POST` (any role; actor taken from the session) | MySQL `portal_audit_logs` + file fallback (**P3**) |
+| Staff Auth | Login gate + logout | `POST /auth/admin/login`, `/logout`, `GET /auth/admin/me` | HttpOnly cookie; login and `/me` return `storeRole` + `permissions` |
+| Roles & Access | Roles (module × View/Edit/Delete), staff role assignment | `GET/POST/PUT/DELETE /access/roles`, `GET/PUT /access/staff` | Every tab and control follows the signed-in role; no escalation ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md)) |
+
+Restore bootstrap if merge drops it again: `git checkout cdb6adf -- web/package.json web/vite.config.ts web/tsconfig*.json web/src/main.tsx web/src/index.css web/src/App.css web/public web/index.html` (+ shell components as needed).
+
+---
+
+## 5. Phase plan (one phase at a time — do not batch)
+
+| Phase | Scope | Exit criteria | Status |
+|---|---|---|---|
+| **P1** | Catalog CRUD complete (Add + Delete + keep Edit) | Merchandiser can create, update, soft-delete SKUs from portal | **Done** |
+| **P2** | Banner CMS polish (image URL preview + validate CTA) | Safer banner publish without broken images/routes | **Done** |
+| **P3** | Persist audit trail (server table + portal viewer) | Refresh does not wipe change history | **Done** |
+| **P4** | Category / subcategory editor | Portal can maintain hierarchy mobile already browses | **Done** |
+| **P5** | Portal staff auth (`admin_users`) | Portal not open without login | **Done** |
+| **P6** | Catalogue browse at scale | Portal search + pagination against MySQL `meta.total` (~110k SKUs); desk does not load full catalogue into memory | **Done** |
+| **Low** | Audit L1–L5 polish | Optimistic audit rollback, ApiExplorer staff samples, SQL scripts, write validation, banner asset URLs | **Done** |
+| **P7** | Banner publish is what the phone receives | `paused` accepted by the API; public list is published and inside the schedule window only | **Done** |
+| **P8** | Homepage sections match the app allowlist | Reorder/toggle in the portal is the order `GET /cms/sections` returns and the app renders | **Done** |
+| **P9** | Price, stock, and bulk tiers edit in place | Product price writes `product_pricing`, stock writes `inventory_stock`, tier can be updated without delete-and-readd | **Done** |
+| **P10** | Campaign image the merchandiser can set | Upload or stored asset with type/size checks; banner stores the resulting URL | **Done** |
+| **P11** | Desk proof on staging | Banner, section order, and a bulk tier changed in the portal show up on the API (and the app if a base URL is set) without an app build | **Done** (staging run pending) |
+
+**Rule:** Finish and verify the current phase before starting the next. Do not batch phases.
+
+### What “portal complete” means
+
+A merchandiser, without a developer, can put a campaign on the phone home, arrange the homepage blocks the app actually renders, and correct a SKU’s price, stock, category, and bulk tier. Staff can see who changed it. Orders can be moved through status. That is the end of this plan.
+
+Still out of this plan: payment, refunds, invoices, a customer website, ERP, and the phone’s server cart. The phone cart and ordering are the shop track after P11 ([`SHOP_TRACK.md`](./SHOP_TRACK.md)), not more portal modules.
+
+### P11 note
+
+Delete, Remove and Reset now follow the signed-in store role's Delete permission per module ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md), A1); the API refuses anyway. The seeded Merchandiser role (state and region managers) edits but cannot delete. The phone product page lists the active bulk tiers it gets from `GET /catalog/products/:id` (“Buy 10–49: 8% off”, or a fixed unit price).
+
+Staging proof, after the API is restarted on the new code:
+
+1. In the portal, publish a banner, pause another, move a homepage block, and add or edit a tier on one product.
+2. From `server/`, run the anonymous check against that API:
+
+   ```sh
+   PROOF_API=https://<staging-api> PROOF_BANNER="<published title>" PROOF_HIDDEN_BANNER="<paused title>" \
+   PROOF_SECTIONS=<first blocks in the new order, comma-separated> PROOF_PRODUCT=<product id> PROOF_TIER=<minQty>:<discountValue> \
+   npm run proof:desk
+   ```
+
+   It exits 0 when the phone would see that banner and not the paused one, the home blocks start in that order, and the product carries that tier. Otherwise it lists what differs.
+3. Sign in as a Merchandiser and confirm no delete or reset control appears.
+
+`npm test` in `server/` runs the unit tests for banner windows, homepage blocks, stock split, banner upload, and this check.
+
+### P10 note
+
+`POST /cms/banners/media` accepts one JPEG, PNG, or WebP up to 2 MB, checks the file bytes rather than the browser’s type label, and stores `/uploads/banners/…`. Saving the banner keeps that path. The API serves the file. The phone loads `/uploads/…` from the API origin, not from the website asset host. A pasted CDN URL still works. Set `PUBLIC_API_ORIGIN` when banner responses should rewrite that path to an absolute URL.
+
+### P9 note
+
+Saving a product writes `product_pricing.SellingPrice` for every active price row. If the product has none, one row is inserted, so the catalogue price is no longer the ₹450 fallback. Stock is the sum of `inventory_stock` for that product: existing rows are resized to the typed total, and a product with no inventory row gets one. `PUT /pricing/bulk-tiers/:id` updates that tier in place. The desk has Edit on each tier.
+
+### P8 note
+
+Anonymous `GET /cms/sections` returns the enabled phone blocks in desk order: category shortcuts, hero, trust strip, shop by project, order again, offer tiles, product rail, quick tools. Stored rows are mapped onto those blocks (`hero_banners` is the hero, `popular_categories` is shop by project, `best_sellers` is the product rail). A row the phone cannot draw, such as `product_deal_slider`, is left out of both lists. Staff see the same blocks with the hidden ones included. Missing blocks are inserted once; reset restores this order and turns them all on. `informational_strip` stays off the desk until the app has a block for it.
+
+### P7 note
+
+Anonymous `GET /cms/banners` ignores `?status=` and returns only campaigns that are live right now: `published` inside its window (empty dates stay live), or `scheduled` with a start and still inside the window. `paused`, `draft`, and `archived` stay off the phone. Staff still see every status, including `startsAt` and `endsAt`. A status-only save does not wipe the window.
+
+### P6 ops note
+- `GET /catalog/products?page=&limit=&search=&categoryId=` returns `{ data, meta: { total, page, limit, totalPages } }`.
+- Portal Products desk queries that endpoint per page (default 50). Dashboard KPI uses `meta.total`.
+- Ensure `techxpertstore.portal_audit_logs` exists (see `server/sql/portal_audit_logs.sql`) so Audit Trail does not 503.
+
+### P3 ops note
+Create the MySQL table once (see `docs/DATABASE_SCHEMA.md` → `portal_audit_logs`). If MySQL is down, audit reads/writes return 503 unless `ALLOW_FILE_STORE=1` (local only), which uses `server/database.json`.
+
+### P4 ops note
+If `portal_audit_logs.entity` was created before P4, add the enum value:  
+`ALTER TABLE techxpertstore.portal_audit_logs MODIFY entity ENUM('banner','section','bulk_tier','product','publish','order','category') NOT NULL;`
+
+### P5 ops note
+- Login: `POST /auth/admin/login` against `homecare.admin_users` (bcrypt only for real rows). Rate-limited (10 / 15 min / IP+email).
+- Local seed: **opt-in** `ALLOW_DEV_ADMIN=1` + `admin@techxpert.in` / `admin123`. Always off in production.
+- Production **requires** `JWT_SECRET` (≥24 chars) and `CORS_ORIGINS` (comma allowlist) or the API refuses to start.
+- Every admin request re-checks `admin_users.is_active` (revoked accounts lose access immediately).
+- Portal: `VITE_API_BASE_URL` (default `http://localhost:5001`); session via HttpOnly cookie `tx_admin_token` (`credentials: 'include'`); profile cache in `localStorage`.
+- Public `GET /cms/banners` defaults to **published** only; admin session sees all statuses.
+- Staff mutations + sensitive reads require admin plus the module permission from the store role (A1, [PORTAL_ACCESS.md](./PORTAL_ACCESS.md)); `GET /orders/:id` owner or staff with Orders view.
+- Dual-DB: login → `homecare` (`userPool`); catalog/orders/CMS → `techxpertstore` (`storePool`). See `GET /health` → `db`. File-store fallback only with `ALLOW_FILE_STORE=1`.
+
+### Hardening tranche (H1–H4 + Medium M1/M2/M5/M8/M9)
+See [`docs/WEB_PORTAL_AUDIT.md`](./WEB_PORTAL_AUDIT.md) — implemented.

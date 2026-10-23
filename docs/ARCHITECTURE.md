@@ -26,6 +26,7 @@ techxpert-store/
 │   ├── DATABASE_SCHEMA.md# Relational dual-database topology (homecare + techxpertstore)
 │   ├── ARCHITECTURE.md   # Overall system architecture (this document)
 │   ├── BACKEND_IMPLEMENTATION_SPEC.md # Endpoints, schemas & integration specs
+│   ├── APP_WORKFLOW.md   # Mobile application architecture, codeflows & state
 │   └── WEB_SPEC.md       # Web frontend specifications & guidelines
 ├── README.md             # Repository entry point & developer setup
 └── .gitignore            # Root-level ignore rules
@@ -122,11 +123,12 @@ All commerce, fulfillment, and catalog assets reside in `techxpertstore`:
    - Orders placed by mobile users persist `UserID = homecare.users.user_id`.
    - If a customer places an order as a guest, `GuestName`, `GuestPhone`, and `GuestEmail` are stored on `techxpertstore.orders`.
 2. **Cross-Database Queries**:
-   - Because both databases reside on the same MySQL cluster, the backend performs high-performance joins:
+   - Because both databases reside on the same MySQL cluster, the backend performs joins (store pool default schema = `techxpertstore`):
      ```sql
      SELECT o.*, u.full_name as customerName, u.phone as customerMobile, u.email as customerEmail
-     FROM techxpertstore.orders o
+     FROM orders o
      LEFT JOIN homecare.users u ON o.UserID = u.user_id;
      ```
+   - Login/admin never read catalog tables; catalog mutations never write `homecare`. See `GET /health` → `db.users` / `db.store`.
 3. **Admin Operations Portal**:
    - The web portal provides unified operations: staff can inspect customer accounts from `homecare`, review customer order history from `techxpertstore`, modify catalog prices, adjust bulk contractor tiers, and manage hero campaign banners.
