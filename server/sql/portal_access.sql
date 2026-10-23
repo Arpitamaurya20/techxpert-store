@@ -88,4 +88,4 @@ JOIN techxpertstore.portal_roles r ON r.Name = 'Merchandiser'
 WHERE a.role IN ('state_manager', 'region_manager');
 
 ALTER TABLE techxpertstore.portal_audit_logs
-  MODIFY entity ENUM('banner','section','bulk_tier','product','publish','order','category','delivery','access') NOT NULL;
+  MODIFY entity ENUM('banner','section','bulk_tier','product','publish','order','category','delivery','access','store') NOT NULL;

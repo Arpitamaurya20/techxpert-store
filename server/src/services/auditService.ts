@@ -13,6 +13,7 @@ const VALID_ENTITIES = new Set([
   'category',
   'delivery',
   'access',
+  'store',
 ]);
 
 function normalizeRow(row: any): AuditLogEntry {

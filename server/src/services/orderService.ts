@@ -16,6 +16,15 @@ export interface OrderFilterParams {
   page?: number;
   limit?: number;
   isPortal?: boolean;
+  /** Portal staff limited to some stores; null or absent = no store filter. */
+  storeIds?: number[] | null;
+}
+
+function storeClause(storeIds: number[] | null | undefined, params: any[]): string {
+  if (!storeIds) return '';
+  if (!storeIds.length) return ` AND 1 = 0`;
+  params.push(storeIds);
+  return ` AND o.StoreID IN (?)`;
 }
 
 export class OrderService {
@@ -37,6 +46,7 @@ export class OrderService {
         whereClause += ` AND o.OrderStatus = ?`;
         queryParams.push(params.status);
       }
+      whereClause += storeClause(params.storeIds, queryParams);
 
       if (params.search) {
         whereClause += ` AND (o.OrderNumber LIKE ? OR u.full_name LIKE ? OR u.phone LIKE ? OR o.ShippingAddress LIKE ?)`;
@@ -67,11 +77,14 @@ export class OrderService {
           CAST(o.SubTotal AS DOUBLE) as subtotal,
           CAST(o.TaxTotal AS DOUBLE) as taxTotal,
           o.ShippingAddress as deliveryAddress,
+          o.StoreID as storeId,
+          st.StoreName as storeName,
           COALESCE(u.full_name, o.GuestName, 'Valued Customer') as customerName,
           COALESCE(u.phone, o.GuestPhone, '') as customerMobile,
           COALESCE(u.email, o.GuestEmail, '') as customerEmail
         FROM orders o
         LEFT JOIN homecare.users u ON o.UserID = u.user_id
+        LEFT JOIN stores st ON st.ID = o.StoreID
         ${whereClause}
         ORDER BY o.ID DESC
         LIMIT ? OFFSET ?
@@ -116,6 +129,7 @@ export class OrderService {
         return await OrderService.getOrdersWithoutUserJoin(params, limit, page, offset);
       } catch (err2) {
         return mysqlOrFileStore('orders.getOrders', err2, () => {
+          if (params.storeIds) return { orders: [], meta: { page: 1, limit, total: 0, totalPages: 0 } };
           const fallback = store.getOrders(
             params.isPortal ? undefined : params.userId ? String(params.userId) : undefined
           );
@@ -145,6 +159,7 @@ export class OrderService {
       whereClause += ` AND o.OrderStatus = ?`;
       queryParams.push(params.status);
     }
+    whereClause += storeClause(params.storeIds, queryParams);
     if (params.search) {
       whereClause += ` AND (o.OrderNumber LIKE ? OR o.ShippingAddress LIKE ? OR o.GuestName LIKE ? OR o.GuestPhone LIKE ?)`;
       const s = `%${params.search}%`;
@@ -169,10 +184,13 @@ export class OrderService {
          CAST(o.SubTotal AS DOUBLE) as subtotal,
          CAST(o.TaxTotal AS DOUBLE) as taxTotal,
          o.ShippingAddress as deliveryAddress,
+         o.StoreID as storeId,
+         st.StoreName as storeName,
          COALESCE(o.GuestName, 'Valued Customer') as customerName,
          COALESCE(o.GuestPhone, '') as customerMobile,
          COALESCE(o.GuestEmail, '') as customerEmail
        FROM orders o
+       LEFT JOIN stores st ON st.ID = o.StoreID
        ${whereClause}
        ORDER BY o.ID DESC
        LIMIT ? OFFSET ?`,
@@ -219,11 +237,14 @@ export class OrderService {
            CAST(o.SubTotal AS DOUBLE) as subtotal,
            CAST(o.TaxTotal AS DOUBLE) as taxTotal,
            o.ShippingAddress as deliveryAddress,
+           o.StoreID as storeId,
+           st.StoreName as storeName,
            COALESCE(u.full_name, o.GuestName, 'Valued Customer') as customerName,
            COALESCE(u.phone, o.GuestPhone, '') as customerMobile,
            COALESCE(u.email, o.GuestEmail, '') as customerEmail
          FROM orders o
          LEFT JOIN homecare.users u ON o.UserID = u.user_id
+         LEFT JOIN stores st ON st.ID = o.StoreID
          WHERE o.ID = ? OR o.OrderNumber = ?
          LIMIT 1`,
         [orderId, orderId]
@@ -395,6 +416,8 @@ export class OrderService {
     conn: PoolConnection,
     order: {
       cartId?: number | null;
+      /** The store serving the delivery pincode. */
+      storeId: number;
       userId?: number;
       customer: { name: string; phone: string; email: string };
       deliveryAddress: string;
@@ -411,12 +434,13 @@ export class OrderService {
 
     const [orderRes] = await conn.query<any>(
       `INSERT INTO orders
-       (OrderNumber, UserID, CartID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
+       (OrderNumber, UserID, CartID, StoreID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
       [
         orderNumber,
         order.userId || null,
         order.cartId || null,
+        order.storeId,
         order.customer.name,
         order.customer.phone,
         order.customer.email,
@@ -548,7 +572,7 @@ export class OrderService {
     if (items.length === 0) throw orderRefusal(400, 'Order must contain at least one item');
 
     const address = await this.resolveDeliveryAddress(payload.userId, payload.addressId, payload.shippingAddress);
-    await DeliveryAreaService.assertServiceable(
+    const { storeId } = await DeliveryAreaService.assertServiceable(
       deliveryPincode(address.addressDetails?.pincode ?? payload.pincode, address.addressString)
     );
 
@@ -591,6 +615,7 @@ export class OrderService {
       });
 
       const orderId = await this.writeOrder(conn, {
+        storeId,
         userId,
         customer,
         deliveryAddress: address.addressString,
@@ -650,18 +675,21 @@ export class OrderService {
     }
   }
 
-  static async getOrderStats() {
+  static async getOrderStats(storeIds: number[] | null = null) {
     try {
+      const params: any[] = [];
+      const filter = storeClause(storeIds, params);
       const [rows] = await storePool.query<any[]>(
         `SELECT 
            COUNT(*) as totalOrders,
-           COALESCE(SUM(GrandTotal), 0) as totalRevenue,
-           SUM(CASE WHEN OrderStatus = 'pending' THEN 1 ELSE 0 END) as pendingCount,
-           SUM(CASE WHEN OrderStatus = 'processing' THEN 1 ELSE 0 END) as processingCount,
-           SUM(CASE WHEN OrderStatus = 'shipped' THEN 1 ELSE 0 END) as shippedCount,
-           SUM(CASE WHEN OrderStatus = 'delivered' THEN 1 ELSE 0 END) as deliveredCount,
-           SUM(CASE WHEN OrderStatus = 'cancelled' THEN 1 ELSE 0 END) as cancelledCount
-         FROM orders`
+           COALESCE(SUM(o.GrandTotal), 0) as totalRevenue,
+           SUM(CASE WHEN o.OrderStatus = 'pending' THEN 1 ELSE 0 END) as pendingCount,
+           SUM(CASE WHEN o.OrderStatus = 'processing' THEN 1 ELSE 0 END) as processingCount,
+           SUM(CASE WHEN o.OrderStatus = 'shipped' THEN 1 ELSE 0 END) as shippedCount,
+           SUM(CASE WHEN o.OrderStatus = 'delivered' THEN 1 ELSE 0 END) as deliveredCount,
+           SUM(CASE WHEN o.OrderStatus = 'cancelled' THEN 1 ELSE 0 END) as cancelledCount
+         FROM orders o WHERE 1 = 1${filter}`,
+        params
       );
       return rows[0];
     } catch (err) {

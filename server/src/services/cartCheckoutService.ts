@@ -49,7 +49,7 @@ export class CartCheckoutService {
     const guest = { name: text(body.guestName), phone: text(body.guestPhone), email: text(body.guestEmail) };
     const addressId = Number(body.addressId) > 0 ? Number(body.addressId) : undefined;
     const address = await OrderService.resolveDeliveryAddress(access.userId, addressId, text(body.shippingAddress));
-    await DeliveryAreaService.assertServiceable(
+    const { storeId } = await DeliveryAreaService.assertServiceable(
       deliveryPincode(address.addressDetails?.pincode ?? text(body.pincode), address.addressString)
     );
 
@@ -88,6 +88,7 @@ export class CartCheckoutService {
       const customer = await OrderService.resolveCustomerInfo(userId, guest);
       const orderId = await OrderService.writeOrder(conn, {
         cartId,
+        storeId,
         userId,
         customer,
         deliveryAddress: address.addressString,

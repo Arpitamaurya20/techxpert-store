@@ -4,6 +4,7 @@ import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { AccessService } from '../services/accessService.js';
 import { requireAuth, requireAdmin, requirePermission } from '../middleware/auth.js';
 import { adminLoginRateLimit } from '../middleware/rateLimit.js';
+import { storeFilter } from '../utils/scope.js';
 import { clearAdminTokenCookie, setAdminTokenCookie } from '../utils/cookies.js';
 
 const router = Router();
@@ -112,7 +113,15 @@ router.post(
     setAdminTokenCookie(res, result.token);
     return sendSuccess(
       res,
-      { ...result, admin: { ...result.admin, storeRole: access.roleName, permissions: access.permissions } },
+      {
+        ...result,
+        admin: {
+          ...result.admin,
+          storeRole: access.roleName,
+          permissions: access.permissions,
+          wholeCompany: access.scope.all,
+        },
+      },
       'Admin login successful'
     );
   })
@@ -139,6 +148,7 @@ router.get(
       role: req.user!.role,
       storeRole: req.user!.access!.roleName,
       permissions: req.user!.access!.permissions,
+      wholeCompany: req.user!.access!.scope.all,
     });
   })
 );
@@ -148,8 +158,8 @@ router.get(
   '/users',
   requireAdmin,
   requirePermission('customers', 'view'),
-  asyncHandler(async (_req, res) => {
-    const users = await AuthService.getAllUsers();
+  asyncHandler(async (req, res) => {
+    const users = await AuthService.getAllUsers(storeFilter(req.user!.access!.scope));
     return sendSuccess(res, users);
   })
 );

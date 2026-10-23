@@ -10,8 +10,15 @@ import {
   permissionRefusal,
 } from '../middleware/auth.js';
 import { can } from '../utils/permissions.js';
+import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
 
 const router = Router();
+
+/** Staff see an order only when its store is inside their places. */
+function orderInScope(order: { storeId?: unknown }, scope: Scope): boolean {
+  if (scope.all) return true;
+  return order.storeId != null && coversStore(scope, Number(order.storeId));
+}
 
 // GET /orders - List orders (customer: own orders; portal all=true needs orders view)
 router.get(
@@ -19,11 +26,13 @@ router.get(
   optionalAuth,
   asyncHandler(async (req, res) => {
     const wantsAll = req.query.all === 'true' || req.headers['x-client'] === 'portal';
+    let storeIds: number[] | null = null;
     if (wantsAll) {
       const admin = await resolveAdmin(req);
       if (!can(admin.access.permissions, 'orders', 'view')) {
         return sendError(res, 403, permissionRefusal('orders', 'view'));
       }
+      storeIds = storeFilter(admin.access.scope);
     }
 
     const result = await OrderService.getOrders({
@@ -33,6 +42,7 @@ router.get(
       page: req.query.page ? Number(req.query.page) : undefined,
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       isPortal: wantsAll,
+      storeIds,
     });
 
     return sendSuccess(res, result.orders, undefined, 200, result.meta);
@@ -44,8 +54,8 @@ router.get(
   '/stats',
   requireAdmin,
   requirePermission('orders', 'view'),
-  asyncHandler(async (_req, res) => {
-    const stats = await OrderService.getOrderStats();
+  asyncHandler(async (req, res) => {
+    const stats = await OrderService.getOrderStats(storeFilter(req.user!.access!.scope));
     return sendSuccess(res, stats);
   })
 );
@@ -55,15 +65,18 @@ router.get(
   '/:id',
   requireAuth,
   asyncHandler(async (req, res) => {
+    let scope: Scope | null = null;
     if (req.user?.adminId) {
       const admin = await resolveAdmin(req);
       if (!can(admin.access.permissions, 'orders', 'view')) {
         return sendError(res, 403, permissionRefusal('orders', 'view'));
       }
+      scope = admin.access.scope;
     }
 
     const order = await OrderService.getOrderById(req.params.id);
     if (!order) return sendError(res, 404, 'Order not found');
+    if (scope && !orderInScope(order, scope)) return sendError(res, 404, 'Order not found');
 
     const isAdmin = Boolean(req.user?.adminId);
     const ownerId = order.userId != null ? Number(order.userId) : null;
@@ -96,6 +109,8 @@ router.put(
   asyncHandler(async (req, res) => {
     const { status, note } = req.body;
     if (!status) return sendError(res, 400, 'Status is required');
+    const order = await OrderService.getOrderById(req.params.id);
+    if (!order || !orderInScope(order, req.user!.access!.scope)) return sendError(res, 404, 'Order not found');
 
     const result = await OrderService.updateOrderStatus(
       req.params.id,

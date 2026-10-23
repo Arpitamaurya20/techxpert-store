@@ -475,7 +475,39 @@ export class AuthService {
     return AuthService.assertActiveAdmin(adminId);
   }
 
-  static async getAllUsers() {
+  /**
+   * Customers with order counts and spend. With `storeIds`, only customers who ordered from those
+   * stores, counted on those stores' orders; there is no identity-only fallback for that view.
+   */
+  static async getAllUsers(storeIds: number[] | null = null) {
+    if (storeIds) {
+      if (!storeIds.length) return [];
+      const [rows] = await userPool.query<any[]>(
+        `SELECT 
+           u.user_id as id,
+           u.phone,
+           u.email,
+           u.full_name as name,
+           u.is_active as isActive,
+           u.created_at as createdAt,
+           s.orderCount,
+           s.totalSpent,
+           (SELECT CONCAT(a.flat_no, ', ', a.city, ' - ', a.pincode) 
+            FROM user_addresses a 
+            WHERE a.user_id = u.user_id AND a.is_deleted = 0 
+            ORDER BY a.is_default DESC, a.address_id DESC LIMIT 1) as defaultAddress
+         FROM (
+           SELECT o.UserID as userId, COUNT(*) as orderCount, COALESCE(SUM(o.GrandTotal), 0) as totalSpent
+           FROM techxpertstore.orders o
+           WHERE o.UserID IS NOT NULL AND o.StoreID IN (?)
+           GROUP BY o.UserID
+         ) s
+         JOIN users u ON u.user_id = s.userId
+         ORDER BY u.user_id ASC`,
+        [storeIds]
+      );
+      return rows;
+    }
     // Same-host cross-DB: spend stats from techxpertstore.orders (requires both schemas on one MySQL)
     try {
       const [rows] = await userPool.query<any[]>(

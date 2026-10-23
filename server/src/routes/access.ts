@@ -74,4 +74,15 @@ router.put(
   })
 );
 
+// PUT /access/staff/:adminId/scope - { all: true } or { all: false, nodes: [{ type: 'group'|'store', id }] }
+router.put(
+  '/staff/:adminId/scope',
+  requireAdmin,
+  requirePermission('access', 'edit'),
+  asyncHandler(async (req, res) => {
+    const staff = await AccessService.setStaffScope(accessActor(req), Number(req.params.adminId), req.body ?? {});
+    return sendSuccess(res, staff, 'Places updated');
+  })
+);
+
 export default router;
