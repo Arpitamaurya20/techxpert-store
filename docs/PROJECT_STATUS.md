@@ -72,6 +72,7 @@ What an auditor should check, where it lives.
 | Unit price = lowest active `product_pricing.SellingPrice`; none → product not orderable (no ₹450 fallback) | `server/src/utils/cartRules.ts` (`priceLine`), `server/src/services/cartService.ts` (`priceRows`), `server/src/services/catalogService.ts` |
 | Bulk tier applied on top of base price: of the tiers covering the quantity, the one giving the lowest unit price (percent off, or a fixed unit price); a tier that wouldn't lower the price is ignored. `GET /pricing/calculate` uses the product's own price, never one sent by the caller | `server/src/utils/bulkPricing.ts`, `server/src/services/pricingService.ts`, `cartRules.priceLine` |
 | Order status is one of pending, confirmed, processing, shipped, delivered, cancelled; anything else is refused | `server/src/utils/validate.ts` (`validateOrderStatusBody`), `server/src/routes/orders.ts` |
+| Cancelling: cancelled is final (409 on any change); a delivered order can't be cancelled (409). Cancelling an order placed through this shop (`TX-ORD-`) puts each line's quantity back on the variant it took from, in the same transaction, resizes that variant's inventory rows and marks an out-of-stock product in stock; imported orders (`ORD-`) put nothing back. The history note says which | `server/src/utils/orderRules.ts`, `orderService.updateOrderStatus` / `putStockBack`, `web/src/services/orderStatus.ts` (`statusChoices`, `restocksOnCancel`), `web/src/components/OrdersManager.tsx` |
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
 | Quantity limits and the refusal sentence | `cartRules.quantityRefusal` |
@@ -121,7 +122,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 99 unit tests, including `cartRules`, `bulkPricing`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 104 unit tests, including `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -152,9 +153,10 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 5 | A2 build: pincode → store, group tree, staff scope, store on each order, scoped orders / pincodes / customers | `server/sql/portal_scope.sql`, `scope.ts`, `storeTreeService.ts`, `routes/stores.ts`, `accessService.ts`, `deliveryAreaService.ts`, `orderService.ts`, `StoreTreeManager.tsx`, `AccessManager.tsx` | **Done** on `develop` 23 Oct: 71/71 unit tests, 61/61 HTTP checks, browser check; local API on :5001 needs a restart to run it |
 | 6 | Portal UI/UX pass: truth and wording (U1), shared building blocks (U2), screens in batches (U3–U6) | [`PORTAL_UI_PASS.md`](./PORTAL_UI_PASS.md); `web/src/components/*` | U1 done 23 Oct, with toasts, light theme in the logo colours and the logo fix; U2 done 23 Oct (shared pieces; Delivery Pincodes and Roles & Access moved onto them); U3 done 23 Oct (Orders, Customers, Dashboard); U4 done 23 Oct (Products, Categories, Bulk Pricing; adding categories and subcategories fixed on the server); U5 done 23 Oct (Campaign Banners, Homepage Sections); U6 done 23 Oct (Stores & groups, Audit trail, Sign-in, Developer tools, sidebar, header). **Done** |
 | 7 | Production rollout | [`ROLLOUT.md`](./ROLLOUT.md): SQL, settings, API and portal together, phone build, checks, rollback | Checklist written 23 Oct; waits for someone with production access |
-| 8 | Server gaps from the UI pass: order status, `/pricing/calculate` price, bulk tier picking, clearing a product's brand or price | `bulkPricing.ts`, `validate.ts`, `pricingService.ts`, `routes/orders.ts`, `routes/pricing.ts`, `catalogService.updateProduct`, `CatalogOverview.tsx` | **Done** 23 Oct: 99/99 unit tests, HTTP checks, browser check (remove-price confirm). Cancelling still doesn't restore stock (later work) |
+| 8 | Server gaps from the UI pass: order status, `/pricing/calculate` price, bulk tier picking, clearing a product's brand or price | `bulkPricing.ts`, `validate.ts`, `pricingService.ts`, `routes/orders.ts`, `routes/pricing.ts`, `catalogService.updateProduct`, `CatalogOverview.tsx` | **Done** 23 Oct: 99/99 unit tests, HTTP checks, browser check (remove-price confirm) |
+| 9 | Cancelling puts stock back. Decided 23 Oct: delivered orders can't be cancelled, cancelled is final, imported orders put nothing back | `orderRules.ts`, `orderService.ts`, `OrdersManager.tsx`, `orderStatus.ts`, `App.tsx` | **Done** 23 Oct: 104/104 unit tests. A test guest order took 1 + 2 units, and cancelling it put them back exactly (68 and 500 again); reopening, cancelling twice and cancelling delivered order 1 were refused without touching stock. Browser: cancelled order locked, delivered order has no Cancel, confirm wording for shop vs imported orders |
 
-Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices, notifications.
+Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
 ---
 
@@ -166,7 +168,7 @@ Later, not scheduled: per-store stock, payment, cancellations/refunds, invoices,
 - **App home, for the app team:**
   - The category shortcuts point at category ids (`cement-plaster`, `tiling-grouts`…) that don't exist in this catalogue, so that block finds nothing.
   - Banner buttons can't open outside links (they show all products).
-- **Cancelling an order doesn't put stock back** (found in the UI pass; the portal says so when cancelling). The other server gaps from that pass were fixed 23 Oct (plan item 8).
+- **Test order left in the local DB:** order 12 (`TX-ORD-551492-390`, guest "Cancel test (agent)") is cancelled with its stock put back, from the plan item 9 check.
 - **Bulk prices on a removed product:** bulk prices 1–3 belong to product 1 (1.5 Ton Split AC), which was removed, so they never apply. The portal marks them; a merchandiser should remove or re-point them.
 - **Not device-tested:** S1–S3 proven over HTTP and the local DB only; the device run is with the app team.
 - **Ops:** admin login rate limit is in-memory (single node); `JWT_SECRET` and `CORS_ORIGINS` must be set in production (the API refuses to start otherwise).

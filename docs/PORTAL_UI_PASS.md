@@ -164,7 +164,7 @@ Each batch moves its screens onto U2's pieces and rules, then gets a browser che
   - The fourth figure is order value without cancelled orders (it used to add cancelled orders as "revenue processed").
   - The status filter shows a count for each status.
   - Missing payment method shows nothing instead of an invented "COD".
-  - Cancelling asks first and says stock isn't put back and nothing is refunded from the portal.
+  - Cancelling asks first and says nothing is refunded from the portal. Since 23 Oct (plan item 9) it also says whether stock goes back: yes for shop orders, no for imported ones.
   - The audit entry and toast name the order number ("Order TX-ORD-… marked as processing").
 - **Order detail** reads top to bottom: status (changeable there), payment and store; customer and delivery address side by side; items; totals. The time uses `formatWhen`.
 - **Dashboard:**

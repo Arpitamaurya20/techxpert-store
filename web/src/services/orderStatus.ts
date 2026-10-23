@@ -26,6 +26,17 @@ export const isOpenOrder = (status: string | null | undefined): boolean => {
   return key !== 'delivered' && key !== 'cancelled';
 };
 
+/** Mirrors the server (`server/src/utils/orderRules.ts`): cancelled is final; a delivered order can't be cancelled. */
+export const statusChoices = (current: string): readonly string[] => {
+  if (current === 'cancelled') return ['cancelled'];
+  if (current === 'delivered') return ORDER_STATUSES.filter((s) => s !== 'cancelled');
+  return ORDER_STATUSES;
+};
+
+/** Mirrors the server: only orders placed through this shop (`TX-ORD-`) took stock, so only they get it back. */
+export const restocksOnCancel = (orderNumber: string | null | undefined): boolean =>
+  String(orderNumber || '').startsWith('TX-ORD-');
+
 export const orderStatusVariant = (status: string | null | undefined): BadgeVariant => {
   const key = String(status || '').toLowerCase();
   if (key === 'delivered') return 'success';

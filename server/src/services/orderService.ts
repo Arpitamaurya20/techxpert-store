@@ -8,6 +8,8 @@ import { guestOrderOwner, isOrderRefusal, orderFailed, orderRefusal } from '../u
 import { quantityRefusal, TAX_RATE, type CartTotals } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
 import type { OrderStatus } from '../utils/validate.js';
+import { restocksOnCancel, statusChangeRefusal } from '../utils/orderRules.js';
+import { allocateCatalogueStock } from '../utils/stockAllocation.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
 
 export interface OrderFilterParams {
@@ -657,37 +659,102 @@ export class OrderService {
     return this.checkout({ ...rest, userId });
   }
 
+  /**
+   * Changes the status on one transaction. Cancelling an order placed through this shop puts its stock back
+   * on the variants it took from; cancelled is final, so that happens once.
+   */
   static async updateOrderStatus(orderId: string | number, status: OrderStatus, note?: string, actorId: number = 1) {
+    let conn: PoolConnection | undefined;
     try {
-      await storePool.query(
-        `UPDATE orders 
-         SET OrderStatus = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
-         WHERE ID = ? OR OrderNumber = ?`,
-        [status, orderId, orderId]
-      );
-
-      const [orders] = await storePool.query<any[]>(
-        `SELECT ID FROM orders WHERE ID = ? OR OrderNumber = ? LIMIT 1`,
+      conn = await storePool.getConnection();
+      await conn.beginTransaction();
+      const [orders] = await conn.query<any[]>(
+        `SELECT ID, OrderNumber, OrderStatus FROM orders WHERE ID = ? OR OrderNumber = ? LIMIT 1 FOR UPDATE`,
         [orderId, orderId]
       );
+      if (!orders.length) throw Object.assign(new Error('Order not found'), { statusCode: 404 });
+      const order = orders[0];
+      const refusal = statusChangeRefusal(String(order.OrderStatus), status);
+      if (refusal) throw Object.assign(new Error(refusal), { statusCode: 409 });
 
-      if (orders.length > 0) {
-        await storePool.query(
-          `INSERT INTO order_status_history
-           (OrderID, OrderStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
-           VALUES (?, ?, ?, ?, CURDATE(), CURTIME())`,
-          [orders[0].ID, status, note || 'Status updated from admin operations portal', actorId]
-        );
-      }
-
-      return { success: true, status };
-    } catch (err) {
+      await conn.query(
+        `UPDATE orders SET OrderStatus = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
+        [status, order.ID]
+      );
+      const stockReturned =
+        status === 'cancelled' && restocksOnCancel(order.OrderNumber)
+          ? await OrderService.putStockBack(conn, Number(order.ID))
+          : [];
+      const defaultNote =
+        status === 'cancelled'
+          ? stockReturned.length
+            ? 'Cancelled from the portal; stock put back'
+            : 'Cancelled from the portal; imported order, no stock put back'
+          : 'Status updated from admin operations portal';
+      await conn.query(
+        `INSERT INTO order_status_history
+         (OrderID, OrderStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
+         VALUES (?, ?, ?, ?, CURDATE(), CURTIME())`,
+        [order.ID, status, note || defaultNote, actorId]
+      );
+      await conn.commit();
+      return { success: true, status, stockReturned };
+    } catch (err: any) {
+      await conn?.rollback().catch(() => undefined);
+      if (err?.statusCode) throw err;
       return mysqlOrFileStore('orders.updateOrderStatus', err, () => {
         const updated = store.updateOrderStatus(String(orderId), status as any);
         if (!updated) throw Object.assign(new Error('Order not found'), { statusCode: 404 });
-        return { success: true, status };
+        return { success: true, status, stockReturned: [] };
       });
+    } finally {
+      conn?.release();
     }
+  }
+
+  /**
+   * The reverse of the stock taken in `writeOrder`: each line's quantity goes back on its variant, the
+   * variant's inventory rows are resized to add up to it again, and an out-of-stock product is back in stock.
+   */
+  private static async putStockBack(conn: PoolConnection, orderId: number) {
+    const [lines] = await conn.query<any[]>(
+      `SELECT ProductID as productId, VariantID as variantId, Quantity as quantity FROM order_items WHERE OrderID = ?`,
+      [orderId]
+    );
+    const returned: { productId: number; variantId: number; quantity: number }[] = [];
+    for (const line of lines) {
+      const quantity = Math.max(0, Math.floor(Number(line.quantity) || 0));
+      if (!quantity) continue;
+      const variantId = Number(line.variantId);
+      const productId = Number(line.productId);
+      const [variants] = await conn.query<any[]>(
+        `SELECT StockQuantity as stock FROM product_variants WHERE ID = ? FOR UPDATE`,
+        [variantId]
+      );
+      if (!variants.length) continue;
+      const stock = Math.max(0, Number(variants[0].stock) || 0) + quantity;
+      await conn.query(
+        `UPDATE product_variants SET StockQuantity = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
+        [stock, variantId]
+      );
+      const [rows] = await conn.query<any[]>(
+        `SELECT ID as id, StockQuantity as quantity FROM inventory_stock WHERE VariantID = ? ORDER BY ID ASC FOR UPDATE`,
+        [variantId]
+      );
+      for (const row of allocateCatalogueStock(rows, stock)) {
+        await conn.query(
+          `UPDATE inventory_stock SET StockQuantity = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
+          [row.quantity, row.id]
+        );
+      }
+      await conn.query(
+        `UPDATE products SET StockStatus = 'in_stock', UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
+         WHERE ID = ? AND StockStatus = 'out_of_stock'`,
+        [productId]
+      );
+      returned.push({ productId, variantId, quantity });
+    }
+    return returned;
   }
 
   static async getOrderStats(storeIds: number[] | null = null) {

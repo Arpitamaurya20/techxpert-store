@@ -442,10 +442,12 @@ function PortalApp({
     const number = order?.orderNumber ?? orderId;
     const label = orderStatusLabel(status).toLowerCase();
     try {
-      await api.updateOrderStatus(orderId, status);
+      const result = await api.updateOrderStatus(orderId, status);
       setOrders((prev) => prev.map((o) => (String(o.id) === orderId ? { ...o, status } : o)));
-      addAuditLog('Changed order status', 'order', `Marked order ${number} as ${label}`);
-      toast.success(`Order ${number} marked as ${label}.`);
+      const units = (result?.stockReturned ?? []).reduce((sum: number, line: any) => sum + Number(line.quantity || 0), 0);
+      const stockNote = status === 'cancelled' ? (units ? `; ${units} ${units === 1 ? 'unit' : 'units'} put back in stock` : '; no stock put back') : '';
+      addAuditLog('Changed order status', 'order', `Marked order ${number} as ${label}${stockNote}`);
+      toast.success(`Order ${number} marked as ${label}${stockNote}.`);
       return true;
     } catch (err: any) {
       toast.error(`Couldn't change order ${number}: ${err.message}`);

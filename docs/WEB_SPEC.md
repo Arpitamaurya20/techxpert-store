@@ -56,7 +56,7 @@ Portal boots via Vite (`cd web && npm run dev`); API on `:5001`.
 | Dashboard | KPIs + shortcuts | Live aggregate load | — |
 | Products & Inventory | List, filter, edit, **add, delete** | `GET/POST/PUT/DELETE /catalog/products` | Create writes MySQL (+ file fallback) |
 | Categories & Subs | Hierarchy editor | `GET/POST/PUT/DELETE /catalog/categories` + `/subcategories` | Soft-delete via `IsActive` (**P4**) |
-| Orders & Fulfillment | List with store, status change | `GET`, `PUT …/status` | No cancel/refund UX; limited to your places (404 outside) |
+| Orders & Fulfillment | List with store, status change | `GET`, `PUT …/status` | Cancel puts stock back for shop orders; cancelled is final; delivered can't be cancelled; no refunds; limited to your places (404 outside) |
 | Customers | Directory read | `GET /auth/users` | Read-only; scoped staff see customers who ordered from their stores |
 | Bulk Pricing | List, add, delete tiers | Full CRUD used | No edit-in-place |
 | Campaign Banners | CRUD + reorder + **live image preview + CTA validation** | Full CMS banners | File upload still out of scope (P2 uses URL/path) |

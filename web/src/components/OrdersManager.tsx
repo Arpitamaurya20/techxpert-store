@@ -10,6 +10,8 @@ import {
   orderStatusVariant,
   paymentMethodLabel,
   paymentStatusLabel,
+  restocksOnCancel,
+  statusChoices,
 } from '../services/orderStatus';
 
 export interface OrderItem {
@@ -119,8 +121,11 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
         title: `Cancel order ${order.orderNumber}?`,
         message: (
           <>
-            The order is marked cancelled and stops counting towards order value. Stock taken by this order is not
-            put back automatically, and nothing is refunded from the portal.
+            The order stops counting towards order value.{' '}
+            {restocksOnCancel(order.orderNumber)
+              ? 'Its stock goes back on the shelf.'
+              : 'It was imported, so no stock is put back.'}{' '}
+            A cancelled order can't be reopened, and nothing is refunded from the portal.
           </>
         ),
         confirmLabel: 'Cancel order',
@@ -143,7 +148,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
     return (
       <>
         {known ? null : <option value={current}>{orderStatusLabel(current)}</option>}
-        {ORDER_STATUSES.map((s) => (
+        {statusChoices(current).map((s) => (
           <option key={s} value={s}>
             {orderStatusLabel(s)}
           </option>
@@ -159,7 +164,8 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
         className="tx-input"
         value={o.status}
         onChange={(e) => changeStatus(o, e.target.value)}
-        disabled={updatingId === String(o.id)}
+        disabled={updatingId === String(o.id) || o.status === 'cancelled'}
+        title={o.status === 'cancelled' ? "A cancelled order can't be reopened." : undefined}
         aria-label={`Status of order ${o.orderNumber}`}
         style={styles.statusSelect}
       >
