@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Lock, Mail, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
-import { saveSession, type PortalSession } from '../services/session';
+import { saveSession, sessionFrom, type PortalSession } from '../services/session';
 import { Button } from './ui';
 
 interface LoginScreenProps {
@@ -28,16 +28,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
       if (!result?.admin) {
         throw new Error('Login response missing admin profile');
       }
-      const session: PortalSession = {
-        admin: {
-          id: Number(result.admin.id),
-          name: result.admin.name,
-          email: result.admin.email,
-          role: result.admin.role,
-          storeRole: result.admin.storeRole ?? null,
-          permissions: result.admin.permissions ?? {},
-        },
-      };
+      const session = sessionFrom(result.admin);
       saveSession(session);
       onSuccess(session);
     } catch (err: any) {
@@ -57,7 +48,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
 
         <h1 style={styles.heading}>Staff sign-in</h1>
         <p style={styles.copy}>
-          Sign in with your staff account.
+          Sign in with your store portal login. If you also work in Homecare and have been linked, use your Homecare
+          email and password.
         </p>
 
         <form onSubmit={handleSubmit} style={styles.form}>

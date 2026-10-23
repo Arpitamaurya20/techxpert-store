@@ -15,12 +15,14 @@ import { AuditLogViewer } from './components/AuditLogViewer';
 import { DeliveryPincodeManager } from './components/DeliveryPincodeManager';
 import { AccessManager } from './components/AccessManager';
 import { StoreTreeManager } from './components/StoreTreeManager';
-import { api, setUnauthorizedHandler } from './services/api';
+import { ChangePasswordDialog, ChangePasswordScreen } from './components/ChangePassword';
+import { api, setPasswordChangeHandler, setUnauthorizedHandler } from './services/api';
 import { allowedTabs, can, hasAnyAccess, TAB_ORDER } from './services/access';
 import {
   loadSession,
   clearSession,
   saveSession,
+  sessionFrom,
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
@@ -71,7 +73,18 @@ export function App() {
       signedIn.current = false;
       setSession(null);
     });
-    return () => setUnauthorizedHandler(null);
+    setPasswordChangeHandler(() => {
+      setSession((current) => {
+        if (!current || current.admin.mustChangePassword) return current;
+        const next = { ...current, admin: { ...current.admin, mustChangePassword: true } };
+        saveSession(next);
+        return next;
+      });
+    });
+    return () => {
+      setUnauthorizedHandler(null);
+      setPasswordChangeHandler(null);
+    };
   }, [toast]);
 
   useEffect(() => {
@@ -85,16 +98,7 @@ export function App() {
       .getAdminMe()
       .then((profile) => {
         if (cancelled) return;
-        const next: PortalSession = {
-          admin: {
-            id: Number(profile.id),
-            name: profile.name,
-            email: profile.email,
-            role: profile.role,
-            storeRole: profile.storeRole ?? null,
-            permissions: profile.permissions ?? {},
-          },
-        };
+        const next = sessionFrom(profile);
         saveSession(next);
         setSession(next);
       })
@@ -143,9 +147,14 @@ export function App() {
     return <LoginScreen onSuccess={setSession} />;
   }
 
+  if (session.admin.mustChangePassword) {
+    return <ChangePasswordScreen admin={session.admin} onDone={setSession} onLogout={handleLogout} />;
+  }
+
   return (
     <PortalApp
       session={session}
+      onSessionChange={setSession}
       onLogout={handleLogout}
       activeTab={activeTab}
       setActiveTab={handleTabChange}
@@ -159,6 +168,7 @@ export function App() {
 
 function PortalApp({
   session,
+  onSessionChange,
   onLogout,
   activeTab,
   setActiveTab,
@@ -168,6 +178,7 @@ function PortalApp({
   setServerOnline,
 }: {
   session: PortalSession;
+  onSessionChange: (session: PortalSession) => void;
   onLogout: () => void;
   activeTab: TabId;
   setActiveTab: (t: TabId) => void;
@@ -177,6 +188,7 @@ function PortalApp({
   setServerOnline: (v: boolean) => void;
 }) {
   const toast = useToast();
+  const [changingPassword, setChangingPassword] = useState(false);
   const permissions = session.admin.permissions;
   const tabs = allowedTabs(permissions, session.admin.role === 'super_admin');
   const currentTab: TabId | undefined = tabs.includes(activeTab) ? activeTab : tabs[0];
@@ -684,9 +696,20 @@ function PortalApp({
           You're signed in as {session.admin.name}, but no store role has been given to this login. Ask a store
           admin to assign you a role in Roles &amp; Access.
         </p>
-        <button type="button" onClick={onLogout} style={styles.noAccessButton}>
-          Sign out
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button type="button" onClick={() => setChangingPassword(true)} style={styles.noAccessButton}>
+            Change password
+          </button>
+          <button type="button" onClick={onLogout} style={styles.noAccessButton}>
+            Sign out
+          </button>
+        </div>
+        <ChangePasswordDialog
+          admin={session.admin}
+          isOpen={changingPassword}
+          onClose={() => setChangingPassword(false)}
+          onDone={onSessionChange}
+        />
       </div>
     );
   }
@@ -704,7 +727,14 @@ function PortalApp({
         serverOnline={serverOnline}
         adminName={session.admin.name}
         adminRole={session.admin.storeRole ?? 'No role'}
+        onChangePassword={() => setChangingPassword(true)}
         onLogout={onLogout}
+      />
+      <ChangePasswordDialog
+        admin={session.admin}
+        isOpen={changingPassword}
+        onClose={() => setChangingPassword(false)}
+        onDone={onSessionChange}
       />
 
       {/* Main Content */}

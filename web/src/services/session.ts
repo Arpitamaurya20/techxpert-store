@@ -1,10 +1,15 @@
 import type { Permissions } from './access';
+import type { StaffKind, StaffProfile } from './api';
 
 export type PortalAdmin = {
   id: number;
   name: string;
   email: string;
   role: string;
+  /** `linked` people sign in with their Homecare password and change it there. */
+  kind: StaffKind;
+  /** Signed in with a temporary password: the portal shows only the Change password screen. */
+  mustChangePassword: boolean;
   /** Store role name; null until a store admin assigns one. Super admin reads "Super admin". */
   storeRole: string | null;
   permissions: Permissions;
@@ -19,6 +24,21 @@ export type PortalSession = {
 
 const STORAGE_KEY = 'tx_portal_session';
 
+export function sessionFrom(profile: StaffProfile): PortalSession {
+  return {
+    admin: {
+      id: Number(profile.id),
+      name: profile.name,
+      email: profile.email,
+      role: profile.role,
+      kind: profile.kind === 'linked' ? 'linked' : 'store',
+      mustChangePassword: Boolean(profile.mustChangePassword),
+      storeRole: profile.storeRole ?? null,
+      permissions: profile.permissions ?? {},
+    },
+  };
+}
+
 export function loadSession(): PortalSession | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -31,6 +51,8 @@ export function loadSession(): PortalSession | null {
         name: parsed.admin.name,
         email: parsed.admin.email,
         role: parsed.admin.role,
+        kind: parsed.admin.kind === 'linked' ? 'linked' : 'store',
+        mustChangePassword: Boolean(parsed.admin.mustChangePassword),
         storeRole: parsed.admin.storeRole ?? null,
         permissions: parsed.admin.permissions ?? {},
       },

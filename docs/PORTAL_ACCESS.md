@@ -8,7 +8,7 @@ Two phases. Each is finished and verified before the next starts.
 |-------|------|--------|
 | **A1** | Store roles with per-module View / Edit / Delete; assign a role to existing staff; portal shows only what the role allows | **Done** (local DB + browser proof, 23 Oct 2026) |
 | **A2** | Stores and the pincodes they serve, a free tree of groups above stores, staff scope, orders tagged with a store and filtered by scope | Done (23 Oct 2026) |
-| **A3** | Store-owned staff list: store-only logins, plus linked Homecare logins for people who work in both | Server built (S1, 23 Oct 2026); portal screens (S2) next. See [A3](#a3--store-owned-staff-accounts) |
+| **A3** | Store-owned staff list: store-only logins, plus linked Homecare logins for people who work in both | Server (S1) and portal (S2) built, 23 Oct 2026; docs pass (S3) next. See [A3](#a3--store-owned-staff-accounts) |
 
 Nothing here changes the Homecare database. Until A3, `homecare.admin_users` is the login table; its `role` column is read for one thing only: `super_admin` always has full access. In A3 the store keeps its own staff list, and reads a Homecare login only for people deliberately linked to it.
 
@@ -595,7 +595,7 @@ It never writes to `homecare`. Nobody is linked automatically; links are made on
 
 ### As built (S1, 23 Oct 2026)
 
-The server is on `develop`. The portal still uses the A2 screens until S2, so it can't yet add or link staff, and it has no Change password screen.
+The server is on `develop`. The portal screens followed in S2 (below).
 
 **Files:**
 - `server/sql/portal_staff.sql` is the migration.
@@ -637,6 +637,57 @@ The server is on `develop`. The portal still uses the A2 screens until S2, so it
 - **Not yet proven:**
   - a linked sign-in with the correct Homecare password, because no test password is known and Homecare is never written. This is to be checked in S2 with a real login.
   - an old `adminId` token against the live API, which is covered by unit tests only.
+
+### As built (S2, 23 Oct 2026)
+
+**Files:**
+- `web/src/components/StaffAccounts.tsx` holds the Add staff, Manage and Temporary password dialogs, plus the row badges.
+- `web/src/components/ChangePassword.tsx` holds the first-sign-in screen and the Change password dialog.
+- `AccessManager.tsx` wires them into the Staff panel.
+- `App.tsx` shows the first-sign-in screen while `mustChangePassword` is set.
+- `Sidebar.tsx` adds Change password under the user card.
+- `services/session.ts` adds `kind` and `mustChangePassword`, and `sessionFrom()` builds the session the same way at sign-in, on the session check and after a password change.
+- `services/api.ts` adds the staff endpoints. A 403 `PASSWORD_CHANGE_REQUIRED` from any call switches the portal to the first-sign-in screen.
+
+**Screens:**
+- **Staff panel:**
+  - **Add staff** opens one dialog with two choices:
+    - **New store login**: name and work email, then the temporary password is shown once, with Copy. If Copy is blocked, the password is selected for copying by hand.
+    - **Link a Homecare login**: type the exact email, then **Find** shows "Found <name>", then **Link <name>**.
+  - **Each row** shows badges: Homecare login, Switched off, Switched off in Homecare, Temporary password. It also shows the email and "Last signed in …" or "Never signed in".
+  - **Manage** appears for people you may change. It holds rename (store logins), Reset password (store logins, Access edit) and Switch off / Switch on (Access delete). Linked people get a note that name, email and password live in Homecare.
+  - **Confirmations:** reset and switch off are confirmed after the Manage dialog closes, so two dialogs never stack.
+- **First sign-in:** a full-page "Choose your own password" screen (temporary password, new password twice, Sign out). It survives a reload and checks the same rules as the server before sending.
+- **Change password:**
+  - It's in the sidebar, and also on the "No portal access yet" screen, so someone without a role can still change their password.
+  - Linked people see "managed in Homecare" instead of the form.
+  - After a change this browser stays signed in, while other sessions end.
+- **Wording:** the portal says "Switch off" / "Switch on"; the audit trail keeps "Deactivated Staff" / "Reactivated Staff".
+
+**Proof (local DB, browser at 5199 against the API at 5099, dev super admin):**
+- Typecheck is clean, with no new lint warnings.
+- **Add staff:**
+  - an empty submit shows both field errors;
+  - a Homecare email as a store login is refused with "Link it instead";
+  - a store login was created and its temporary password shown;
+  - an unknown Homecare email shows "No active Homecare login with that email";
+  - Shivangi was found and linked;
+  - a role was assigned.
+- **Manage:**
+  - rename;
+  - reset with confirm, then a new temporary password;
+  - a linked person switched off (confirm text says Homecare is unaffected), then switched back on.
+- **Store login sign-in:**
+  - the first-sign-in screen appears and survives a reload;
+  - messages for empty, too short, email as password, mismatch, and a wrong temporary password (server);
+  - saving opens the portal with the Merchandiser modules.
+- **Change password from the sidebar:**
+  - this browser stays signed in, and `/auth/admin/me` answers 200;
+  - after signing out, the old password is refused and the new one works.
+- **No role:** the "No portal access yet" screen shows Change password.
+- **Not proven here:**
+  - Copy, because the embedded test browser blocks the clipboard and the fallback message showed;
+  - a linked person signing in with their real Homecare password, and the linked view of Change password, because no Homecare test password is known.
 
 ### Production rollout order
 

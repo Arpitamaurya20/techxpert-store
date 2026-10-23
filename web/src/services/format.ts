@@ -26,6 +26,12 @@ export const formatWhen = (value: string | number | Date | null | undefined): st
   return `${day}, ${time}`;
 };
 
+/** "Last signed in 23 Oct, 12:40", or "Never signed in". */
+export const lastSignIn = (value: string | null | undefined): string => {
+  const when = formatWhen(value);
+  return when ? `Last signed in ${when}` : 'Never signed in';
+};
+
 /** "23 Oct 2026" for dates without a time. */
 export const formatDay = (value: string | number | Date | null | undefined): string | null => {
   if (value === null || value === undefined || value === '') return null;

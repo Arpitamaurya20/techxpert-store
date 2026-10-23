@@ -36,13 +36,13 @@ Source: [`AGENTS.md`](../AGENTS.md), [`WEB_SPEC.md` §5](./WEB_SPEC.md), [`SHOP_
 | Shop S3 | Order placed from the server cart (COD), one order per cart, honest product page | Done; device run pending | same |
 | Portal access A1 | Store roles with View/Edit/Delete per module, assigned to existing staff; portal shows only what the role allows; no escalation | Done (local + browser proof) | [`PORTAL_ACCESS.md`](./PORTAL_ACCESS.md) |
 | Portal access A2 | Stores ↔ pincodes, a free tree of groups above stores, staff scope, orders tagged by store | **Built on `develop`** and proven on the local DB (61/61 HTTP checks, browser check); production needs `portal_scope.sql` before the API restart | [`PORTAL_ACCESS.md` §A2](./PORTAL_ACCESS.md) |
-| Portal access A3 | Store-owned staff list: store logins, plus linked Homecare logins for people in both; Homecare logins no longer listed | **Server built (S1)** on `develop`, proven on the local DB; portal screens (S2) next. Production: `portal_staff.sql`, then `npm run staff:bootstrap`, then the API restart, ideally together with S2 | [`PORTAL_ACCESS.md` §A3](./PORTAL_ACCESS.md) |
+| Portal access A3 | Store-owned staff list: store logins, plus linked Homecare logins for people in both; Homecare logins no longer listed | **Server (S1) and portal (S2) built** on `develop`, proven on the local DB and in the browser; docs pass (S3) next. Production: `portal_staff.sql`, then `npm run staff:bootstrap`, then deploy API and portal together | [`PORTAL_ACCESS.md` §A3](./PORTAL_ACCESS.md) |
 
 ### Staff hierarchy (A1 + A2)
 
 Two independent answers decide what a staff member gets: **what they may do** (role, A1) and **where** (scope, A2).
 
-**Who — the staff list (A3, server built).** The store keeps its own staff list. A person is either a store login or a linked Homecare login, for someone who works in both and keeps one password. Homecare people who aren't linked never appear and can't sign in. Super admin is a flag on the store's list, created with `npm run staff:bootstrap`; Homecare's `super_admin` role no longer counts.
+**Who — the staff list (A3, built).** The store keeps its own staff list. A person is either a store login or a linked Homecare login, for someone who works in both and keeps one password. Homecare people who aren't linked never appear and can't sign in. Super admin is a flag on the store's list, created with `npm run staff:bootstrap`; Homecare's `super_admin` role no longer counts.
 
 **What — roles (built).** Super admin has everything and is never given a store role. Everyone else gets one store role, created in the portal, with View / Edit / Delete per module (products, categories, pricing, banners, sections, orders, delivery, stores, customers, audit, access). Edit or Delete implies View. Nobody can grant more than they hold, edit their own role, change themselves, or change someone who holds more. The A1 roles copied from Homecare roles were removed in A3.
 

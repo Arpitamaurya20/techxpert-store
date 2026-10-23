@@ -5,9 +5,15 @@ const API_BASE_URL =
   (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, '') || 'http://localhost:5001';
 
 let onUnauthorized: (() => void) | null = null;
+let onPasswordChangeRequired: (() => void) | null = null;
 
 export function setUnauthorizedHandler(handler: (() => void) | null) {
   onUnauthorized = handler;
+}
+
+/** Called when the server refuses a request until the temporary password is changed. */
+export function setPasswordChangeHandler(handler: (() => void) | null) {
+  onPasswordChangeRequired = handler;
 }
 
 type ApiEnvelope<T> = {
@@ -23,11 +29,18 @@ type ApiEnvelope<T> = {
   };
 };
 
+/** `store`: a login made in this portal. `linked`: a Homecare login, which keeps its Homecare password. */
+export type StaffKind = 'store' | 'linked';
+
 export type StaffProfile = {
   id: number;
   name: string;
   email: string;
+  kind: StaffKind;
   role: string;
+  isSuperAdmin: boolean;
+  /** Signed in with a temporary password; everything but changing it is refused. */
+  mustChangePassword: boolean;
   storeRole: string | null;
   permissions: Permissions;
   /** Sees every store's orders, pincodes and customers. */
@@ -76,8 +89,13 @@ export type StaffMember = {
   id: number;
   name: string;
   email: string;
-  homecareRole: string;
+  kind: StaffKind;
   active: boolean;
+  /** Linked only: whether the Homecare login itself is switched on. */
+  homecareActive: boolean | null;
+  /** Hasn't replaced the temporary password yet. */
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
   isSuperAdmin: boolean;
   roleId: number | null;
   roleName: string | null;
@@ -139,6 +157,7 @@ async function rawFetch(path: string, options?: RequestInit): Promise<ApiEnvelop
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
+    if (res.status === 403 && errorBody.details?.code === 'PASSWORD_CHANGE_REQUIRED') onPasswordChangeRequired?.();
     throw new Error(errorBody.error || `The server had a problem (status ${res.status}).`);
   }
 
@@ -167,6 +186,12 @@ export const api = {
   adminLogout: () =>
     fetchApi<{ success: boolean }>('/auth/admin/logout', { method: 'POST' }),
   getAdminMe: () => fetchApi<StaffProfile>('/auth/admin/me'),
+  /** Store logins only. This session gets a fresh cookie; other sessions end. */
+  changeOwnPassword: (current: string, next: string) =>
+    fetchApi<{ token: string; admin: StaffProfile }>('/auth/admin/password', {
+      method: 'POST',
+      body: JSON.stringify({ current, next }),
+    }),
 
   // Categories
   getCategories: () => fetchApi<any[]>('/catalog/categories'),
@@ -316,10 +341,26 @@ export const api = {
   deleteAccessRole: (id: number) =>
     fetchApi<{ success: boolean }>(`/access/roles/${id}`, { method: 'DELETE' }),
   getAccessStaff: () => fetchApi<StaffMember[]>('/access/staff'),
-  assignStaffRole: (adminId: number, roleId: number | null) =>
-    fetchApi<StaffMember>(`/access/staff/${adminId}`, { method: 'PUT', body: JSON.stringify({ roleId }) }),
-  setStaffScope: (adminId: number, scope: { all: boolean; nodes: ScopeNode[] }) =>
-    fetchApi<StaffMember>(`/access/staff/${adminId}/scope`, { method: 'PUT', body: JSON.stringify(scope) }),
+  assignStaffRole: (staffId: number, roleId: number | null) =>
+    fetchApi<StaffMember>(`/access/staff/${staffId}`, { method: 'PUT', body: JSON.stringify({ roleId }) }),
+  setStaffScope: (staffId: number, scope: { all: boolean; nodes: ScopeNode[] }) =>
+    fetchApi<StaffMember>(`/access/staff/${staffId}/scope`, { method: 'PUT', body: JSON.stringify(scope) }),
+  /** The temporary password comes back once and is never stored in plain text. */
+  addStaffLogin: (data: { name: string; email: string }) =>
+    fetchApi<{ staff: StaffMember; temporaryPassword: string }>('/access/staff', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  findHomecareLogin: (email: string) =>
+    fetchApi<{ name: string; email: string }>(
+      `/access/staff/homecare-match?${new URLSearchParams({ email })}`
+    ),
+  linkHomecareLogin: (email: string) =>
+    fetchApi<StaffMember>('/access/staff/link', { method: 'POST', body: JSON.stringify({ email }) }),
+  updateStaff: (staffId: number, data: { name?: string; active?: boolean }) =>
+    fetchApi<StaffMember>(`/access/staff/${staffId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  resetStaffPassword: (staffId: number) =>
+    fetchApi<{ temporaryPassword: string }>(`/access/staff/${staffId}/reset-password`, { method: 'POST' }),
 
   // Stores & groups
   getStoreTree: () => fetchApi<StoreTree>('/stores/tree'),

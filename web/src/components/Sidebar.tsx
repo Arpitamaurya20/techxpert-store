@@ -12,6 +12,7 @@ import {
   MapPin,
   ShieldCheck,
   Store,
+  KeyRound,
 } from 'lucide-react';
 
 export type TabId =
@@ -39,6 +40,7 @@ interface SidebarProps {
   serverOnline: boolean | null;
   adminName?: string;
   adminRole?: string;
+  onChangePassword?: () => void;
   onLogout?: () => void;
   /** Tabs the signed-in role can open, in display order. */
   visibleTabs: TabId[];
@@ -53,6 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   serverOnline,
   adminName = 'Staff',
   adminRole = 'No role',
+  onChangePassword,
   onLogout,
   visibleTabs,
 }) => {
@@ -162,6 +165,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
         </div>
+        {onChangePassword && (
+          <button type="button" onClick={onChangePassword} style={styles.passwordBtn}>
+            <KeyRound size={14} />
+            Change password
+          </button>
+        )}
       </div>
     </aside>
   );
@@ -314,6 +323,21 @@ const styles: Record<string, React.CSSProperties> = {
   userRole: {
     fontSize: '0.7rem',
     color: 'var(--text-dim)',
+  },
+  passwordBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%',
+    padding: '7px 10px',
+    background: 'none',
+    border: '1px solid transparent',
+    borderRadius: 'var(--radius-md)',
+    color: 'var(--text-muted)',
+    fontSize: '0.78rem',
+    fontWeight: 500,
+    cursor: 'pointer',
+    textAlign: 'left',
   },
   logoutBtn: {
     marginLeft: 'auto',

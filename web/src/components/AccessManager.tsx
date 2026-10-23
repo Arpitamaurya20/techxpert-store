@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { MapPin, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { MapPin, Pencil, Plus, RefreshCw, Settings2, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
 import { api, type PortalRole, type ScopeNode, type StaffMember, type StoreTree } from '../services/api';
 import { can, isWithin, type Level, type ModuleInfo, type Permissions } from '../services/access';
 import { groupAndBelow } from '../services/storeTree';
@@ -18,6 +18,8 @@ import {
   useToast,
 } from './ui';
 import type { StatItem } from './ui';
+import { AddStaffDialog, ManageStaffDialog, StaffBadges, TemporaryPasswordDialog } from './StaffAccounts';
+import { lastSignIn } from '../services/format';
 
 interface AccessManagerProps {
   /** The signed-in staff member's own grants; the role editor never offers more. */
@@ -66,6 +68,9 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
   const [tree, setTree] = useState<StoreTree | null>(null);
   const [places, setPlaces] = useState<PlacesDraft | null>(null);
   const [placesError, setPlacesError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [managing, setManaging] = useState<StaffMember | null>(null);
+  const [issued, setIssued] = useState<{ member: StaffMember; password: string; reset: boolean } | null>(null);
   /** The places picker lists your own groups and stores, which needs Stores view. */
   const canPickPlaces = canEdit && can(permissions, 'stores', 'view');
 
@@ -202,6 +207,59 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
     }
   };
 
+  const replaceMember = (saved: StaffMember) => setStaff((prev) => prev.map((s) => (s.id === saved.id ? saved : s)));
+
+  const added = async (member: StaffMember, temporaryPassword?: string) => {
+    setAdding(false);
+    if (temporaryPassword) setIssued({ member, password: temporaryPassword, reset: false });
+    toast.success(
+      member.kind === 'linked'
+        ? `${member.name} is linked. Give them a role so they can use the portal.`
+        : `Store login created for ${member.name}. Give them a role so they can use the portal.`
+    );
+    await load();
+  };
+
+  const resetPassword = async (member: StaffMember) => {
+    setManaging(null);
+    const ok = await confirm({
+      title: `Reset ${member.name}'s password?`,
+      message: `${member.name} is signed out everywhere and can only sign in with the new temporary password, which you'll see once.`,
+      confirmLabel: 'Reset password',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const result = await api.resetStaffPassword(member.id);
+      replaceMember({ ...member, mustChangePassword: true });
+      setIssued({ member, password: result.temporaryPassword, reset: true });
+    } catch (err: any) {
+      toast.error(`Couldn't reset ${member.name}'s password: ${err.message || 'the server refused it.'}`);
+    }
+  };
+
+  const setActive = async (member: StaffMember, active: boolean) => {
+    setManaging(null);
+    if (!active) {
+      const ok = await confirm({
+        title: `Switch off ${member.name}?`,
+        message:
+          member.kind === 'linked'
+            ? `${member.name} can't use the store portal from their next click. Their Homecare login is not affected. Their role and places are kept in case you switch them back on.`
+            : `${member.name} can't sign in or use the portal from their next click. Their role and places are kept in case you switch them back on.`,
+        confirmLabel: 'Switch off',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    try {
+      replaceMember(await api.updateStaff(member.id, { active }));
+      toast.success(active ? `${member.name} can use the portal again.` : `${member.name} is switched off.`);
+    } catch (err: any) {
+      toast.error(`Couldn't change ${member.name}: ${err.message || 'the server refused it.'}`);
+    }
+  };
+
   const openPlaces = async (member: StaffMember) => {
     setPlacesError(null);
     setPlaces({ member, all: member.scope.all, picked: new Set(member.scope.nodes.map(nodeKey)) });
@@ -306,8 +364,9 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
           </Button>
         }
       >
-        A role decides which portal modules someone sees and whether they can edit or delete there. Super admin
-        always has everything. You can only give out access you have yourself, and you can't change your own role.
+        Only people on this staff list can sign in. A role decides which portal modules they see and whether they can
+        edit or delete there; super admin always has everything. You can only give out access you have yourself, and
+        you can't change your own role.
       </PageIntro>
 
       <LoadState
@@ -318,8 +377,8 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
         isEmpty={roles.length === 0 && staff.length === 0}
         empty={{
           icon: <Users size={22} />,
-          title: 'No staff logins yet',
-          description: 'Staff logins come from the shared admin accounts. Once one exists, give it a role here.',
+          title: 'No roles or staff yet',
+          description: 'Create a role, then add staff and give them that role.',
         }}
       >
         <StatGrid items={stats} columns={2} />
@@ -378,23 +437,38 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
           )}
         </Panel>
 
-        <Panel title="Staff">
+        <Panel
+          title="Staff"
+          actions={
+            canEdit ? (
+              <Button variant="primary" size="sm" icon={<UserPlus size={14} />} onClick={() => setAdding(true)}>
+                Add staff
+              </Button>
+            ) : null
+          }
+        >
           <p style={styles.hint}>
-            Staff logins come from the shared admin accounts. Creating or deactivating a login stays where it is today.
+            A store login is for someone who works only in the store. Someone who also works in Homecare is linked
+            instead, and signs in with their Homecare email and password.
           </p>
+          {staff.length === 0 ? (
+            <EmptyState
+              icon={<Users size={22} />}
+              title="No staff yet"
+              description="Add a store login, or link someone's Homecare login, then give them a role."
+            />
+          ) : null}
           <div style={styles.list}>
             {staff.map((member) => (
               <div key={member.id} style={{ ...styles.row, opacity: member.active ? 1 : 0.55 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={styles.name}>
                     {member.name}
-                    {!member.active ? (
-                      <Badge variant="neutral" size="sm">
-                        Inactive login
-                      </Badge>
-                    ) : null}
+                    <StaffBadges member={member} />
                   </div>
-                  <div style={styles.meta}>{member.email}</div>
+                  <div style={styles.meta}>
+                    {member.email} · {lastSignIn(member.lastLoginAt)}
+                  </div>
                   {member.isSuperAdmin || member.roleId != null ? (
                     <div style={styles.grants}>
                       <MapPin size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />
@@ -432,6 +506,17 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
                 ) : (
                   <span style={styles.fixedRole}>{member.roleName ?? 'No portal access'}</span>
                 )}
+                {member.changeable && (canEdit || canDelete) ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Settings2 size={13} />}
+                    onClick={() => setManaging(member)}
+                    aria-label={`Manage ${member.name}`}
+                  >
+                    Manage
+                  </Button>
+                ) : null}
               </div>
             ))}
           </div>
@@ -565,6 +650,23 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
           </div>
         ) : null}
       </Modal>
+      {adding ? <AddStaffDialog onClose={() => setAdding(false)} onAdded={added} /> : null}
+      {managing ? (
+        <ManageStaffDialog
+          key={managing.id}
+          member={managing}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          onClose={() => setManaging(null)}
+          onRenamed={(saved) => {
+            replaceMember(saved);
+            setManaging(saved);
+          }}
+          onResetPassword={resetPassword}
+          onSetActive={setActive}
+        />
+      ) : null}
+      <TemporaryPasswordDialog issued={issued} onClose={() => setIssued(null)} />
       {dialog}
     </div>
   );
