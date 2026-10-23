@@ -276,5 +276,5 @@ Response 201: `{ id, orderNumber, placedAt, status, paymentStatus, paymentMethod
 Shop functionality S0–S3 is built. Still to do:
 
 1. **Device run** of S1–S3.
-2. **Portal access** ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md)): A1 roles and module permissions done; A2 stores, groups and scope next.
-3. **Portal UI/UX pass**, agreed with the user to follow once the functionality is done.
+2. **Portal access** ([PORTAL_ACCESS.md](./PORTAL_ACCESS.md)): A1 roles and module permissions and A2 stores, groups and scope are both built.
+3. **Portal UI/UX pass** ([PORTAL_UI_PASS.md](./PORTAL_UI_PASS.md)): design agreed 23 Oct; U1 first.
