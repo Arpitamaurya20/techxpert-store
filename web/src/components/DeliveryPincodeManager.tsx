@@ -1,22 +1,33 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { MapPin, PauseCircle, PlayCircle, Plus, RefreshCw } from 'lucide-react';
-import { api, type DeliveryPincode } from '../services/api';
+import { api, type DeliveryPincode, type StoreTree } from '../services/api';
 import { Badge, Button, EmptyState, StatGrid } from './ui';
 import type { StatItem } from './ui';
 
 interface DeliveryPincodeManagerProps {
   /** Delivery edit permission: add, pause or resume. */
   canManage: boolean;
+  /** Stores view: lets the add form offer your stores. */
+  canSeeStores: boolean;
   onAudit?: (action: string, details: string) => void;
   onToast?: (message: string) => void;
 }
 
-export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({ canManage, onAudit, onToast }) => {
+const NO_STORE = '';
+
+export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
+  canManage,
+  canSeeStores,
+  onAudit,
+  onToast,
+}) => {
   const [rows, setRows] = useState<DeliveryPincode[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pincode, setPincode] = useState('');
   const [areaName, setAreaName] = useState('');
+  const [storeId, setStoreId] = useState(NO_STORE);
+  const [tree, setTree] = useState<StoreTree | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -25,13 +36,22 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({ 
     try {
       setLoading(true);
       setLoadError(null);
-      setRows(await api.getDeliveryPincodes());
+      const [pincodes, storeTree] = await Promise.all([
+        api.getDeliveryPincodes(),
+        canManage && canSeeStores ? api.getStoreTree().catch(() => null) : Promise.resolve(null),
+      ]);
+      setRows(pincodes);
+      setTree(storeTree);
+      const active = storeTree?.stores.filter((s) => s.active) ?? [];
+      setStoreId((current) => (current === NO_STORE && active.length === 1 ? String(active[0].id) : current));
     } catch (err: any) {
       setLoadError(err.message || 'Could not load delivery pincodes');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canManage, canSeeStores]);
+
+  const activeStores = tree?.stores.filter((s) => s.active) ?? [];
 
   useEffect(() => {
     load();
@@ -58,12 +78,23 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({ 
     try {
       setSaving(true);
       setFormError(null);
-      const created = await api.addDeliveryPincode({ pincode: pin, areaName: area });
+      const created = await api.addDeliveryPincode({
+        pincode: pin,
+        areaName: area,
+        storeId: storeId === NO_STORE ? null : Number(storeId),
+      });
       setRows((prev) => [...prev, created].sort((a, b) => a.pincode.localeCompare(b.pincode)));
       setPincode('');
       setAreaName('');
-      onAudit?.('Added Delivery Pincode', `${created.pincode} (${created.areaName})`);
-      onToast?.(`Now delivering to ${created.pincode}.`);
+      onAudit?.(
+        'Added Delivery Pincode',
+        `${created.pincode} (${created.areaName})${created.storeName ? ` served by ${created.storeName}` : ', no store yet'}`
+      );
+      onToast?.(
+        created.storeName
+          ? `${created.storeName} now delivers to ${created.pincode}.`
+          : `${created.pincode} added. Orders stay refused until a store serves it.`
+      );
     } catch (err: any) {
       setFormError(err.message || 'Could not add this pincode');
     } finally {
@@ -92,7 +123,7 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({ 
       <div style={styles.toolbar}>
         <p style={styles.hint}>
           The phone checks the delivery pincode at checkout, and the server refuses orders to pincodes that are not
-          active here. Pausing stops new orders to that pincode; nothing is deleted.
+          active here or not served by an active store. Pausing stops new orders to that pincode; nothing is deleted.
           {canManage ? '' : ' Your role can see pincodes but not add, pause or resume them.'}
         </p>
         <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={load} disabled={loading}>
@@ -130,6 +161,31 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({ 
                 onChange={(e) => setAreaName(e.target.value)}
               />
             </div>
+            {tree ? (
+              <div style={{ width: '220px' }}>
+                <label style={styles.label} htmlFor="delivery-store">
+                  Served by
+                </label>
+                <select
+                  id="delivery-store"
+                  style={styles.input}
+                  value={storeId}
+                  onChange={(e) => setStoreId(e.target.value)}
+                >
+                  {tree.wholeCompany ? <option value={NO_STORE}>No store yet (orders refused)</option> : null}
+                  {!tree.wholeCompany && storeId === NO_STORE ? (
+                    <option value={NO_STORE} disabled>
+                      Choose a store
+                    </option>
+                  ) : null}
+                  {activeStores.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.name} ({s.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <Button type="submit" icon={<Plus size={14} />} loading={saving} style={{ alignSelf: 'flex-end' }}>
               Add pincode
             </Button>
@@ -155,8 +211,9 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({ 
               <div key={row.id} style={styles.row}>
                 <span style={styles.pin}>{row.pincode}</span>
                 <span style={styles.area}>{row.areaName || '—'}</span>
-                <Badge variant={row.active ? 'success' : 'warning'} size="sm">
-                  {row.active ? 'Delivering' : 'Paused'}
+                <span style={styles.store}>{row.storeName ?? 'No store — orders refused'}</span>
+                <Badge variant={row.active && row.storeName ? 'success' : 'warning'} size="sm">
+                  {!row.active ? 'Paused' : row.storeName ? 'Delivering' : 'Not served'}
                 </Badge>
                 {canManage ? (
                   <Button
@@ -251,6 +308,14 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     fontSize: '0.88rem',
     color: 'var(--text-muted)',
+  },
+  store: {
+    width: '200px',
+    fontSize: '0.82rem',
+    color: 'var(--text-dim)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   muted: {
     color: 'var(--text-dim)',

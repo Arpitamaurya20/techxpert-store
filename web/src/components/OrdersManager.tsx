@@ -41,6 +41,8 @@ export interface Order {
   customerName?: string;
   customerMobile?: string;
   customerEmail?: string;
+  storeId?: number | null;
+  storeName?: string | null;
 }
 
 interface OrdersManagerProps {
@@ -156,6 +158,16 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
             {o.deliveryAddress || 'Standard Delivery Zone'}
           </span>
         </div>
+      ),
+    },
+    {
+      key: 'storeName',
+      header: 'STORE',
+      sortable: true,
+      render: (o) => (
+        <span style={{ fontSize: '0.8rem', color: o.storeName ? '#fff' : 'var(--text-dim)' }}>
+          {o.storeName || 'Not recorded'}
+        </span>
       ),
     },
     {
@@ -315,6 +327,9 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
                 </div>
                 <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.4 }}>
                   {selectedOrder.deliveryAddress || 'Standard Address'}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '6px' }}>
+                  Store: {selectedOrder.storeName || 'not recorded'}
                 </div>
               </div>
             </div>

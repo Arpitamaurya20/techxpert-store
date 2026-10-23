@@ -12,6 +12,7 @@ import {
   FolderTree,
   MapPin,
   ShieldCheck,
+  Store,
 } from 'lucide-react';
 
 export type TabId =
@@ -20,6 +21,7 @@ export type TabId =
   | 'categories'
   | 'orders'
   | 'delivery'
+  | 'stores'
   | 'users'
   | 'pricing'
   | 'banners'
@@ -67,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'categories', label: 'Categories & Subs', icon: <FolderTree size={18} /> },
     { id: 'orders', label: 'Orders & Fulfillment', icon: <ShoppingBag size={18} />, badge: String(ordersCount) },
     { id: 'delivery', label: 'Delivery Pincodes', icon: <MapPin size={18} /> },
+    { id: 'stores', label: 'Stores & Groups', icon: <Store size={18} /> },
     { id: 'users', label: 'Customers (homecare)', icon: <Users size={18} />, badge: String(usersCount) },
     { id: 'pricing', label: 'Bulk Pricing Rules', icon: <Tag size={18} /> },
     { id: 'banners', label: 'Campaign Banners', icon: <ImageIcon size={18} /> },

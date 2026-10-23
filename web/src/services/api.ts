@@ -30,6 +30,37 @@ export type StaffProfile = {
   role: string;
   storeRole: string | null;
   permissions: Permissions;
+  /** Sees every store's orders, pincodes and customers. */
+  wholeCompany?: boolean;
+};
+
+export type ScopeNode = { type: 'group' | 'store'; id: number };
+
+export type StoreGroup = { id: number; name: string; kind: string; parentId: number | null };
+
+export type StoreSummary = {
+  id: number;
+  code: string;
+  name: string;
+  groupId: number | null;
+  active: boolean;
+  contactNumber: string;
+  email: string;
+  address: string;
+  pincodeCount: number;
+};
+
+/** Only the groups and stores inside the signed-in person's places. */
+export type StoreTree = { groups: StoreGroup[]; stores: StoreSummary[]; wholeCompany: boolean };
+
+export type StorePincodeLink = {
+  linkId: number;
+  pincodeId: number;
+  pincode: string;
+  areaName: string;
+  active: boolean;
+  deliveryActive: boolean;
+  updatedAt: string | null;
 };
 
 export type PortalRole = {
@@ -50,6 +81,7 @@ export type StaffMember = {
   isSuperAdmin: boolean;
   roleId: number | null;
   roleName: string | null;
+  scope: { all: boolean; nodes: Array<ScopeNode & { name: string }> };
   changeable: boolean;
 };
 
@@ -60,7 +92,19 @@ export type DeliveryPincode = {
   pincode: string;
   areaName: string;
   active: boolean;
+  storeId: number | null;
+  storeName: string | null;
   updatedAt: string | null;
+};
+
+export type StoreInput = {
+  name?: string;
+  groupId?: number | null;
+  pincode?: string;
+  contactNumber?: string;
+  email?: string;
+  address?: string;
+  active?: boolean;
 };
 
 async function rawFetch(path: string, options?: RequestInit): Promise<ApiEnvelope<unknown>> {
@@ -240,7 +284,7 @@ export const api = {
 
   // Delivery pincodes
   getDeliveryPincodes: () => fetchApi<DeliveryPincode[]>('/delivery/pincodes'),
-  addDeliveryPincode: (data: { pincode: string; areaName: string }) =>
+  addDeliveryPincode: (data: { pincode: string; areaName: string; storeId?: number | null }) =>
     fetchApi<DeliveryPincode>('/delivery/pincodes', { method: 'POST', body: JSON.stringify(data) }),
   setDeliveryPincodeActive: (id: string, active: boolean) =>
     fetchApi<DeliveryPincode>(`/delivery/pincodes/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
@@ -256,6 +300,29 @@ export const api = {
   getAccessStaff: () => fetchApi<StaffMember[]>('/access/staff'),
   assignStaffRole: (adminId: number, roleId: number | null) =>
     fetchApi<StaffMember>(`/access/staff/${adminId}`, { method: 'PUT', body: JSON.stringify({ roleId }) }),
+  setStaffScope: (adminId: number, scope: { all: boolean; nodes: ScopeNode[] }) =>
+    fetchApi<StaffMember>(`/access/staff/${adminId}/scope`, { method: 'PUT', body: JSON.stringify(scope) }),
+
+  // Stores & groups
+  getStoreTree: () => fetchApi<StoreTree>('/stores/tree'),
+  createStoreGroup: (data: { name: string; kind?: string; parentId?: number | null }) =>
+    fetchApi<StoreGroup>('/stores/groups', { method: 'POST', body: JSON.stringify(data) }),
+  updateStoreGroup: (id: number, data: { name?: string; kind?: string; parentId?: number | null }) =>
+    fetchApi<StoreGroup>(`/stores/groups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteStoreGroup: (id: number) =>
+    fetchApi<{ success: boolean }>(`/stores/groups/${id}`, { method: 'DELETE' }),
+  createStore: (data: StoreInput) =>
+    fetchApi<StoreSummary>('/stores', { method: 'POST', body: JSON.stringify(data) }),
+  updateStore: (id: number, data: StoreInput) =>
+    fetchApi<StoreSummary>(`/stores/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getStorePincodes: (storeId: number) => fetchApi<StorePincodeLink[]>(`/stores/${storeId}/pincodes`),
+  linkStorePincode: (storeId: number, pincode: string) =>
+    fetchApi<StorePincodeLink[]>(`/stores/${storeId}/pincodes`, {
+      method: 'POST',
+      body: JSON.stringify({ pincode }),
+    }),
+  unlinkStorePincode: (storeId: number, pincodeId: number) =>
+    fetchApi<StorePincodeLink[]>(`/stores/${storeId}/pincodes/${pincodeId}`, { method: 'DELETE' }),
 
   // Health
   getHealth: () => fetchApi<{ status: string; service: string; endpoints: string[] }>('/health'),

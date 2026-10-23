@@ -14,6 +14,7 @@ import { ApiExplorer } from './components/ApiExplorer';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { DeliveryPincodeManager } from './components/DeliveryPincodeManager';
 import { AccessManager } from './components/AccessManager';
+import { StoreTreeManager } from './components/StoreTreeManager';
 import { api, setUnauthorizedHandler } from './services/api';
 import { allowedTabs, can, hasAnyAccess, TAB_ORDER } from './services/access';
 import {
@@ -586,7 +587,11 @@ function PortalApp({
     },
     delivery: {
       title: 'Delivery Pincodes',
-      subtitle: 'Where the store delivers; checkout refuses pincodes that are not active here',
+      subtitle: 'Where each store delivers; checkout refuses pincodes that are paused or have no store',
+    },
+    stores: {
+      title: 'Stores & Groups',
+      subtitle: 'Which store serves which pincode, and the zones, areas and clusters they sit in',
     },
     users: {
       title: 'Customer Directory & Accounts (homecare DB)',
@@ -723,7 +728,16 @@ function PortalApp({
           {currentTab === 'delivery' && (
             <DeliveryPincodeManager
               canManage={can(permissions, 'delivery', 'edit')}
+              canSeeStores={can(permissions, 'stores', 'view')}
               onAudit={(action, details) => addAuditLog(action, 'delivery', details)}
+              onToast={showToast}
+            />
+          )}
+
+          {currentTab === 'stores' && (
+            <StoreTreeManager
+              canEdit={can(permissions, 'stores', 'edit')}
+              canDelete={can(permissions, 'stores', 'delete')}
               onToast={showToast}
             />
           )}

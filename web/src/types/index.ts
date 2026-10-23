@@ -97,7 +97,7 @@ export interface Subcategory {
 export interface AuditLog {
   id: string;
   action: string;
-  entity: 'banner' | 'section' | 'bulk_tier' | 'product' | 'publish' | 'order' | 'category' | 'delivery' | 'access';
+  entity: 'banner' | 'section' | 'bulk_tier' | 'product' | 'publish' | 'order' | 'category' | 'delivery' | 'access' | 'store';
   details: string;
   user: string;
   /** ISO timestamp from API (viewer formats for display) */

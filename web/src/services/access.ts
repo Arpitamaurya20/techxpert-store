@@ -7,6 +7,7 @@ export type ModuleKey =
   | 'categories'
   | 'orders'
   | 'delivery'
+  | 'stores'
   | 'customers'
   | 'pricing'
   | 'banners'
@@ -26,6 +27,7 @@ const TAB_MODULE: Record<Exclude<TabId, 'dashboard'>, ModuleKey> = {
   categories: 'categories',
   orders: 'orders',
   delivery: 'delivery',
+  stores: 'stores',
   users: 'customers',
   pricing: 'pricing',
   banners: 'banners',
@@ -41,6 +43,7 @@ export const TAB_ORDER: TabId[] = [
   'categories',
   'orders',
   'delivery',
+  'stores',
   'users',
   'pricing',
   'banners',

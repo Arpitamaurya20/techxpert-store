@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Users } from 'lucide-react';
-import { api, type PortalRole, type StaffMember } from '../services/api';
+import { MapPin, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { api, type PortalRole, type ScopeNode, type StaffMember, type StoreTree } from '../services/api';
 import { can, isWithin, type Level, type ModuleInfo, type Permissions } from '../services/access';
+import { groupAndBelow } from '../services/storeTree';
 import { Badge, Button, EmptyState, Modal, StatGrid } from './ui';
 import type { StatItem } from './ui';
 
@@ -14,6 +15,15 @@ interface AccessManagerProps {
 }
 
 type RoleDraft = { id: number | null; name: string; description: string; permissions: Permissions };
+type PlacesDraft = { member: StaffMember; all: boolean; picked: Set<string> };
+
+const nodeKey = (node: ScopeNode) => `${node.type}:${node.id}`;
+
+function placesLabel(member: StaffMember): string {
+  if (member.isSuperAdmin || member.scope.all) return 'Whole company';
+  if (member.scope.nodes.length === 0) return 'No places — sees no orders, pincodes or customers';
+  return member.scope.nodes.map((n) => n.name).join(', ');
+}
 
 const LEVELS: Level[] = ['view', 'edit', 'delete'];
 const LEVEL_LABEL: Record<Level, string> = { view: 'View', edit: 'Edit', delete: 'Delete' };
@@ -39,6 +49,11 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
   const [draftError, setDraftError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyStaffId, setBusyStaffId] = useState<number | null>(null);
+  const [tree, setTree] = useState<StoreTree | null>(null);
+  const [places, setPlaces] = useState<PlacesDraft | null>(null);
+  const [placesError, setPlacesError] = useState<string | null>(null);
+  /** The places picker lists your own groups and stores, which needs Stores view. */
+  const canPickPlaces = canEdit && can(permissions, 'stores', 'view');
 
   const load = useCallback(async () => {
     try {
@@ -157,6 +172,101 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
     }
   };
 
+  const openPlaces = async (member: StaffMember) => {
+    setPlacesError(null);
+    setPlaces({ member, all: member.scope.all, picked: new Set(member.scope.nodes.map(nodeKey)) });
+    try {
+      setTree(await api.getStoreTree());
+    } catch (err: any) {
+      setPlacesError(err.message || 'Could not load your groups and stores');
+    }
+  };
+
+  const togglePlace = (node: ScopeNode) => {
+    setPlaces((current) => {
+      if (!current) return current;
+      const picked = new Set(current.picked);
+      const key = nodeKey(node);
+      if (picked.has(key)) picked.delete(key);
+      else picked.add(key);
+      return { ...current, picked };
+    });
+  };
+
+  const savePlaces = async () => {
+    if (!places) return;
+    const nodes: ScopeNode[] = [...places.picked].map((key) => {
+      const [type, id] = key.split(':');
+      return { type: type as ScopeNode['type'], id: Number(id) };
+    });
+    try {
+      setSaving(true);
+      setPlacesError(null);
+      const saved = await api.setStaffScope(places.member.id, { all: places.all, nodes: places.all ? [] : nodes });
+      setStaff((prev) => prev.map((s) => (s.id === saved.id ? saved : s)));
+      onToast?.(`${saved.name} now covers: ${placesLabel(saved)}.`);
+      setPlaces(null);
+    } catch (err: any) {
+      setPlacesError(err.message || 'Could not save these places');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Groups and stores under a picked group are already covered by it. */
+  const coveredByPick = (() => {
+    const covered = new Set<string>();
+    if (!places || !tree) return covered;
+    for (const g of tree.groups) {
+      if (!places.picked.has(`group:${g.id}`)) continue;
+      for (const id of groupAndBelow(g.id, tree.groups)) if (id !== g.id) covered.add(`group:${id}`);
+    }
+    for (const s of tree.stores) {
+      if (s.groupId != null && (places.picked.has(`group:${s.groupId}`) || covered.has(`group:${s.groupId}`))) {
+        covered.add(`store:${s.id}`);
+      }
+    }
+    return covered;
+  })();
+
+  const renderPlaces = (parentId: number | null, depth: number): React.ReactNode => {
+    if (!tree) return null;
+    const visible = new Set(tree.groups.map((g) => g.id));
+    const groups = tree.groups.filter((g) =>
+      parentId == null ? g.parentId == null || !visible.has(g.parentId) : g.parentId === parentId
+    );
+    const stores = tree.stores.filter((s) =>
+      parentId == null ? s.groupId == null || !visible.has(s.groupId) : s.groupId === parentId
+    );
+    const option = (node: ScopeNode, label: string, hint: string) => {
+      const key = nodeKey(node);
+      const covered = coveredByPick.has(key);
+      return (
+        <label key={key} style={{ ...styles.placeRow, paddingLeft: 8 + depth * 20 }}>
+          <input
+            type="checkbox"
+            checked={covered || places?.picked.has(key) === true}
+            disabled={covered}
+            onChange={() => togglePlace(node)}
+          />
+          <span style={{ color: '#fff' }}>{label}</span>
+          <span style={styles.count}>{covered ? 'covered by a group above' : hint}</span>
+        </label>
+      );
+    };
+    return (
+      <>
+        {groups.map((g) => (
+          <React.Fragment key={`g${g.id}`}>
+            {option({ type: 'group', id: g.id }, g.name, g.kind ? `${g.kind} · everything inside` : 'everything inside')}
+            {renderPlaces(g.id, depth + 1)}
+          </React.Fragment>
+        ))}
+        {stores.map((s) => option({ type: 'store', id: s.id }, s.name, `${s.code}${s.active ? '' : ' · inactive'}`))}
+      </>
+    );
+  };
+
   if (loading && roles.length === 0) {
     return <div style={styles.muted}>Loading roles and staff…</div>;
   }
@@ -248,7 +358,18 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
                   ) : null}
                 </div>
                 <div style={styles.meta}>{member.email}</div>
+                {member.isSuperAdmin || member.roleId != null ? (
+                  <div style={styles.grants}>
+                    <MapPin size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />
+                    {placesLabel(member)}
+                  </div>
+                ) : null}
               </div>
+              {!member.isSuperAdmin && member.roleId != null && canPickPlaces && member.changeable ? (
+                <Button variant="secondary" size="sm" icon={<MapPin size={13} />} onClick={() => openPlaces(member)}>
+                  Places
+                </Button>
+              ) : null}
               {member.isSuperAdmin ? (
                 <Badge variant="brand">Super admin · everything</Badge>
               ) : canEdit && member.changeable ? (
@@ -357,6 +478,56 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
               </tbody>
             </table>
             {draftError ? <p style={styles.error}>{draftError}</p> : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        isOpen={places != null}
+        onClose={() => setPlaces(null)}
+        title={places ? `Places for ${places.member.name}` : 'Places'}
+        subtitle="Which stores' orders, delivery pincodes and customers this person sees. A group covers every store inside it, including ones added later."
+        maxWidth="560px"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setPlaces(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" loading={saving} onClick={savePlaces} disabled={!tree}>
+              Save places
+            </Button>
+          </>
+        }
+      >
+        {places ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <label style={styles.placeRow}>
+              <input
+                type="checkbox"
+                checked={places.all}
+                disabled={!tree?.wholeCompany && !places.all}
+                onChange={() => setPlaces({ ...places, all: !places.all })}
+              />
+              <span style={{ color: '#fff', fontWeight: 600 }}>Whole company</span>
+              <span style={styles.count}>
+                {tree && !tree.wholeCompany ? 'only whole-company staff can give this' : 'every store, now and later'}
+              </span>
+            </label>
+            {!places.all ? (
+              tree ? (
+                tree.groups.length === 0 && tree.stores.length === 0 ? (
+                  <p style={styles.hint}>You have no groups or stores to give. Add them under Stores &amp; Groups.</p>
+                ) : (
+                  <div style={styles.placeList}>{renderPlaces(null, 0)}</div>
+                )
+              ) : placesError ? null : (
+                <div style={styles.muted}>Loading your groups and stores…</div>
+              )
+            ) : null}
+            {!places.all && places.picked.size === 0 && tree ? (
+              <p style={styles.hint}>With nothing ticked, this person sees no orders, pincodes or customers.</p>
+            ) : null}
+            {placesError ? <p style={styles.error}>{placesError}</p> : null}
           </div>
         ) : null}
       </Modal>
@@ -487,6 +658,22 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dash: {
     color: 'var(--text-dim)',
+  },
+  placeList: {
+    display: 'flex',
+    flexDirection: 'column',
+    maxHeight: '360px',
+    overflowY: 'auto',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-md)',
+  },
+  placeRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '7px 8px',
+    fontSize: '0.86rem',
+    cursor: 'pointer',
   },
   muted: {
     color: 'var(--text-dim)',
