@@ -1,7 +1,8 @@
 import React from 'react';
 import { Loader2 } from 'lucide-react';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+/** `danger` is the soft red for row actions; `destructive` is the solid red that confirms one. */
+export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'destructive';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -38,6 +39,11 @@ const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
     background: 'var(--danger-soft)',
     color: 'var(--danger)',
     border: '1px solid var(--danger-border)',
+  },
+  destructive: {
+    background: 'var(--danger)',
+    color: '#fff',
+    border: '1px solid var(--danger)',
   },
 };
 

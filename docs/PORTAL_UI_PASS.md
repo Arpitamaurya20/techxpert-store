@@ -77,7 +77,7 @@ No layout changes.
   - the calculator works against a spare-port API;
   - a Merchandiser has no Developer tools tab, and super admin does.
 
-## U2 — Shared building blocks
+## U2 — Shared building blocks — done 23 Oct 2026
 
 New pieces in `web/src/components/ui/`, alongside `Button`, `Modal`, `DataTable`, `EmptyState`, `Badge`, `StatCard` and `SearchInput`:
 
@@ -87,7 +87,7 @@ New pieces in `web/src/components/ui/`, alongside `Button`, `Modal`, `DataTable`
 | `PageIntro` | One sentence on what the screen is for, plus the screen's actions (Refresh, New…) | Per-screen `toolbar` + `hint` styles |
 | `Field` | Label, then input/select/textarea, then error text; one input style | Per-screen `label` / `input` / `error` styles; `alert` for validation |
 | `LoadState` | Loading, "Couldn't load X" + Retry, and empty with a next step | Ad-hoc loading and error text; silent blank screens |
-| `ConfirmDialog` | In-app confirm on `Modal`; says exactly what happens; red button when destructive | 8 `window.confirm` calls (the `alert` calls became toasts in U1) |
+| `ConfirmDialog` | In-app confirm on `Modal`; says exactly what happens; red button when destructive | 8 `window.confirm` calls (the `alert` calls became toasts in U1); 7 left after U2, in Categories, Banners, Stores & Groups and Catalog |
 
 **Rules for every screen:**
 
@@ -104,6 +104,45 @@ New pieces in `web/src/components/ui/`, alongside `Button`, `Modal`, `DataTable`
 - Browser check of the proof screens' loading state.
 - Their error state with the API stopped.
 - Their empty state, and confirm dialogs.
+
+**As built:**
+
+- **`Panel`, `PageIntro`:** as in the table.
+- **`Field` and `FormError`:**
+  - `Field` gives its child the shared `tx-input` class (`index.css`). That class has a visible focus ring, a red border when invalid, and a disabled look.
+  - It wires `id`, `aria-invalid` and `aria-describedby` to the hint or error.
+  - `FormError` is for problems that belong to no single field, such as the server refusing a save.
+- **`LoadState`:**
+  - Shows loading only when there is nothing to show yet.
+  - A failed reload keeps the rows on screen under a "Couldn't load X … Showing what was loaded before." banner with Retry.
+  - With nothing loaded, the error replaces the content.
+  - When empty, it shows `EmptyState` with a next step.
+- **`ConfirmDialog` and `useConfirm()`:**
+  - `useConfirm()` is an awaitable swap for `window.confirm`: `if (!(await confirm({ title, message, confirmLabel, destructive }))) return;`.
+  - Destructive confirms are solid red (new `destructive` Button variant) and put focus on Cancel. Otherwise the confirm button gets focus.
+- **`Modal`:**
+  - Now labelled by its title.
+  - Moves focus inside on open: to `[data-autofocus]`, or to the dialog itself.
+  - Gives focus back to whatever opened it on close.
+- **`NotGiven` and `services/format.ts`:**
+  - `NotGiven` takes its label as a prop ("Not recorded" for money).
+  - `services/format.ts` provides `inr`, `isMoney`, `formatWhen` ("23 Oct, 12:40"; the year only when it isn't this year) and `formatDay`.
+  - `OrdersManager` uses them.
+- **The `spin` class:** every button's loading icon used it, but it was never defined, so it now exists.
+- **Delivery Pincodes:**
+  - Per-field errors, including "Choose the store that delivers here" when your role can't leave a pincode unserved.
+  - Pause asks first and says that placed orders are unaffected and nothing is deleted. Resume doesn't ask.
+  - Refresh keeps the list on screen.
+  - The stat cards show "—" until the first load succeeds.
+- **Roles & Access:**
+  - Delete role is a labelled red-tinted button with a destructive confirm.
+  - Moving someone to "No portal access" asks first.
+  - The role name error sits under the name field.
+  - A failed reload no longer replaces the whole tab.
+- **Truth fixes found while checking:**
+  - A network failure now reads "Can't reach the server." everywhere, instead of "Failed to fetch".
+  - Reloading while the server is down no longer signs you out. Only a 401 does.
+  - The sidebar counts stay hidden until they have loaded once, instead of showing 0.
 
 ## U3–U6 — Screens in batches
 

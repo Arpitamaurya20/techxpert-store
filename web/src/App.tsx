@@ -99,9 +99,8 @@ export function App() {
         setSession(next);
       })
       .catch(() => {
-        if (cancelled) return;
-        clearSession();
-        setSession(null);
+        // A 401 already signed out through the unauthorized handler. Anything else means the server
+        // can't be reached: keep the stored profile so the screens show "Can't reach the server".
       })
       .finally(() => {
         if (!cancelled) setAuthChecking(false);
@@ -192,6 +191,8 @@ function PortalApp({
   const [catalogTotal, setCatalogTotal] = useState(0);
   const [categories, setCategories] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  /** Sidebar counts stay hidden until they have loaded once, so a failed first load never reads as 0. */
+  const [countsKnown, setCountsKnown] = useState({ products: false, orders: false, users: false });
   const [users, setUsers] = useState<any[]>([]);
   const [bulkTiers, setBulkTiers] = useState<BulkPriceTier[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
@@ -289,6 +290,11 @@ function PortalApp({
       if (catsData) setCategories(catsData);
       if (ordersData) setOrders(ordersData);
       if (usersData) setUsers(usersData);
+      setCountsKnown((prev) => ({
+        products: prev.products || Boolean(prodsData),
+        orders: prev.orders || Boolean(ordersData),
+        users: prev.users || Boolean(usersData),
+      }));
       if (tiersData) setBulkTiers(tiersData);
       if (bannersData) setBanners(bannersData);
       if (Array.isArray(sectionsData)) {
@@ -692,9 +698,9 @@ function PortalApp({
         activeTab={currentTab}
         visibleTabs={tabs}
         onTabChange={(tab) => setActiveTab(tab)}
-        ordersCount={orders.length}
-        productsCount={catalogTotal || products.length}
-        usersCount={users.length}
+        ordersCount={countsKnown.orders ? orders.length : undefined}
+        productsCount={countsKnown.products ? catalogTotal || products.length : undefined}
+        usersCount={countsKnown.users ? users.length : undefined}
         serverOnline={serverOnline}
         adminName={session.admin.name}
         adminRole={session.admin.storeRole ?? 'No role'}

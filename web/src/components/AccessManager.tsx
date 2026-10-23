@@ -3,7 +3,20 @@ import { MapPin, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Users } from 'luc
 import { api, type PortalRole, type ScopeNode, type StaffMember, type StoreTree } from '../services/api';
 import { can, isWithin, type Level, type ModuleInfo, type Permissions } from '../services/access';
 import { groupAndBelow } from '../services/storeTree';
-import { Badge, Button, EmptyState, Modal, StatGrid, useToast } from './ui';
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  FormError,
+  LoadState,
+  Modal,
+  PageIntro,
+  Panel,
+  StatGrid,
+  useConfirm,
+  useToast,
+} from './ui';
 import type { StatItem } from './ui';
 
 interface AccessManagerProps {
@@ -40,13 +53,14 @@ function summary(role: PortalRole, modules: ModuleInfo[]): string {
 
 export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEdit, canDelete }) => {
   const toast = useToast();
+  const { confirm, dialog } = useConfirm();
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [roles, setRoles] = useState<PortalRole[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<RoleDraft | null>(null);
-  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<{ name?: string; form?: string }>({});
   const [saving, setSaving] = useState(false);
   const [busyStaffId, setBusyStaffId] = useState<number | null>(null);
   const [tree, setTree] = useState<StoreTree | null>(null);
@@ -64,7 +78,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
       setRoles(roleData.roles);
       setStaff(staffData);
     } catch (err: any) {
-      setLoadError(err.message || 'Could not load roles and staff');
+      setLoadError(err.message || 'The server did not answer.');
     } finally {
       setLoading(false);
     }
@@ -86,12 +100,12 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
   ];
 
   const openNew = () => {
-    setDraftError(null);
+    setDraftError({});
     setDraft({ id: null, name: '', description: '', permissions: {} });
   };
 
   const openEdit = (role: PortalRole) => {
-    setDraftError(null);
+    setDraftError({});
     setDraft({ id: role.id, name: role.name, description: role.description, permissions: { ...role.permissions } });
   };
 
@@ -117,17 +131,13 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
   const saveDraft = async () => {
     if (!draft) return;
     const name = draft.name.trim();
-    if (name.length < 2) {
-      setDraftError('Give the role a name of at least 2 characters.');
-      return;
-    }
-    if (!modules.some((m) => draft.permissions[m.key]?.view)) {
-      setDraftError('Give the role at least one module.');
-      return;
-    }
+    const found: { name?: string; form?: string } = {};
+    if (name.length < 2) found.name = 'Give the role a name of at least 2 characters.';
+    if (!modules.some((m) => draft.permissions[m.key]?.view)) found.form = 'Tick View on at least one module.';
+    setDraftError(found);
+    if (found.name || found.form) return;
     try {
       setSaving(true);
-      setDraftError(null);
       const body = { name, description: draft.description.trim(), permissions: draft.permissions };
       if (draft.id == null) {
         await api.createAccessRole(body);
@@ -139,25 +149,45 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
       setDraft(null);
       await load();
     } catch (err: any) {
-      setDraftError(err.message || 'Could not save this role');
+      setDraftError({ form: `Couldn't save the role: ${err.message || 'the server refused it.'}` });
     } finally {
       setSaving(false);
     }
   };
 
   const removeRole = async (role: PortalRole) => {
-    if (!window.confirm(`Delete the role "${role.name}"?`)) return;
+    const ok = await confirm({
+      title: `Delete the role "${role.name}"?`,
+      message: 'Nobody holds this role, so no one loses access. The role and its module ticks are removed for good.',
+      confirmLabel: 'Delete role',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api.deleteAccessRole(role.id);
       toast.success(`Role "${role.name}" deleted.`);
       await load();
     } catch (err: any) {
-      toast.error(err.message || 'Could not delete this role');
+      toast.error(`Couldn't delete "${role.name}": ${err.message || 'the server refused it.'}`);
     }
   };
 
   const assign = async (member: StaffMember, value: string) => {
     const roleId = value === '' ? null : Number(value);
+    if (roleId == null && member.roleId != null) {
+      const ok = await confirm({
+        title: `Remove ${member.name}'s portal access?`,
+        message: (
+          <>
+            {member.name} loses the role <strong>{member.roleName ?? 'they have'}</strong> and sees no portal modules
+            from their next action. Their login stays; give them a role again any time.
+          </>
+        ),
+        confirmLabel: 'Remove access',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     try {
       setBusyStaffId(member.id);
       const saved = await api.assignStaffRole(member.id, roleId);
@@ -166,7 +196,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
       const roleData = await api.getAccessRoles();
       setRoles(roleData.roles);
     } catch (err: any) {
-      toast.error(err.message || `Could not change ${member.name}'s role`);
+      toast.error(`Couldn't change ${member.name}'s role: ${err.message || 'the server refused it.'}`);
     } finally {
       setBusyStaffId(null);
     }
@@ -267,137 +297,146 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
     );
   };
 
-  if (loading && roles.length === 0) {
-    return <div style={styles.muted}>Loading roles and staff…</div>;
-  }
-  if (loadError) {
-    return <div style={{ ...styles.panel, ...styles.error }}>{loadError}</div>;
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <StatGrid items={stats} columns={2} />
+      <PageIntro
+        actions={
+          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={load} disabled={loading}>
+            Refresh
+          </Button>
+        }
+      >
+        A role decides which portal modules someone sees and whether they can edit or delete there. Super admin
+        always has everything. You can only give out access you have yourself, and you can't change your own role.
+      </PageIntro>
 
-      <div style={styles.toolbar}>
-        <p style={styles.hint}>
-          A role decides which portal modules someone sees and whether they can edit or delete there. Super admin
-          always has everything. You can only give out access you have yourself, and you can't change your own role.
-        </p>
-        <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={load} disabled={loading}>
-          Refresh
-        </Button>
-      </div>
+      <LoadState
+        loading={loading}
+        error={loadError}
+        what="roles and staff"
+        onRetry={load}
+        isEmpty={roles.length === 0 && staff.length === 0}
+        empty={{
+          icon: <Users size={22} />,
+          title: 'No staff logins yet',
+          description: 'Staff logins come from the shared admin accounts. Once one exists, give it a role here.',
+        }}
+      >
+        <StatGrid items={stats} columns={2} />
 
-      <div style={styles.panel}>
-        <div style={styles.panelHeader}>
-          <h3 style={styles.panelTitle}>Roles</h3>
-          {canEdit ? (
-            <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={openNew}>
-              New role
-            </Button>
-          ) : null}
-        </div>
-        {roles.length === 0 ? (
-          <EmptyState
-            icon={<ShieldCheck size={22} />}
-            title="No roles yet"
-            description="Create a role, pick its modules, then give it to staff below."
-          />
-        ) : (
+        <Panel
+          title="Roles"
+          actions={
+            canEdit ? (
+              <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={openNew}>
+                New role
+              </Button>
+            ) : null
+          }
+        >
+          {roles.length === 0 ? (
+            <EmptyState
+              icon={<ShieldCheck size={22} />}
+              title="No roles yet"
+              description="Create a role, pick its modules, then give it to staff below."
+            />
+          ) : (
+            <div style={styles.list}>
+              {roles.map((role) => (
+                <div key={role.id} style={styles.row}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={styles.name}>
+                      {role.name}
+                      <span style={styles.count}>
+                        {role.staffCount} {role.staffCount === 1 ? 'person' : 'people'}
+                      </span>
+                    </div>
+                    {role.description ? <div style={styles.meta}>{role.description}</div> : null}
+                    <div style={styles.grants}>{summary(role, modules)}</div>
+                  </div>
+                  {canEdit && role.manageable ? (
+                    <Button variant="secondary" size="sm" icon={<Pencil size={13} />} onClick={() => openEdit(role)}>
+                      Edit
+                    </Button>
+                  ) : null}
+                  {canDelete && role.manageable ? (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      icon={<Trash2 size={13} />}
+                      disabled={role.staffCount > 0}
+                      title={role.staffCount > 0 ? 'Move everyone off this role before deleting it' : undefined}
+                      aria-label={`Delete role ${role.name}`}
+                      onClick={() => removeRole(role)}
+                    >
+                      Delete
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Staff">
+          <p style={styles.hint}>
+            Staff logins come from the shared admin accounts. Creating or deactivating a login stays where it is today.
+          </p>
           <div style={styles.list}>
-            {roles.map((role) => (
-              <div key={role.id} style={styles.row}>
+            {staff.map((member) => (
+              <div key={member.id} style={{ ...styles.row, opacity: member.active ? 1 : 0.55 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={styles.name}>
-                    {role.name}
-                    <span style={styles.count}>
-                      {role.staffCount} {role.staffCount === 1 ? 'person' : 'people'}
-                    </span>
+                    {member.name}
+                    {!member.active ? (
+                      <Badge variant="neutral" size="sm">
+                        Inactive login
+                      </Badge>
+                    ) : null}
                   </div>
-                  {role.description ? <div style={styles.meta}>{role.description}</div> : null}
-                  <div style={styles.grants}>{summary(role, modules)}</div>
+                  <div style={styles.meta}>{member.email}</div>
+                  {member.isSuperAdmin || member.roleId != null ? (
+                    <div style={styles.grants}>
+                      <MapPin size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />
+                      {placesLabel(member)}
+                    </div>
+                  ) : null}
                 </div>
-                {canEdit && role.manageable ? (
-                  <Button variant="secondary" size="sm" icon={<Pencil size={13} />} onClick={() => openEdit(role)}>
-                    Edit
+                {!member.isSuperAdmin && member.roleId != null && canPickPlaces && member.changeable ? (
+                  <Button variant="secondary" size="sm" icon={<MapPin size={13} />} onClick={() => openPlaces(member)}>
+                    Places
                   </Button>
                 ) : null}
-                {canDelete && role.manageable ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<Trash2 size={13} color="var(--danger)" />}
-                    disabled={role.staffCount > 0}
-                    title={role.staffCount > 0 ? 'Move everyone off this role before deleting it' : 'Delete role'}
-                    onClick={() => removeRole(role)}
-                  />
-                ) : null}
+                {member.isSuperAdmin ? (
+                  <Badge variant="brand">Super admin · everything</Badge>
+                ) : canEdit && member.changeable ? (
+                  <select
+                    className="tx-input"
+                    style={styles.select}
+                    value={member.roleId == null ? '' : String(member.roleId)}
+                    disabled={busyStaffId === member.id}
+                    onChange={(e) => assign(member, e.target.value)}
+                    aria-label={`Role for ${member.name}`}
+                  >
+                    <option value="">No portal access</option>
+                    {roles.map((role) => (
+                      <option
+                        key={role.id}
+                        value={String(role.id)}
+                        disabled={!isWithin(role.permissions, permissions) && role.id !== member.roleId}
+                      >
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span style={styles.fixedRole}>{member.roleName ?? 'No portal access'}</span>
+                )}
               </div>
             ))}
           </div>
-        )}
-      </div>
-
-      <div style={styles.panel}>
-        <div style={styles.panelHeader}>
-          <h3 style={styles.panelTitle}>Staff</h3>
-        </div>
-        <p style={styles.hint}>
-          Staff logins come from the shared admin accounts. Creating or deactivating a login stays where it is today.
-        </p>
-        <div style={styles.list}>
-          {staff.map((member) => (
-            <div key={member.id} style={{ ...styles.row, opacity: member.active ? 1 : 0.55 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.name}>
-                  {member.name}
-                  {!member.active ? (
-                    <Badge variant="neutral" size="sm">
-                      Inactive login
-                    </Badge>
-                  ) : null}
-                </div>
-                <div style={styles.meta}>{member.email}</div>
-                {member.isSuperAdmin || member.roleId != null ? (
-                  <div style={styles.grants}>
-                    <MapPin size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />
-                    {placesLabel(member)}
-                  </div>
-                ) : null}
-              </div>
-              {!member.isSuperAdmin && member.roleId != null && canPickPlaces && member.changeable ? (
-                <Button variant="secondary" size="sm" icon={<MapPin size={13} />} onClick={() => openPlaces(member)}>
-                  Places
-                </Button>
-              ) : null}
-              {member.isSuperAdmin ? (
-                <Badge variant="brand">Super admin · everything</Badge>
-              ) : canEdit && member.changeable ? (
-                <select
-                  style={styles.select}
-                  value={member.roleId == null ? '' : String(member.roleId)}
-                  disabled={busyStaffId === member.id}
-                  onChange={(e) => assign(member, e.target.value)}
-                  aria-label={`Role for ${member.name}`}
-                >
-                  <option value="">No portal access</option>
-                  {roles.map((role) => (
-                    <option
-                      key={role.id}
-                      value={String(role.id)}
-                      disabled={!isWithin(role.permissions, permissions) && role.id !== member.roleId}
-                    >
-                      {role.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span style={styles.fixedRole}>{member.roleName ?? 'No portal access'}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+        </Panel>
+      </LoadState>
 
       <Modal
         isOpen={draft != null}
@@ -418,31 +457,24 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
       >
         {draft ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div>
-              <label style={styles.label} htmlFor="role-name">
-                Name
-              </label>
+            <Field id="role-name" label="Name" error={draftError.name}>
               <input
-                id="role-name"
-                style={styles.input}
                 maxLength={80}
                 placeholder="Store manager"
                 value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                onChange={(e) => {
+                  setDraft({ ...draft, name: e.target.value });
+                  if (draftError.name) setDraftError((prev) => ({ ...prev, name: undefined }));
+                }}
               />
-            </div>
-            <div>
-              <label style={styles.label} htmlFor="role-description">
-                What this role is for (optional)
-              </label>
+            </Field>
+            <Field id="role-description" label="What this role is for (optional)">
               <input
-                id="role-description"
-                style={styles.input}
                 maxLength={255}
                 value={draft.description}
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })}
               />
-            </div>
+            </Field>
             <table style={styles.grid}>
               <thead>
                 <tr>
@@ -477,7 +509,7 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
                 ))}
               </tbody>
             </table>
-            {draftError ? <p style={styles.error}>{draftError}</p> : null}
+            {draftError.form ? <FormError>{draftError.form}</FormError> : null}
           </div>
         ) : null}
       </Modal>
@@ -521,54 +553,30 @@ export const AccessManager: React.FC<AccessManagerProps> = ({ permissions, canEd
                   <div style={styles.placeList}>{renderPlaces(null, 0)}</div>
                 )
               ) : placesError ? null : (
-                <div style={styles.muted}>Loading your groups and stores…</div>
+                <div role="status" style={styles.muted}>
+                  Loading your groups and stores…
+                </div>
               )
             ) : null}
             {!places.all && places.picked.size === 0 && tree ? (
               <p style={styles.hint}>With nothing ticked, this person sees no orders, pincodes or customers.</p>
             ) : null}
-            {placesError ? <p style={styles.error}>{placesError}</p> : null}
+            {placesError ? <FormError>{placesError}</FormError> : null}
           </div>
         ) : null}
       </Modal>
+      {dialog}
     </div>
   );
 };
 
 const styles: Record<string, React.CSSProperties> = {
-  toolbar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
   hint: {
     margin: 0,
     fontSize: '0.82rem',
     color: 'var(--text-muted)',
     maxWidth: '720px',
     lineHeight: 1.45,
-  },
-  panel: {
-    background: 'var(--bg-surface)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-lg)',
-    padding: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
-  panelHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  panelTitle: {
-    margin: 0,
-    fontSize: '0.98rem',
-    fontWeight: 700,
-    color: 'var(--text-main)',
   },
   list: {
     display: 'flex',
@@ -609,34 +617,14 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.4,
   },
   select: {
-    background: 'var(--tint-2)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '7px 10px',
-    color: 'var(--text-main)',
-    fontSize: '0.84rem',
+    width: 'auto',
     minWidth: '200px',
+    padding: '7px 10px',
+    fontSize: '0.84rem',
   },
   fixedRole: {
     fontSize: '0.84rem',
     color: 'var(--text-muted)',
-  },
-  label: {
-    display: 'block',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    marginBottom: '6px',
-  },
-  input: {
-    width: '100%',
-    background: 'var(--tint-2)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '9px 14px',
-    color: 'var(--text-main)',
-    fontSize: '0.86rem',
-    outline: 'none',
   },
   grid: {
     width: '100%',
@@ -680,10 +668,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.86rem',
     padding: '24px',
     textAlign: 'center',
-  },
-  error: {
-    margin: 0,
-    color: 'var(--danger)',
-    fontSize: '0.82rem',
   },
 };

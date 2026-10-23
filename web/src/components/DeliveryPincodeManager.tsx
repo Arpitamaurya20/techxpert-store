@@ -1,7 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { MapPin, PauseCircle, PlayCircle, Plus, RefreshCw } from 'lucide-react';
 import { api, type DeliveryPincode, type StoreTree } from '../services/api';
-import { Badge, Button, EmptyState, StatGrid, useToast } from './ui';
+import {
+  Badge,
+  Button,
+  Field,
+  FormError,
+  LoadState,
+  NotGiven,
+  PageIntro,
+  Panel,
+  StatGrid,
+  useConfirm,
+  useToast,
+} from './ui';
 import type { StatItem } from './ui';
 
 interface DeliveryPincodeManagerProps {
@@ -14,12 +26,20 @@ interface DeliveryPincodeManagerProps {
 
 const NO_STORE = '';
 
+interface FormErrors {
+  pincode?: string;
+  area?: string;
+  store?: string;
+  form?: string;
+}
+
 export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
   canManage,
   canSeeStores,
   onAudit,
 }) => {
   const toast = useToast();
+  const { confirm, dialog } = useConfirm();
   const [rows, setRows] = useState<DeliveryPincode[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -27,7 +47,7 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
   const [areaName, setAreaName] = useState('');
   const [storeId, setStoreId] = useState(NO_STORE);
   const [tree, setTree] = useState<StoreTree | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -44,7 +64,7 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
       const active = storeTree?.stores.filter((s) => s.active) ?? [];
       setStoreId((current) => (current === NO_STORE && active.length === 1 ? String(active[0].id) : current));
     } catch (err: any) {
-      setLoadError(err.message || 'Could not load delivery pincodes');
+      setLoadError(err.message || 'The server did not answer.');
     } finally {
       setLoading(false);
     }
@@ -57,26 +77,36 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
   }, [load]);
 
   const activeCount = rows.filter((row) => row.active).length;
+  /** Before the first successful load, a count is unknown rather than zero. */
+  const unknown = rows.length === 0 && (loading || loadError != null);
   const stats: StatItem[] = [
-    { label: 'Delivering to', value: activeCount, icon: <MapPin size={20} />, iconColor: 'var(--success)' },
-    { label: 'Paused', value: rows.length - activeCount, icon: <PauseCircle size={20} />, iconColor: 'var(--warning)' },
+    {
+      label: 'Delivering to',
+      value: unknown ? '—' : activeCount,
+      icon: <MapPin size={20} />,
+      iconColor: 'var(--success)',
+    },
+    {
+      label: 'Paused',
+      value: unknown ? '—' : rows.length - activeCount,
+      icon: <PauseCircle size={20} />,
+      iconColor: 'var(--warning)',
+    },
   ];
 
   const add = async (event: React.FormEvent) => {
     event.preventDefault();
     const pin = pincode.trim();
     const area = areaName.trim();
-    if (!/^[1-9]\d{5}$/.test(pin)) {
-      setFormError('Enter a 6-digit pincode that does not start with 0.');
-      return;
-    }
-    if (area.length < 2) {
-      setFormError('Enter the area name customers will see, e.g. "Sector 62, Noida".');
-      return;
-    }
+    const found: FormErrors = {};
+    if (!/^[1-9]\d{5}$/.test(pin)) found.pincode = 'Enter 6 digits that do not start with 0.';
+    if (area.length < 2) found.area = 'Enter the area name customers will see, e.g. "Sector 62, Noida".';
+    if (tree && !tree.wholeCompany && storeId === NO_STORE) found.store = 'Choose the store that delivers here.';
+    setErrors(found);
+    if (Object.keys(found).length) return;
+
     try {
       setSaving(true);
-      setFormError(null);
       const created = await api.addDeliveryPincode({
         pincode: pin,
         areaName: area,
@@ -95,13 +125,27 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
           : `${created.pincode} added. Orders stay refused until a store serves it.`
       );
     } catch (err: any) {
-      setFormError(err.message || 'Could not add this pincode');
+      setErrors({ form: `Couldn't add ${pin}: ${err.message || 'the server refused it.'}` });
     } finally {
       setSaving(false);
     }
   };
 
   const toggle = async (row: DeliveryPincode) => {
+    if (row.active) {
+      const ok = await confirm({
+        title: `Pause delivery to ${row.pincode}?`,
+        message: (
+          <>
+            New orders to <strong>{row.pincode}</strong>
+            {row.areaName ? ` (${row.areaName})` : ''} will be refused at checkout until you resume it. Orders already
+            placed are not affected, and nothing is deleted.
+          </>
+        ),
+        confirmLabel: 'Pause delivery',
+      });
+      if (!ok) return;
+    }
     try {
       setBusyId(row.id);
       const saved = await api.setDeliveryPincodeActive(row.id, !row.active);
@@ -119,108 +163,109 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <StatGrid items={stats} columns={2} />
 
-      <div style={styles.toolbar}>
-        <p style={styles.hint}>
-          The phone checks the delivery pincode at checkout, and the server refuses orders to pincodes that are not
-          active here or not served by an active store. Pausing stops new orders to that pincode; nothing is deleted.
-          {canManage ? '' : ' Your role can see pincodes but not add, pause or resume them.'}
-        </p>
-        <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={load} disabled={loading}>
-          Refresh
-        </Button>
-      </div>
+      <PageIntro
+        actions={
+          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={load} disabled={loading}>
+            Refresh
+          </Button>
+        }
+      >
+        The phone checks the delivery pincode at checkout, and the server refuses orders to pincodes that are not
+        active here or not served by an active store. Pausing stops new orders to that pincode; nothing is deleted.
+        {canManage ? '' : ' Your role can see pincodes but not add, pause or resume them.'}
+      </PageIntro>
 
       {canManage ? (
-        <form style={styles.panel} onSubmit={add}>
-          <div style={styles.formRow}>
-            <div style={{ width: '160px' }}>
-              <label style={styles.label} htmlFor="delivery-pincode">
-                Pincode
-              </label>
-              <input
-                id="delivery-pincode"
-                style={styles.input}
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="201309"
-                value={pincode}
-                onChange={(e) => setPincode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              />
+        <Panel title="Add a pincode">
+          <form onSubmit={add} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={styles.formRow}>
+              <Field id="delivery-pincode" label="Pincode" error={errors.pincode} style={{ width: '160px' }}>
+                <input
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="201309"
+                  value={pincode}
+                  onChange={(e) => {
+                    setPincode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                    if (errors.pincode) setErrors((prev) => ({ ...prev, pincode: undefined }));
+                  }}
+                />
+              </Field>
+              <Field id="delivery-area" label="Area name" error={errors.area} style={{ flex: 1, minWidth: '220px' }}>
+                <input
+                  maxLength={120}
+                  placeholder="Sector 62, Noida"
+                  value={areaName}
+                  onChange={(e) => {
+                    setAreaName(e.target.value);
+                    if (errors.area) setErrors((prev) => ({ ...prev, area: undefined }));
+                  }}
+                />
+              </Field>
+              {tree ? (
+                <Field id="delivery-store" label="Served by" error={errors.store} style={{ width: '240px' }}>
+                  <select
+                    value={storeId}
+                    onChange={(e) => {
+                      setStoreId(e.target.value);
+                      if (errors.store) setErrors((prev) => ({ ...prev, store: undefined }));
+                    }}
+                  >
+                    {tree.wholeCompany ? <option value={NO_STORE}>No store yet (orders refused)</option> : null}
+                    {!tree.wholeCompany && storeId === NO_STORE ? (
+                      <option value={NO_STORE} disabled>
+                        Choose a store
+                      </option>
+                    ) : null}
+                    {activeStores.map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.name} ({s.code})
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+              <Button type="submit" icon={<Plus size={14} />} loading={saving} style={{ marginTop: '23px' }}>
+                Add pincode
+              </Button>
             </div>
-            <div style={{ flex: 1, minWidth: '220px' }}>
-              <label style={styles.label} htmlFor="delivery-area">
-                Area name
-              </label>
-              <input
-                id="delivery-area"
-                style={styles.input}
-                maxLength={120}
-                placeholder="Sector 62, Noida"
-                value={areaName}
-                onChange={(e) => setAreaName(e.target.value)}
-              />
-            </div>
-            {tree ? (
-              <div style={{ width: '220px' }}>
-                <label style={styles.label} htmlFor="delivery-store">
-                  Served by
-                </label>
-                <select
-                  id="delivery-store"
-                  style={styles.input}
-                  value={storeId}
-                  onChange={(e) => setStoreId(e.target.value)}
-                >
-                  {tree.wholeCompany ? <option value={NO_STORE}>No store yet (orders refused)</option> : null}
-                  {!tree.wholeCompany && storeId === NO_STORE ? (
-                    <option value={NO_STORE} disabled>
-                      Choose a store
-                    </option>
-                  ) : null}
-                  {activeStores.map((s) => (
-                    <option key={s.id} value={String(s.id)}>
-                      {s.name} ({s.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-            <Button type="submit" icon={<Plus size={14} />} loading={saving} style={{ alignSelf: 'flex-end' }}>
-              Add pincode
-            </Button>
-          </div>
-          {formError ? <p style={styles.error}>{formError}</p> : null}
-        </form>
+            {errors.form ? <FormError>{errors.form}</FormError> : null}
+          </form>
+        </Panel>
       ) : null}
 
-      <div style={styles.panel}>
-        {loading ? (
-          <div style={styles.muted}>Loading delivery pincodes…</div>
-        ) : loadError ? (
-          <div style={styles.error}>{loadError}</div>
-        ) : rows.length === 0 ? (
-          <EmptyState
-            icon={<MapPin size={22} />}
-            title="No delivery pincodes"
-            description="Until a pincode is added, every order is refused."
-          />
-        ) : (
+      <Panel title="Delivery pincodes">
+        <LoadState
+          loading={loading}
+          error={loadError}
+          what="delivery pincodes"
+          onRetry={load}
+          isEmpty={rows.length === 0}
+          empty={{
+            icon: <MapPin size={22} />,
+            title: 'No delivery pincodes yet',
+            description: canManage
+              ? 'Every order is refused until a pincode is added. Add the first one above.'
+              : 'Every order is refused until someone with delivery edit access adds a pincode.',
+          }}
+        >
           <div style={styles.list}>
             {rows.map((row) => (
               <div key={row.id} style={styles.row}>
                 <span style={styles.pin}>{row.pincode}</span>
-                <span style={styles.area}>{row.areaName || '—'}</span>
-                <span style={styles.store}>{row.storeName ?? 'No store — orders refused'}</span>
+                <span style={styles.area}>{row.areaName || <NotGiven />}</span>
+                <span style={styles.store}>{row.storeName ?? 'No store, orders refused'}</span>
                 <Badge variant={row.active && row.storeName ? 'success' : 'warning'} size="sm">
                   {!row.active ? 'Paused' : row.storeName ? 'Delivering' : 'Not served'}
                 </Badge>
                 {canManage ? (
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     icon={row.active ? <PauseCircle size={14} /> : <PlayCircle size={14} />}
                     loading={busyId === row.id}
                     onClick={() => toggle(row)}
+                    aria-label={`${row.active ? 'Pause' : 'Resume'} delivery to ${row.pincode}`}
                   >
                     {row.active ? 'Pause' : 'Resume'}
                   </Button>
@@ -228,58 +273,19 @@ export const DeliveryPincodeManager: React.FC<DeliveryPincodeManagerProps> = ({
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </LoadState>
+      </Panel>
+      {dialog}
     </div>
   );
 };
 
 const styles: Record<string, React.CSSProperties> = {
-  toolbar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
-  hint: {
-    margin: 0,
-    fontSize: '0.82rem',
-    color: 'var(--text-muted)',
-    maxWidth: '720px',
-    lineHeight: 1.45,
-  },
-  panel: {
-    background: 'var(--bg-surface)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-lg)',
-    padding: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
   formRow: {
     display: 'flex',
     gap: '12px',
     flexWrap: 'wrap',
-    alignItems: 'flex-end',
-  },
-  label: {
-    display: 'block',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    marginBottom: '6px',
-  },
-  input: {
-    width: '100%',
-    background: 'var(--tint-2)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 'var(--radius-md)',
-    padding: '9px 14px',
-    color: 'var(--text-main)',
-    fontSize: '0.86rem',
-    outline: 'none',
+    alignItems: 'flex-start',
   },
   list: {
     display: 'flex',
@@ -315,16 +321,5 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  },
-  muted: {
-    color: 'var(--text-dim)',
-    fontSize: '0.86rem',
-    padding: '24px',
-    textAlign: 'center',
-  },
-  error: {
-    margin: 0,
-    color: 'var(--danger)',
-    fontSize: '0.82rem',
   },
 };

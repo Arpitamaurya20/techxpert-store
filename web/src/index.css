@@ -246,6 +246,50 @@ input, select, textarea {
   animation: fadeIn var(--transition-normal) ease-out;
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+/* One input style for every Field: input, select, textarea */
+.tx-input {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+  color: var(--text-main);
+  font-size: 0.86rem;
+  line-height: 1.4;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.tx-input::placeholder {
+  color: var(--text-dim);
+}
+.tx-input:focus,
+.tx-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.tx-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.tx-input[aria-invalid='true']:focus {
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+.tx-input:disabled {
+  background: var(--bg-surface-elevated);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+textarea.tx-input {
+  resize: vertical;
+  min-height: 80px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

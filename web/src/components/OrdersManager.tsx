@@ -8,18 +8,9 @@ import {
   MapPin,
   Eye,
 } from 'lucide-react';
-import { DataTable, StatGrid, Badge, Button, Modal } from './ui';
+import { DataTable, StatGrid, Badge, Button, Modal, NotGiven } from './ui';
 import type { Column, StatItem } from './ui';
-
-const NotGiven: React.FC = () => (
-  <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontWeight: 400 }}>Not given</span>
-);
-
-const inr = (value: number) =>
-  `₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const isMoney = (value: unknown): value is number =>
-  value !== null && value !== undefined && Number.isFinite(Number(value));
+import { inr, isMoney } from '../services/format';
 
 export interface OrderItem {
   id?: number;

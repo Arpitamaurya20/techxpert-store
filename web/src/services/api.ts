@@ -107,9 +107,19 @@ export type StoreInput = {
   active?: boolean;
 };
 
+/** fetch, but a network failure reads as plain words instead of the browser's "Failed to fetch". */
+async function reach(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    throw new Error("Can't reach the server.");
+  }
+}
+
 async function rawFetch(path: string, options?: RequestInit): Promise<ApiEnvelope<unknown>> {
   const token = getToken();
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await reach(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: 'include',
     headers: {
@@ -129,7 +139,7 @@ async function rawFetch(path: string, options?: RequestInit): Promise<ApiEnvelop
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
-    throw new Error(errorBody.error || `Request failed with status ${res.status}`);
+    throw new Error(errorBody.error || `The server had a problem (status ${res.status}).`);
   }
 
   return (await res.json()) as ApiEnvelope<unknown>;
@@ -229,7 +239,7 @@ export const api = {
     const token = getToken();
     const body = new FormData();
     body.append('file', file);
-    const res = await fetch(`${API_BASE_URL}/cms/banners/media`, {
+    const res = await reach(`${API_BASE_URL}/cms/banners/media`, {
       method: 'POST',
       credentials: 'include',
       headers: {

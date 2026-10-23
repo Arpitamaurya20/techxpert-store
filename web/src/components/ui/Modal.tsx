@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -20,6 +20,9 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidth = '580px',
 }) => {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) onClose();
@@ -28,31 +31,42 @@ export const Modal: React.FC<ModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Focus `[data-autofocus]` (or the dialog) on open and give focus back to the opener on close.
+  // Children must use data-autofocus, not autoFocus: autoFocus runs first and hides the opener.
+  useEffect(() => {
+    if (!isOpen) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const target = dialog?.querySelector<HTMLElement>('[data-autofocus]') ?? dialog;
+    target?.focus();
+    return () => opener?.focus?.();
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         style={{ ...styles.content, maxWidth }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
       >
-        {/* Header */}
         <div style={styles.header}>
           <div>
-            <h3 style={styles.title}>{title}</h3>
+            <h3 id={titleId} style={styles.title}>{title}</h3>
             {subtitle && <p style={styles.subtitle}>{subtitle}</p>}
           </div>
-          <button onClick={onClose} style={styles.closeBtn} aria-label="Close modal">
+          <button onClick={onClose} style={styles.closeBtn} aria-label="Close">
             <X size={18} />
           </button>
         </div>
 
-        {/* Body */}
         <div style={styles.body}>{children}</div>
 
-        {/* Footer */}
         {footer && <div style={styles.footer}>{footer}</div>}
       </div>
     </div>
@@ -85,6 +99,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     boxShadow: 'var(--shadow-lg)',
     overflow: 'hidden',
+    outline: 'none',
   },
   header: {
     padding: '20px 24px',
