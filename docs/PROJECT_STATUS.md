@@ -172,7 +172,7 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
 - **No SMS sender:** `send-otp` makes a code but nothing texts it to the customer. Locally the code is always `123456`; production needs an SMS provider before phone sign-in works.
 - **App sign-in must move to codes:** the app calls `POST /auth/login`, which production now refuses. It must use `send-otp` then `verify-otp` ([`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §8 UC-7).
 - **App order statuses:** the app expects `placed`, `packed`, `out_for_delivery`, `returned`; the server uses `pending`, `confirmed`, `processing`, `shipped`, `delivered`, `cancelled`.
-- **Guest checkout writes to `homecare.users`:** an unregistered 10-digit phone at checkout creates an unverified customer there (S3 decision). Open question for the owner.
+- **Guest checkout writes to `homecare.users`:** an unregistered 10-digit phone at checkout creates an unverified customer there (S3 decision), so the order follows the phone once that customer signs in. Kept on purpose, confirmed by the owner 23 Oct.
 - **Bulk prices on a removed product:** bulk prices 1–3 belong to product 1 (1.5 Ton Split AC), which was removed, so they never apply. The portal marks them; a merchandiser should remove or re-point them.
 - **Not device-tested:** S1–S3 proven over HTTP and the local DB only; the device run is with the app team.
 - **Ops:** admin login rate limit is in-memory (single node); `JWT_SECRET` and `CORS_ORIGINS` must be set in production (the API refuses to start otherwise).
