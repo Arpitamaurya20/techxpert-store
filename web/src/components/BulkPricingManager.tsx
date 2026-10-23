@@ -6,6 +6,7 @@ import {
   Plus,
   Trash2,
   TrendingDown,
+  Pencil,
 } from 'lucide-react';
 import type { BulkPriceTier, Product } from '../types';
 import { DataTable, StatGrid, Badge, Button, Modal } from './ui';
@@ -16,37 +17,55 @@ interface BulkPricingManagerProps {
   tiers: BulkPriceTier[];
   products: Product[];
   onAddTier: (tier: BulkPriceTier) => void;
+  onUpdateTier: (tier: BulkPriceTier) => void;
   onDeleteTier: (id: string) => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
   tiers,
   products,
   onAddTier,
+  onUpdateTier,
   onDeleteTier,
+  canEdit = true,
+  canDelete = true,
 }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingTierId, setEditingTierId] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || '1');
   const [calculatorQty, setCalculatorQty] = useState<number>(25);
-  const [calcResult, setCalcResult] = useState<any>(null);
+  const [lastCalc, setCalcResult] = useState<any>(null);
 
   // New tier form state
-  const [newTier, setNewTier] = useState({
+  const [newTier, setNewTier] = useState<{
+    productId: string;
+    productName: string;
+    minQty: number;
+    maxQty?: number;
+    discountType: 'percentage' | 'fixed_price';
+    discountValue: number;
+    terms: string;
+  }>({
     productId: products[0]?.id || '1',
     productName: products[0]?.name || 'Construction Material',
     minQty: 10,
     maxQty: 49,
-    discountType: 'percentage' as const,
+    discountType: 'percentage',
     discountValue: 10,
     terms: 'Contractor bulk rate applied at checkout',
   });
 
   const selectedProduct = products.find((p) => String(p.id) === String(selectedProductId)) || products[0];
+  /** A product without a price has nothing to calculate; never show the previous product's figures. */
+  const calcResult = selectedProduct?.price == null ? null : lastCalc;
 
   // Fetch live discount calculation from backend API
   useEffect(() => {
     if (!selectedProduct) return;
-    const basePrice = selectedProduct.price || 450;
+    const basePrice = selectedProduct.price;
+    if (basePrice == null) return;
     fetch(
       `http://localhost:5001/pricing/calculate?productId=${selectedProduct.id}&quantity=${calculatorQty}&basePrice=${basePrice}`
     )
@@ -64,8 +83,18 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
             calculatorQty >= t.minQty &&
             (!t.maxQty || calculatorQty <= t.maxQty)
         );
-        const discountPct = applicableTier ? applicableTier.discountValue : 0;
-        const discountPerUnit = (basePrice * discountPct) / 100;
+        const discountPerUnit = !applicableTier
+          ? 0
+          : applicableTier.discountType === 'fixed_price'
+            ? Math.max(basePrice - Number(applicableTier.discountValue), 0)
+            : (basePrice * Number(applicableTier.discountValue)) / 100;
+        const discountPct = applicableTier?.discountType === 'fixed_price'
+          ? basePrice > 0
+            ? Math.round((discountPerUnit / basePrice) * 1000) / 10
+            : 0
+          : applicableTier
+            ? Number(applicableTier.discountValue)
+            : 0;
         setCalcResult({
           basePrice,
           unitPrice: basePrice - discountPerUnit,
@@ -77,11 +106,44 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
       });
   }, [selectedProductId, calculatorQty, selectedProduct, tiers]);
 
+  const closeTierModal = () => {
+    setIsAddModalOpen(false);
+    setEditingTierId(null);
+  };
+
+  const openCreateTier = () => {
+    setEditingTierId(null);
+    setNewTier({
+      productId: products[0]?.id || '1',
+      productName: products[0]?.name || 'Construction Material',
+      minQty: 10,
+      maxQty: 49,
+      discountType: 'percentage',
+      discountValue: 10,
+      terms: 'Contractor bulk rate applied at checkout',
+    });
+    setIsAddModalOpen(true);
+  };
+
+  const openEditTier = (tier: BulkPriceTier) => {
+    setEditingTierId(tier.id);
+    setNewTier({
+      productId: String(tier.productId || products[0]?.id || '1'),
+      productName: tier.productName || '',
+      minQty: tier.minQty,
+      maxQty: tier.maxQty,
+      discountType: tier.discountType === 'fixed_price' ? 'fixed_price' : 'percentage',
+      discountValue: Number(tier.discountValue),
+      terms: tier.terms || '',
+    });
+    setIsAddModalOpen(true);
+  };
+
   const handleCreateTier = (e: React.FormEvent) => {
     e.preventDefault();
     const prod = products.find((p) => String(p.id) === String(newTier.productId));
-    onAddTier({
-      id: `tier-${Date.now()}`,
+    const payload: BulkPriceTier = {
+      id: editingTierId || `tier-${Date.now()}`,
       productId: newTier.productId,
       productName: prod?.name || newTier.productName,
       minQty: Number(newTier.minQty),
@@ -89,13 +151,16 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
       discountType: newTier.discountType,
       discountValue: Number(newTier.discountValue),
       terms: newTier.terms,
-    });
-    setIsAddModalOpen(false);
+    };
+    if (editingTierId) onUpdateTier(payload);
+    else onAddTier(payload);
+    closeTierModal();
   };
 
-  const avgDiscount = tiers.length > 0
-    ? Math.round(tiers.reduce((acc, t) => acc + Number(t.discountValue), 0) / tiers.length)
-    : 12;
+  const percentageTiers = tiers.filter((tier) => tier.discountType !== 'fixed_price');
+  const avgDiscount = percentageTiers.length > 0
+    ? Math.round(percentageTiers.reduce((acc, t) => acc + Number(t.discountValue), 0) / percentageTiers.length)
+    : null;
 
   const stats: StatItem[] = [
     {
@@ -106,7 +171,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
     },
     {
       label: 'Average Contractor Savings',
-      value: `${avgDiscount}%`,
+      value: avgDiscount == null ? '—' : `${avgDiscount}%`,
       icon: <TrendingDown size={20} />,
       iconColor: '#10b981',
     },
@@ -153,7 +218,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
       sortable: true,
       render: (t) => (
         <Badge variant="success" icon={<TrendingDown size={12} />}>
-          {t.discountValue}% OFF
+          {t.discountType === 'fixed_price' ? `₹${t.discountValue} / unit` : `${t.discountValue}% OFF`}
         </Badge>
       ),
     },
@@ -171,14 +236,23 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
       header: '',
       align: 'right',
       render: (t) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<Trash2 size={14} color="#f43f5e" />}
-          onClick={() => onDeleteTier(t.id)}
-        >
-          Remove
-        </Button>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          {canEdit ? (
+            <Button variant="secondary" size="sm" icon={<Pencil size={14} />} onClick={() => openEditTier(t)}>
+              Edit
+            </Button>
+          ) : null}
+          {canDelete ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Trash2 size={14} color="#f43f5e" />}
+              onClick={() => onDeleteTier(t.id)}
+            >
+              Remove
+            </Button>
+          ) : null}
+        </div>
       ),
     },
   ];
@@ -266,7 +340,7 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
               <span>Base Retail Rate:</span>
-              <span>₹{calcResult?.basePrice || selectedProduct?.price || 450} / unit</span>
+              <span>{selectedProduct?.price == null ? 'No price yet' : `₹${calcResult?.basePrice || selectedProduct.price} / unit`}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
               <span>Volume Discount:</span>
@@ -277,7 +351,9 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', color: '#fff', fontWeight: 600 }}>
               <span>Contractor Unit Rate:</span>
               <span style={{ color: 'var(--brand-orange)', fontWeight: 800, fontFamily: 'monospace' }}>
-                ₹{Number(calcResult?.unitPrice || selectedProduct?.price || 450).toFixed(2)}
+                {selectedProduct?.price == null
+                  ? '—'
+                  : `₹${Number(calcResult?.unitPrice || selectedProduct.price).toFixed(2)}`}
               </span>
             </div>
             <div
@@ -315,14 +391,16 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
         searchKeys={['productName', 'terms']}
         pageSize={8}
         extraControls={
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Plus size={15} />}
-            onClick={() => setIsAddModalOpen(true)}
-          >
-            Add Pricing Rule
-          </Button>
+          canEdit ? (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Plus size={15} />}
+              onClick={openCreateTier}
+            >
+              Add Pricing Rule
+            </Button>
+          ) : undefined
         }
       />
 
@@ -330,16 +408,16 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
       {isAddModalOpen && (
         <Modal
           isOpen={isAddModalOpen}
-          onClose={() => setIsAddModalOpen(false)}
-          title="Create Bulk Pricing Tier"
-          subtitle="Configure volume threshold and contractor discount percentage"
+          onClose={closeTierModal}
+          title={editingTierId ? 'Edit Bulk Pricing Tier' : 'Create Bulk Pricing Tier'}
+          subtitle="Quantity band and the price the phone uses for that band"
           footer={
             <>
-              <Button variant="secondary" size="sm" onClick={() => setIsAddModalOpen(false)}>
+              <Button variant="secondary" size="sm" onClick={closeTierModal}>
                 Cancel
               </Button>
               <Button variant="primary" size="sm" onClick={handleCreateTier}>
-                Create Tier
+                {editingTierId ? 'Save Tier' : 'Create Tier'}
               </Button>
             </>
           }
@@ -359,7 +437,10 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
                 }}
                 style={styles.select}
               >
-                {products.map((p) => (
+                {(products.some((p) => String(p.id) === String(newTier.productId))
+                  ? products
+                  : [{ id: newTier.productId, name: newTier.productName || `Product ${newTier.productId}` }, ...products]
+                ).map((p) => (
                   <option key={p.id} value={String(p.id)} style={{ background: '#0f172a' }}>
                     {p.name}
                   </option>
@@ -395,16 +476,40 @@ export const BulkPricingManager: React.FC<BulkPricingManagerProps> = ({
               </div>
             </div>
 
-            <div>
-              <label style={styles.label}>Discount Percentage (%)</label>
-              <input
-                type="number"
-                min="1"
-                max="90"
-                value={newTier.discountValue}
-                onChange={(e) => setNewTier({ ...newTier, discountValue: Number(e.target.value) })}
-                style={styles.input}
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label style={styles.label}>Discount type</label>
+                <select
+                  value={newTier.discountType}
+                  onChange={(e) =>
+                    setNewTier({
+                      ...newTier,
+                      discountType: e.target.value === 'fixed_price' ? 'fixed_price' : 'percentage',
+                    })
+                  }
+                  style={styles.select}
+                >
+                  <option value="percentage" style={{ background: '#0f172a' }}>
+                    Percent off
+                  </option>
+                  <option value="fixed_price" style={{ background: '#0f172a' }}>
+                    Fixed unit price (₹)
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label style={styles.label}>
+                  {newTier.discountType === 'fixed_price' ? 'Unit price (₹)' : 'Discount (%)'}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max={newTier.discountType === 'fixed_price' ? undefined : 90}
+                  value={newTier.discountValue}
+                  onChange={(e) => setNewTier({ ...newTier, discountValue: Number(e.target.value) })}
+                  style={styles.input}
+                />
+              </div>
             </div>
 
             <div>

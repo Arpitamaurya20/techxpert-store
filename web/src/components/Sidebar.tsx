@@ -7,9 +7,26 @@ import {
   Code,
   History,
   Server,
+  LayoutDashboard,
+  LayoutList,
+  FolderTree,
+  MapPin,
+  ShieldCheck,
 } from 'lucide-react';
 
-export type TabId = 'catalog' | 'orders' | 'users' | 'pricing' | 'banners' | 'api' | 'audit';
+export type TabId =
+  | 'dashboard'
+  | 'catalog'
+  | 'categories'
+  | 'orders'
+  | 'delivery'
+  | 'users'
+  | 'pricing'
+  | 'banners'
+  | 'sections'
+  | 'api'
+  | 'audit'
+  | 'access';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -18,6 +35,11 @@ interface SidebarProps {
   productsCount?: number;
   usersCount?: number;
   serverOnline: boolean;
+  adminName?: string;
+  adminRole?: string;
+  onLogout?: () => void;
+  /** Tabs the signed-in role can open, in display order. */
+  visibleTabs: TabId[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -27,16 +49,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
   productsCount = 7,
   usersCount = 7,
   serverOnline,
+  adminName = 'Store Admin',
+  adminRole = 'No role',
+  onLogout,
+  visibleTabs,
 }) => {
-  const navItems: { id: TabId; label: string; icon: React.ReactNode; badge?: string }[] = [
+  const initials = adminName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join('') || 'SA';
+  type NavItem = { id: TabId; label: string; icon: React.ReactNode; badge?: string };
+  const allNavItems: NavItem[] = [
+    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
     { id: 'catalog', label: 'Products & Inventory', icon: <Package size={18} />, badge: String(productsCount) },
+    { id: 'categories', label: 'Categories & Subs', icon: <FolderTree size={18} /> },
     { id: 'orders', label: 'Orders & Fulfillment', icon: <ShoppingBag size={18} />, badge: String(ordersCount) },
+    { id: 'delivery', label: 'Delivery Pincodes', icon: <MapPin size={18} /> },
     { id: 'users', label: 'Customers (homecare)', icon: <Users size={18} />, badge: String(usersCount) },
     { id: 'pricing', label: 'Bulk Pricing Rules', icon: <Tag size={18} /> },
     { id: 'banners', label: 'Campaign Banners', icon: <ImageIcon size={18} /> },
+    { id: 'sections', label: 'Homepage Sections', icon: <LayoutList size={18} /> },
     { id: 'api', label: 'API & Mobile Sync', icon: <Code size={18} /> },
     { id: 'audit', label: 'Audit Trail', icon: <History size={18} /> },
+    { id: 'access', label: 'Roles & Access', icon: <ShieldCheck size={18} /> },
   ];
+  const navItems = allNavItems.filter((item) => visibleTabs.includes(item.id));
 
 
   return (
@@ -124,11 +163,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div style={styles.userCard}>
-          <div style={styles.userAvatar}>AM</div>
+          <div style={styles.userAvatar}>{initials}</div>
           <div style={styles.userInfo}>
-            <div style={styles.userName}>Arpit Maurya</div>
-            <div style={styles.userRole}>Store Admin</div>
+            <div style={styles.userName}>{adminName}</div>
+            <div style={styles.userRole}>{adminRole}</div>
           </div>
+          {onLogout && (
+            <button type="button" onClick={onLogout} style={styles.logoutBtn} title="Sign out">
+              Out
+            </button>
+          )}
         </div>
       </div>
     </aside>
@@ -226,6 +270,9 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'all var(--transition-fast)',
     textAlign: 'left',
     width: '100%',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
   },
   navBtnActive: {
     background: 'var(--bg-surface-elevated)',
@@ -316,5 +363,17 @@ const styles: Record<string, React.CSSProperties> = {
   userRole: {
     fontSize: '0.7rem',
     color: 'var(--text-dim)',
+  },
+  logoutBtn: {
+    marginLeft: 'auto',
+    flexShrink: 0,
+    background: 'rgba(244, 63, 94, 0.12)',
+    border: '1px solid rgba(244, 63, 94, 0.3)',
+    color: '#fda4af',
+    borderRadius: 'var(--radius-sm)',
+    padding: '4px 8px',
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    cursor: 'pointer',
   },
 };

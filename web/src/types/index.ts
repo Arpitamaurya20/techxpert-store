@@ -20,22 +20,24 @@ export interface Banner {
 }
 
 export type SectionType =
-  | 'hero_carousel'
   | 'category_shortcuts'
+  | 'hero_carousel'
   | 'trust_strip'
-  | 'diwali_banner'
-  | 'featured_products'
-  | 'order_again_rail'
   | 'category_grid'
+  | 'order_again_rail'
+  | 'offer_tiles'
+  | 'product_rail'
   | 'bulk_enquiry';
 
 export interface HomepageSection {
   id: string;
-  type: SectionType;
+  /** App-known section types; API may also return legacy/DB codes */
+  type: SectionType | string;
   title: string;
   enabled: boolean;
   position: number;
   description: string;
+  sectionCode?: string;
 }
 
 export interface BulkPriceTier {
@@ -59,7 +61,8 @@ export interface Product {
   imageUrl?: string;
   brandName?: string;
   unit: string;
-  price: number;
+  /** Lowest active selling price; null when the product has no active price and cannot be sold. */
+  price: number | null;
   originalPrice?: number;
   stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock';
   stockQuantity: number;
@@ -71,15 +74,32 @@ export interface Product {
 export interface Category {
   id: string;
   name: string;
-  icon: string;
-  activeProducts: number;
+  slug?: string;
+  icon?: string;
+  imageUrl?: string;
+  description?: string;
+  displayOrder?: number;
+  productCount?: number;
+  activeProducts?: number;
+  featured?: boolean;
+}
+
+export interface Subcategory {
+  id: string;
+  categoryId: string;
+  name: string;
+  slug?: string;
+  imageUrl?: string;
+  displayOrder?: number;
+  searchTerm?: string;
 }
 
 export interface AuditLog {
   id: string;
   action: string;
-  entity: 'banner' | 'section' | 'bulk_tier' | 'product' | 'publish';
+  entity: 'banner' | 'section' | 'bulk_tier' | 'product' | 'publish' | 'order' | 'category' | 'delivery' | 'access';
   details: string;
   user: string;
+  /** ISO timestamp from API (viewer formats for display) */
   timestamp: string;
 }

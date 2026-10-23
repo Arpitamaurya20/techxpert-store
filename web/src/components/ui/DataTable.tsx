@@ -12,6 +12,17 @@ export interface Column<T> {
   sortable?: boolean;
 }
 
+/** When set, search/pagination are controlled by the parent (MySQL-backed lists). */
+export type ServerListControls = {
+  search: string;
+  onSearchChange: (q: string) => void;
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+};
+
 export interface DataTableProps<T> {
   data: T[];
   columns: Column<T>[];
@@ -25,6 +36,7 @@ export interface DataTableProps<T> {
   onRowClick?: (item: T) => void;
   emptyTitle?: string;
   emptyDescription?: string;
+  serverList?: ServerListControls;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -40,14 +52,21 @@ export function DataTable<T extends Record<string, any>>({
   onRowClick,
   emptyTitle,
   emptyDescription,
+  serverList,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  // Filter items based on search query
+  const isServer = Boolean(serverList);
+  const activeSearch = isServer ? serverList!.search : search;
+  const activePage = isServer ? serverList!.page : currentPage;
+  const activePageSize = isServer ? serverList!.pageSize : pageSize;
+
+  // Filter items based on search query (client mode only)
   const filteredData = useMemo(() => {
+    if (isServer) return data;
     if (!search.trim()) return data;
     const q = search.toLowerCase();
 
@@ -64,15 +83,13 @@ export function DataTable<T extends Record<string, any>>({
       );
     }
 
-    // Default: search all string / number fields
     return data.filter((item) =>
       Object.values(item).some(
         (v) => typeof v === 'string' || typeof v === 'number' ? String(v).toLowerCase().includes(q) : false
       )
     );
-  }, [data, search, searchKeys, searchFilter]);
+  }, [data, search, searchKeys, searchFilter, isServer]);
 
-  // Sort items
   const sortedData = useMemo(() => {
     if (!sortKey) return filteredData;
     return [...filteredData].sort((a, b) => {
@@ -90,12 +107,16 @@ export function DataTable<T extends Record<string, any>>({
     });
   }, [filteredData, sortKey, sortDir]);
 
-  // Pagination
-  const totalPages = Math.ceil(sortedData.length / pageSize) || 1;
+  const totalPages = isServer
+    ? Math.max(1, serverList!.totalPages)
+    : Math.ceil(sortedData.length / activePageSize) || 1;
+  const totalItems = isServer ? serverList!.total : sortedData.length;
+
   const paginatedData = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sortedData.slice(start, start + pageSize);
-  }, [sortedData, currentPage, pageSize]);
+    if (isServer) return sortedData;
+    const start = (activePage - 1) * activePageSize;
+    return sortedData.slice(start, start + activePageSize);
+  }, [sortedData, activePage, activePageSize, isServer]);
 
   const handleSort = (colKey: string) => {
     if (sortKey === colKey) {
@@ -111,9 +132,21 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   const handleSearchChange = (q: string) => {
+    if (isServer) {
+      serverList!.onSearchChange(q);
+      return;
+    }
     setSearch(q);
     setCurrentPage(1);
   };
+
+  const goPage = (next: number) => {
+    if (isServer) serverList!.onPageChange(next);
+    else setCurrentPage(next);
+  };
+
+  const rangeStart = totalItems > 0 ? (activePage - 1) * activePageSize + 1 : 0;
+  const rangeEnd = Math.min(activePage * activePageSize, totalItems);
 
   return (
     <div style={styles.wrapper}>
@@ -121,16 +154,17 @@ export function DataTable<T extends Record<string, any>>({
       <div style={styles.toolbar}>
         <div style={styles.leftToolbar}>
           <SearchInput
-            value={search}
+            value={activeSearch}
             onChange={handleSearchChange}
             placeholder={searchPlaceholder}
           />
           {extraControls}
         </div>
         <div style={styles.countText}>
-          Showing <strong>{sortedData.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</strong>–
-          <strong>{Math.min(currentPage * pageSize, sortedData.length)}</strong> of{' '}
-          <strong>{sortedData.length}</strong> items
+          Showing <strong>{rangeStart}</strong>–
+          <strong>{rangeEnd}</strong> of{' '}
+          <strong>{totalItems.toLocaleString('en-IN')}</strong> items
+          {isServer ? ' (MySQL)' : ''}
         </div>
       </div>
 
@@ -222,31 +256,31 @@ export function DataTable<T extends Record<string, any>>({
         </div>
 
         {/* Pagination Bar */}
-        {totalPages > 1 && (
+        {(totalPages > 1 || isServer) && (
           <div style={styles.paginationBar}>
             <div style={styles.pageInfo}>
-              Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+              Page <strong>{activePage}</strong> of <strong>{totalPages.toLocaleString('en-IN')}</strong>
             </div>
             <div style={styles.paginationButtons}>
               <button
-                onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                disabled={currentPage === 1}
+                onClick={() => goPage(Math.max(activePage - 1, 1))}
+                disabled={activePage === 1 || loading}
                 style={{
                   ...styles.pageBtn,
-                  opacity: currentPage === 1 ? 0.4 : 1,
-                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                  opacity: activePage === 1 ? 0.4 : 1,
+                  cursor: activePage === 1 ? 'not-allowed' : 'pointer',
                 }}
               >
                 <ChevronLeft size={16} />
                 <span>Previous</span>
               </button>
               <button
-                onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-                disabled={currentPage === totalPages}
+                onClick={() => goPage(Math.min(activePage + 1, totalPages))}
+                disabled={activePage === totalPages || loading}
                 style={{
                   ...styles.pageBtn,
-                  opacity: currentPage === totalPages ? 0.4 : 1,
-                  cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                  opacity: activePage === totalPages ? 0.4 : 1,
+                  cursor: activePage === totalPages ? 'not-allowed' : 'pointer',
                 }}
               >
                 <span>Next</span>

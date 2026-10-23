@@ -47,6 +47,7 @@ interface OrdersManagerProps {
   orders: Order[];
   onUpdateStatus: (id: string, newStatus: string) => Promise<void>;
   loading: boolean;
+  canEdit?: boolean;
 }
 
 
@@ -54,6 +55,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
   orders,
   onUpdateStatus,
   loading,
+  canEdit = true,
 }) => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -185,7 +187,11 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       key: 'status',
       header: 'ORDER STATUS',
       align: 'center',
-      render: (o) => (
+      render: (o) => !canEdit ? (
+        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#fff', textTransform: 'capitalize' }}>
+          {String(o.status).replace(/_/g, ' ')}
+        </span>
+      ) : (
         <select
           value={o.status}
           onChange={(e) => handleStatusChange(String(o.id), e.target.value)}
@@ -340,11 +346,11 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
                     <div>
                       <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.86rem' }}>{it.name}</div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '2px' }}>
-                        SKU: {it.sku || 'N/A'} • {it.quantity} × ₹{it.unitPrice || 450} {it.unit ? `per ${it.unit}` : ''}
+                        SKU: {it.sku || 'N/A'} • {it.quantity} × ₹{Number(it.unitPrice ?? 0)} {it.unit ? `per ${it.unit}` : ''}
                       </div>
                     </div>
                     <div style={{ fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>
-                      ₹{((it.unitPrice || 450) * it.quantity).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      ₹{Number(it.lineTotal ?? Number(it.unitPrice ?? 0) * it.quantity).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
                 ))}
