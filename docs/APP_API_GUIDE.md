@@ -152,6 +152,7 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 |---|---|
 | `GET /cms/sections` | The home blocks the app should draw, in order, each with `enabled` |
 | `GET /cms/home` | The category shortcut row and the project tiles (use case 14). Empty until staff fill them |
+| `GET /cms/search-suggestions` | The "Try searching" chips (use case 15). Empty until staff fill them |
 | `GET /cms/banners` | Only the banners live right now, in order |
 | `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
 | `GET /catalog/categories` | Category tiles |
@@ -564,6 +565,17 @@ GET /cms/home → 200
 { "success": true, "data": { "shortcuts": [], "projects": [] } }
 ```
 
+### UC-15 Search ideas
+
+**Call, public:** `GET /cms/search-suggestions`. The chips under the home search box, in the order staff set. The list is empty until staff fill it on the portal (Shortcuts & projects, same access as Home screen sections). The app can keep its own list (Cement, Wall putty, and the rest) until it switches to this call. Draw nothing extra when the list is empty. Eight ideas, each 40 characters. The same idea cannot appear twice.
+
+```json
+GET /cms/search-suggestions → 200
+{ "success": true, "data": { "suggestions": [] } }
+```
+
+A published idea is one string, such as `"LED bulbs"`. Saving replaces the whole list. Leaving `suggestions` out of the save is refused, so an empty body cannot clear the list by accident. An empty list does clear it.
+
 ---
 
 ## 9. Calls the app should not use
@@ -582,7 +594,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). Banners can't open outside links yet (use case 1).
+- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting

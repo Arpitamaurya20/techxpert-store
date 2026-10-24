@@ -133,7 +133,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     {
       tab: 'shortcuts',
       title: 'Shortcuts & projects',
-      desc: 'The category row and project tiles on the app home screen',
+      desc: 'The category row, project tiles and search ideas on the app home screen',
       icon: <LayoutGrid size={18} color="var(--violet)" />,
     },
     {

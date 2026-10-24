@@ -77,6 +77,7 @@ What an auditor should check, where it lives.
 | Saved items follow the account (a guest list follows `x-session-id`). Today's price and stock. Merge on sign-in keeps the device list, then the guest list, then the account, capped at 100. A product that can't be bought stays, with a reason | `wishlist.ts`, `wishlistService.ts`, `GET/PUT /wishlist`, `POST /wishlist/merge`, `sql/saved_items.sql` |
 | Help page is the phone, WhatsApp, email, hours and questions the app will show. Empty until staff fill it in. Replacing it needs Help & support edit | `helpContent.ts`, `helpService.ts`, `GET/PUT /cms/help`, `HelpManager.tsx`, `sql/help_content.sql` |
 | Home shortcuts and projects are the category row and project tiles. Empty until staff pick categories that are on sale. Replacing the page needs Home screen sections edit. The app adds More; this list holds at most 7 | `homeMerch.ts`, `homeMerchService.ts`, `GET/PUT /cms/home`, `HomeMerchManager.tsx`, `sql/home_merch.sql` |
+| Search ideas are the chips under the home search box. Empty until staff type them. Replacing the list needs Home screen sections edit. Eight ideas, 40 characters each. A save that leaves the list out is refused; an empty list clears it | `searchSuggestions.ts`, `searchSuggestionService.ts`, `GET/PUT /cms/search-suggestions`, `SearchIdeasManager.tsx`, `sql/search_suggestions.sql` |
 | Cancelling: cancelled is final (409 on any change); a delivered order can't be cancelled (409). Cancelling an order placed through this shop (`TX-ORD-`) puts each line's quantity back on the variant it took from, in the same transaction, resizes that variant's inventory rows and marks an out-of-stock product in stock; imported orders (`ORD-`) put nothing back. The history note says which | `server/src/utils/orderRules.ts`, `orderService.updateOrderStatus` / `putStockBack`, `web/src/services/orderStatus.ts` (`statusChoices`, `restocksOnCancel`), `web/src/components/OrdersManager.tsx` |
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
@@ -128,7 +129,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 142 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `variants`, `productPage`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 146 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `searchSuggestions`, `variants`, `productPage`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -147,6 +148,7 @@ Run in this order on production (all applied to the local DB already). See [`ser
 9. `server/sql/help_content.sql`: the help page (empty until staff fill it) and the `help` audit label. Safe to run again. Comes after the audit table exists.
 10. `server/sql/home_merch.sql`: the home shortcut row and project tiles. Starts empty. Safe to run again.
 11. `server/sql/product_page.sql`: highlights and specifications on the product page. Starts empty. Safe to run again. The previous API ignores the tables.
+12. `server/sql/search_suggestions.sql`: the home search ideas. Starts empty. Safe to run again. The previous API ignores the table.
 
 Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 
@@ -173,6 +175,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 15 | Home shortcuts and projects: staff pick real categories for the home row and the project tiles | `sql/home_merch.sql`, `homeMerchService.ts`, `GET/PUT /cms/home`, `HomeMerchManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-14 | **Done** 24 Oct: 132/132 unit tests. Both lists start empty. Same access as Home screen sections. The app still uses its own lists until it reads the new call |
 | 16 | Sell the chosen variant: product detail lists options, the cart and reorder keep that option, the portal edits each option's stock. No `variantId` still sells the first | `variants.ts`, `catalogService.ts`, `cartService.ts`, `orderService.getOrderAgain`, `CatalogOverview.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-4 and UC-6 | **Done** 24 Oct: 138/138 unit tests. Guest cart: Brown (variant 4) at ₹1,999 with stock 60, then White (first option) at its own ₹199 with stock 68, both kept; a variant from another product was refused; the cart was emptied and stock was unchanged. Portal: the fan row says "3 options" and the bulb "2 options". Editing Brown 60→61 left White at 68 and Black at 50, then Brown was put back to 60 |
 | 17 | Product page highlights and specifications, empty until staff fill them | `sql/product_page.sql`, `productPage.ts`, `catalogService.ts`, `CatalogOverview.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-4 | **Done** 24 Oct: 142/142 unit tests. A product with nothing filled returns empty lists. Saving Remote control and Sweep / 48 inch on the ceiling fan kept stock at 68, 60 and 50; a later save that did not mention the lists left them; clearing them put the page back to empty. Portal: Add highlight and Add specification, then Remove, on the product screen |
+| 18 | Home search ideas, empty until staff fill them | `sql/search_suggestions.sql`, `searchSuggestions.ts`, `searchSuggestionService.ts`, `SearchIdeasManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-15 | **Done** 24 Oct: 146/146 unit tests. The list starts empty. Saving LED bulbs left the shortcut row and project tiles empty; a save that left the list out was refused and the idea stayed; a repeated idea was refused; clearing the list put it back to empty. Unsigned saves are 401. Portal: Add idea, Save, then Remove, on Shortcuts & projects |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
@@ -186,6 +189,7 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
 - **Product page points:** highlights and specifications are empty until staff fill them. The phone already reads both lists from product detail.
 - **App home, for the app team:**
   - The category shortcuts and project pages are still the app's own lists (`cement-plaster`, `tiling-grouts`…), which are not in this catalogue, so those blocks find nothing until the app reads `GET /cms/home`. The server page starts empty for staff to fill.
+  - The search chips are still the app's own list until it reads `GET /cms/search-suggestions`. The server list starts empty for staff to fill.
   - Banner buttons can't open outside links (they show all products).
 - **No SMS sender:** `send-otp` makes a code but nothing texts it to the customer. Locally the code is always `123456`; production needs an SMS provider before phone sign-in works.
 - **App sign-in must move to codes:** the app calls `POST /auth/login`, which production now refuses. It must use `send-otp` then `verify-otp` ([`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §8 UC-7).

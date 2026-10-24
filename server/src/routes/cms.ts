@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { CmsService } from '../services/cmsService.js';
 import { HelpService } from '../services/helpService.js';
 import { HomeMerchService } from '../services/homeMerchService.js';
+import { SearchSuggestionService } from '../services/searchSuggestionService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { requireAdmin, requirePermission, optionalAuth, isActiveStaff } from '../middleware/auth.js';
 import { validateBannerBody } from '../utils/validate.js';
@@ -158,6 +159,24 @@ router.put(
   requirePermission('sections', 'edit'),
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await HomeMerchService.save(req.body), 'Home shortcuts saved');
+  })
+);
+
+// GET /cms/search-suggestions - Home search chips. Empty until staff fill them in.
+router.get(
+  '/search-suggestions',
+  asyncHandler(async (_req, res) => {
+    return sendSuccess(res, await SearchSuggestionService.get());
+  })
+);
+
+// PUT /cms/search-suggestions - Replace the chips (home screen sections edit)
+router.put(
+  '/search-suggestions',
+  requireAdmin,
+  requirePermission('sections', 'edit'),
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await SearchSuggestionService.save(req.body), 'Search ideas saved');
   })
 );
 

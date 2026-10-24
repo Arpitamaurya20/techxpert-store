@@ -12,6 +12,7 @@ import { BannerCMS } from './components/BannerCMS';
 import { SectionLayoutManager } from './components/SectionLayoutManager';
 import { HelpManager } from './components/HelpManager';
 import { HomeMerchManager } from './components/HomeMerchManager';
+import { SearchIdeasManager } from './components/SearchIdeasManager';
 import { ApiExplorer } from './components/ApiExplorer';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { DeliveryPincodeManager } from './components/DeliveryPincodeManager';
@@ -31,7 +32,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { HelpContent, HomeContent } from './services/api';
+import type { HelpContent, HomeContent, SearchIdeas } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -232,6 +233,8 @@ function PortalApp({
   const [helpError, setHelpError] = useState<string | null>(null);
   const [homeMerch, setHomeMerch] = useState<HomeContent | null>(null);
   const [homeMerchError, setHomeMerchError] = useState<string | null>(null);
+  const [searchIdeas, setSearchIdeas] = useState<SearchIdeas | null>(null);
+  const [searchIdeasError, setSearchIdeasError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -296,6 +299,7 @@ function PortalApp({
     const skip = Promise.resolve(undefined);
     let helpFailed: string | null = null;
     let homeFailed: string | null = null;
+    let searchFailed: string | null = null;
     try {
       setLoading(true);
       const [
@@ -308,6 +312,7 @@ function PortalApp({
         sectionsData,
         helpData,
         homeData,
+        searchData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -329,6 +334,13 @@ function PortalApp({
           ? api.getHome().catch((err: Error) => {
               failed.push('the home shortcuts');
               homeFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'sections', 'view')
+          ? api.getSearchSuggestions().catch((err: Error) => {
+              failed.push('the search ideas');
+              searchFailed = err?.message || "The server didn't answer.";
               return undefined;
             })
           : skip,
@@ -369,6 +381,8 @@ function PortalApp({
       if (helpData) setHelp(helpData);
       setHomeMerchError(homeFailed);
       if (homeData) setHomeMerch(homeData);
+      setSearchIdeasError(searchFailed);
+      if (searchData) setSearchIdeas(searchData);
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -912,16 +926,27 @@ function PortalApp({
           )}
 
           {currentTab === 'shortcuts' && (
-            <HomeMerchManager
-              content={homeMerch}
-              categories={categories}
-              loading={loading}
-              loadError={homeMerchError}
-              onRetry={() => loadData(true)}
-              canEdit={can(permissions, 'sections', 'edit')}
-              onSaved={setHomeMerch}
-              onAudit={(action, details) => addAuditLog(action, 'section', details)}
-            />
+            <>
+              <HomeMerchManager
+                content={homeMerch}
+                categories={categories}
+                loading={loading}
+                loadError={homeMerchError}
+                onRetry={() => loadData(true)}
+                canEdit={can(permissions, 'sections', 'edit')}
+                onSaved={setHomeMerch}
+                onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              />
+              <SearchIdeasManager
+                ideas={searchIdeas}
+                loading={loading}
+                loadError={searchIdeasError}
+                onRetry={() => loadData(true)}
+                canEdit={can(permissions, 'sections', 'edit')}
+                onSaved={setSearchIdeas}
+                onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              />
+            </>
           )}
 
           {currentTab === 'sections' && (

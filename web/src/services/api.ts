@@ -50,6 +50,7 @@ export type HomeProject = {
   categories: { categoryId: number; name: string; available: boolean }[];
 };
 export type HomeContent = { shortcuts: HomeShortcut[]; projects: HomeProject[] };
+export type SearchIdeas = { suggestions: string[] };
 export type HomeDraft = {
   shortcuts: { categoryId: number; label: string }[];
   projects: { title: string; subtitle: string; imageUrl: string; calculator: string; categoryIds: number[] }[];
@@ -339,6 +340,9 @@ export const api = {
   getHome: () => fetchApi<HomeContent>('/cms/home'),
   saveHome: (body: HomeDraft) =>
     fetchApi<HomeContent>('/cms/home', { method: 'PUT', body: JSON.stringify(body) }),
+  getSearchSuggestions: () => fetchApi<SearchIdeas>('/cms/search-suggestions'),
+  saveSearchSuggestions: (suggestions: string[]) =>
+    fetchApi<SearchIdeas>('/cms/search-suggestions', { method: 'PUT', body: JSON.stringify({ suggestions }) }),
   getHelp: () => fetchApi<HelpContent>('/cms/help'),
   saveHelp: (body: HelpDraft) =>
     fetchApi<HelpContent>('/cms/help', { method: 'PUT', body: JSON.stringify(body) }),
