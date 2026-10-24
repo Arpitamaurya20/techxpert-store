@@ -10,6 +10,7 @@ import { UserManager, type CustomerRecord } from './components/UserManager';
 import { BulkPricingManager } from './components/BulkPricingManager';
 import { BannerCMS } from './components/BannerCMS';
 import { SectionLayoutManager } from './components/SectionLayoutManager';
+import { TrustStripManager } from './components/TrustStripManager';
 import { HelpManager } from './components/HelpManager';
 import { HomeMerchManager } from './components/HomeMerchManager';
 import { SearchIdeasManager } from './components/SearchIdeasManager';
@@ -32,7 +33,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { HelpContent, HomeContent, SearchIdeas } from './services/api';
+import type { HelpContent, HomeContent, SearchIdeas, TrustContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -235,6 +236,8 @@ function PortalApp({
   const [homeMerchError, setHomeMerchError] = useState<string | null>(null);
   const [searchIdeas, setSearchIdeas] = useState<SearchIdeas | null>(null);
   const [searchIdeasError, setSearchIdeasError] = useState<string | null>(null);
+  const [trustClaims, setTrustClaims] = useState<TrustContent | null>(null);
+  const [trustError, setTrustError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -300,6 +303,7 @@ function PortalApp({
     let helpFailed: string | null = null;
     let homeFailed: string | null = null;
     let searchFailed: string | null = null;
+    let trustFailed: string | null = null;
     try {
       setLoading(true);
       const [
@@ -313,6 +317,7 @@ function PortalApp({
         helpData,
         homeData,
         searchData,
+        trustData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -341,6 +346,13 @@ function PortalApp({
           ? api.getSearchSuggestions().catch((err: Error) => {
               failed.push('the search ideas');
               searchFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'sections', 'view')
+          ? api.getTrustClaims().catch((err: Error) => {
+              failed.push('the trust strip');
+              trustFailed = err?.message || "The server didn't answer.";
               return undefined;
             })
           : skip,
@@ -383,6 +395,8 @@ function PortalApp({
       if (homeData) setHomeMerch(homeData);
       setSearchIdeasError(searchFailed);
       if (searchData) setSearchIdeas(searchData);
+      setTrustError(trustFailed);
+      if (trustData) setTrustClaims(trustData);
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -950,18 +964,29 @@ function PortalApp({
           )}
 
           {currentTab === 'sections' && (
-            <SectionLayoutManager
-              sections={sections}
-              loading={loading}
-              loadError={loadErrors.sections ?? null}
-              loaded={loaded.sections}
-              onRetry={() => loadData(true)}
-              onToggleSection={handleToggleSection}
-              onReorderSection={handleReorderSection}
-              canEdit={can(permissions, 'sections', 'edit')}
-              canDelete={can(permissions, 'sections', 'delete')}
-              onResetDefaultOrder={handleResetSections}
-            />
+            <>
+              <SectionLayoutManager
+                sections={sections}
+                loading={loading}
+                loadError={loadErrors.sections ?? null}
+                loaded={loaded.sections}
+                onRetry={() => loadData(true)}
+                onToggleSection={handleToggleSection}
+                onReorderSection={handleReorderSection}
+                canEdit={can(permissions, 'sections', 'edit')}
+                canDelete={can(permissions, 'sections', 'delete')}
+                onResetDefaultOrder={handleResetSections}
+              />
+              <TrustStripManager
+                content={trustClaims}
+                loading={loading}
+                loadError={trustError}
+                onRetry={() => loadData(true)}
+                canEdit={can(permissions, 'sections', 'edit')}
+                onSaved={setTrustClaims}
+                onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              />
+            </>
           )}
 
           {currentTab === 'api' && <ApiExplorer />}

@@ -15,6 +15,7 @@ mysql -u root -p < sql/help_content.sql   # help page, empty until staff fill it
 mysql -u root -p < sql/home_merch.sql     # home shortcuts and projects, empty until staff fill them; safe to run again
 mysql -u root -p < sql/product_page.sql   # product highlights and specifications, empty until staff fill them; safe to run again
 mysql -u root -p < sql/search_suggestions.sql   # home search ideas, empty until staff fill them; safe to run again
+mysql -u root -p < sql/trust_claims.sql   # home trust-strip claims, empty until staff fill them; safe to run again
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -33,6 +34,7 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `home_merch.sql` | Home category shortcuts and project tiles (`home_shortcuts`, `home_projects`, `home_project_categories`). Starts empty. Safe to run again |
 | `product_page.sql` | Product page highlights and specifications (`product_highlights`, `product_specifications`). Starts empty. Safe to run again |
 | `search_suggestions.sql` | Home search ideas (`search_suggestions`). Starts empty. Safe to run again |
+| `trust_claims.sql` | Home trust-strip claims (`trust_claims`). Starts empty. Safe to run again |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

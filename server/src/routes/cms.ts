@@ -3,6 +3,7 @@ import { CmsService } from '../services/cmsService.js';
 import { HelpService } from '../services/helpService.js';
 import { HomeMerchService } from '../services/homeMerchService.js';
 import { SearchSuggestionService } from '../services/searchSuggestionService.js';
+import { TrustClaimService } from '../services/trustClaimService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { requireAdmin, requirePermission, optionalAuth, isActiveStaff } from '../middleware/auth.js';
 import { validateBannerBody } from '../utils/validate.js';
@@ -177,6 +178,24 @@ router.put(
   requirePermission('sections', 'edit'),
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await SearchSuggestionService.save(req.body), 'Search ideas saved');
+  })
+);
+
+// GET /cms/trust - Home trust-strip claims. Empty until staff fill them in.
+router.get(
+  '/trust',
+  asyncHandler(async (_req, res) => {
+    return sendSuccess(res, await TrustClaimService.get());
+  })
+);
+
+// PUT /cms/trust - Replace the claims (home screen sections edit)
+router.put(
+  '/trust',
+  requireAdmin,
+  requirePermission('sections', 'edit'),
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await TrustClaimService.save(req.body), 'Trust strip saved');
   })
 );
 

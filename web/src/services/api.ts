@@ -51,6 +51,9 @@ export type HomeProject = {
 };
 export type HomeContent = { shortcuts: HomeShortcut[]; projects: HomeProject[] };
 export type SearchIdeas = { suggestions: string[] };
+export type TrustClaim = { label: string; icon: string; action: string; position: number };
+export type TrustContent = { claims: TrustClaim[] };
+export type TrustDraft = { label: string; icon: string; action: string };
 export type HomeDraft = {
   shortcuts: { categoryId: number; label: string }[];
   projects: { title: string; subtitle: string; imageUrl: string; calculator: string; categoryIds: number[] }[];
@@ -343,6 +346,9 @@ export const api = {
   getSearchSuggestions: () => fetchApi<SearchIdeas>('/cms/search-suggestions'),
   saveSearchSuggestions: (suggestions: string[]) =>
     fetchApi<SearchIdeas>('/cms/search-suggestions', { method: 'PUT', body: JSON.stringify({ suggestions }) }),
+  getTrustClaims: () => fetchApi<TrustContent>('/cms/trust'),
+  saveTrustClaims: (claims: TrustDraft[]) =>
+    fetchApi<TrustContent>('/cms/trust', { method: 'PUT', body: JSON.stringify({ claims }) }),
   getHelp: () => fetchApi<HelpContent>('/cms/help'),
   saveHelp: (body: HelpDraft) =>
     fetchApi<HelpContent>('/cms/help', { method: 'PUT', body: JSON.stringify(body) }),

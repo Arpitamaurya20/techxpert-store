@@ -153,6 +153,7 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 | `GET /cms/sections` | The home blocks the app should draw, in order, each with `enabled` |
 | `GET /cms/home` | The category shortcut row and the project tiles (use case 14). Empty until staff fill them |
 | `GET /cms/search-suggestions` | The "Try searching" chips (use case 15). Empty until staff fill them |
+| `GET /cms/trust` | The trust-strip claims (use case 16). Empty until staff fill them |
 | `GET /cms/banners` | Only the banners live right now, in order |
 | `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
 | `GET /catalog/categories` | Category tiles |
@@ -576,6 +577,24 @@ GET /cms/search-suggestions → 200
 
 A published idea is one string, such as `"LED bulbs"`. Saving replaces the whole list. Leaving `suggestions` out of the save is refused, so an empty body cannot clear the list by accident. An empty list does clear it.
 
+### UC-16 Trust strip
+
+**Call, public:** `GET /cms/trust`. The claims under the banners, in the order staff set. The list is empty until staff fill it on the portal (Home screen sections, same access as the layout). The app can keep its own four claims until it switches to this call. Draw nothing when the list is empty. Four claims, each 32 characters. The same words cannot appear twice.
+
+```json
+GET /cms/trust → 200
+{ "success": true, "data": { "claims": [] } }
+```
+
+A published claim has `label`, `icon`, `action` and `position` (1 is first). `icon` is `truck-fast-outline`, `shield-check-outline`, `tag-outline` or `headset`. `action` is what a tap opens:
+
+- `delivery`: the delivery location screen.
+- `about`: About us.
+- `help`: Help and support.
+- `phone`: call the number from `GET /cms/help`. When that number is blank, open Help.
+
+Saving replaces the whole list. Leaving `claims` out of the save is refused, so an empty body cannot clear the strip by accident. An empty list does clear it.
+
 ---
 
 ## 9. Calls the app should not use
@@ -594,7 +613,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). Banners can't open outside links yet (use case 1).
+- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting

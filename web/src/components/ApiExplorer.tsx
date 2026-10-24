@@ -29,6 +29,7 @@ export const ApiExplorer: React.FC = () => {
     { method: 'GET', path: '/cms/sections', desc: 'App home screen sections, their order and visibility' },
     { method: 'GET', path: '/cms/home', desc: 'Home category shortcuts and project tiles' },
     { method: 'GET', path: '/cms/search-suggestions', desc: 'Home search ideas, empty until staff fill them' },
+    { method: 'GET', path: '/cms/trust', desc: 'Home trust-strip claims, empty until staff fill them' },
     { method: 'GET', path: '/cms/help', desc: 'Help page: phone, WhatsApp, email, hours and questions' },
     { method: 'GET', path: '/pricing/bulk-tiers', desc: 'Bulk price rules' },
     { method: 'GET', path: '/audit/logs?limit=20', desc: 'Latest 20 audit trail entries' },
