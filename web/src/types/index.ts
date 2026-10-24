@@ -70,8 +70,21 @@ export interface Product {
   originalPrice?: number;
   stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock';
   stockQuantity: number;
+  /** How many options the product has. More than one means each has its own stock. */
+  variantCount?: number;
+  variants?: ProductVariant[];
   featured?: boolean;
   description: string;
+}
+
+export interface ProductVariant {
+  id: number;
+  name: string;
+  stockQuantity: number;
+  sku?: string | null;
+  stockStatus?: 'in_stock' | 'out_of_stock';
+  price?: number | null;
+  available?: boolean;
 }
 
 

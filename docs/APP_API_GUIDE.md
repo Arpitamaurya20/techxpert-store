@@ -175,14 +175,14 @@ GET /cms/banners → 200
 
 **Order Again** without a sign-in is `401` "Sign in to see your orders." It returns one row per product from this customer's orders, newest first. Cancelled orders are left out. `limit` defaults to 10 and stops at 20.
 
-`price` and `stockQuantity` are today's. A product that can't be bought stays in the list with `available: false` and `unavailableReason`, so the app can label it. To buy one that is available, set the cart quantity with `PUT /cart/items/:productId` (use case 6), using `lastQuantity` as the starting quantity.
+`price` and `stockQuantity` are today's, for the option the customer last bought (`variantId`, `variantName`). A product that can't be bought stays in the list with `available: false` and `unavailableReason`, so the app can label it. To buy one that is available, set the cart quantity with `PUT /cart/items/:productId` and that `variantId` (use case 6), using `lastQuantity` as the starting quantity.
 
 ```json
 GET /orders/again → 200
 { "success": true, "data": [
-  { "productId": 3, "variantId": 3, "name": "48\" Ceiling Fan", "sku": "FAN001",
+  { "productId": 3, "variantId": 3, "variantName": "White", "name": "48\" Ceiling Fan", "sku": "FAN001",
     "imageUrl": "store/assets/catalog/…", "categoryId": 3, "unit": "unit",
-    "price": 1999, "stockQuantity": 68, "stockStatus": "in_stock", "minOrderQuantity": 1,
+    "price": 199, "stockQuantity": 68, "stockStatus": "in_stock", "minOrderQuantity": 1,
     "lastQuantity": 1, "lastOrderedAt": "2026-06-17T13:03:37Z",
     "available": true, "unavailableReason": null },
   { "productId": 8155, "name": "ABB 16A Socket 2 Pin", "sku": "TXE-ELEC-SOK-008037",
@@ -190,7 +190,7 @@ GET /orders/again → 200
     "unavailableReason": "This product isn't available to order right now." } ] }
 ```
 
-`variantId` on an available row is the variant the shop sells today (the first one). The second row has stock but no price, so it is not for sale. The same three reasons are used throughout: "This product is no longer sold.", "This product isn't available to order right now.", and "This product is out of stock."
+`variantId` is the option they last bought, and `stockQuantity` is that option's stock today. `variantName` is its name, such as "White". An option that was switched off comes back unavailable with "This option isn't available to order right now." The same three product reasons are used otherwise: "This product is no longer sold.", "This product isn't available to order right now.", and "This product is out of stock."
 
 **App rules:**
 - Draw only the section types you know, in the order given, and skip `enabled: false`.
@@ -251,13 +251,16 @@ GET /catalog/products?search=bulb&limit=2 → 200
 ### UC-4 Product detail and the price for a quantity
 
 **Calls, all public:**
-- `GET /catalog/products/:id`. This is the same product, plus `gallery` and its active `bulkTiers`.
+- `GET /catalog/products/:id`. This is the same product, plus `gallery`, its active `bulkTiers`, and `variants`. Each variant is one option: `id`, `name`, `sku`, `stockQuantity`, `stockStatus`, `price`, `available`. The first option is the one a cart call uses when it does not send `variantId`. `price` on the product is still the lowest price stored against the product. An option with no price of its own uses that. On the 48" ceiling fan, White (id 3) has its own price of ₹199, so a cart that leaves `variantId` out sells White at ₹199. Brown and Black use the product price of ₹1,999. `available` is false when the option is switched off, unpriced, or out of stock.
 - `GET /pricing/calculate?productId=&quantity=` gives the exact price for a quantity, worked out from the product's own price.
 
 ```json
 GET /catalog/products/5 → 200
 { "success": true, "data": { "id": 5, "name": "9W LED Bulb", "price": "149.00", "originalPrice": "199.00",
   "minOrderQuantity": 1, "maxOrderQuantity": 50, "stockQuantity": 500, "unit": "unit", "gallery": "",
+  "variants": [
+    { "id": 6, "name": "Warm White", "sku": null, "stockQuantity": 500, "stockStatus": "in_stock", "price": 149, "available": true },
+    { "id": 7, "name": "Cool White", "sku": null, "stockQuantity": 400, "stockStatus": "in_stock", "price": 149, "available": true } ],
   "bulkTiers": [ { "id": 4, "minQty": 25, "maxQty": 99, "discountType": "percentage", "discountValue": "10.00",
                    "terms": "Contractor box pack rate." } ] } }
 
@@ -300,9 +303,10 @@ Checkout checks the pincode again, so this is for showing the customer early.
 The cart lives on the server for guests and signed-in customers alike. Its totals are what checkout charges.
 
 1. **Get the cart.** `GET /cart` with no token and no `x-session-id` creates a guest cart and returns its `sessionId`. Save it on the device. Every cart call after that sends `x-session-id: <sessionId>`.
-2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`.
+2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`. Add `"variantId": 7` to sell that option. Leave `variantId` out and the server uses the product's first option, so an app that does not choose yet keeps working.
    - This sets the exact quantity; it doesn't add to it.
-   - `0` removes the line.
+   - `0` with no `variantId` removes every option of that product. `0` with a `variantId` removes only that option.
+   - A line includes `variantId` and `variantName`. `limits.stock` is that option's stock.
    - Every answer is the whole priced cart.
 3. **Empty the cart.** `DELETE /cart`.
 
@@ -310,7 +314,7 @@ The cart lives on the server for guests and signed-in customers alike. Its total
 PUT /cart/items/5  { "quantity": 30 }  → 200
 { "success": true, "data": {
   "id": 115, "sessionId": "86ba5845…",
-  "lines": [ { "productId": "5", "name": "9W LED Bulb", "brandName": "BrightLED", "categoryId": "4",
+  "lines": [ { "productId": "5", "variantId": 6, "variantName": "Warm White", "name": "9W LED Bulb", "brandName": "BrightLED", "categoryId": "4",
     "imageUrl": "store/assets/catalog/…", "unit": "unit", "quantity": 30, "basePrice": 149, "unitPrice": 134.1,
     "appliedTier": { "id": 4, "minQty": 25, "maxQty": 99, "discountValue": 10, "discountType": "percentage",
                      "terms": "Contractor box pack rate." },
@@ -328,7 +332,10 @@ PUT /cart/items/5  { "quantity": 30 }  → 200
 | 409 | `"…" must be ordered in quantities of at least 5.` |
 | 409 | `"…" is not available to order right now.` (no price) or `"…" is out of stock.` |
 | 409 | `This product is no longer in the catalogue.` |
-| 400 | `Quantity must be a whole number of at least 1.` |
+| 400 | `Quantity must be a whole number of 0 or more.` |
+| 400 | `variantId must be a variant number.` |
+| 400 | `That option isn't part of this product.` |
+| 409 | `This option isn't available to order right now.` |
 
 **A line's `problem`:** a line already in the cart can go bad after a price or stock change.
 - `problem` is then `price_unavailable`, `out_of_stock` or `over_limit`, and the line is left out of `totals`.
@@ -371,7 +378,7 @@ POST /auth/verify-otp → 200
 `POST /cart/merge`, signed in, with `{ "sessionId": "<the saved guest sessionId>" }`. The answer is the account's priced cart.
 
 **Rules:**
-- Where both carts have the product, the larger quantity is kept, limited to the maximum and the stock. Quantities aren't added together.
+- Where both carts have the same option, the larger quantity is kept, limited to the maximum and that option's stock. Different options of one product stay as separate lines. Quantities aren't added together.
 - The guest cart is then closed, so forget the saved `sessionId`.
 - From now on, cart calls send the Bearer token and no `x-session-id`.
 
@@ -467,7 +474,7 @@ Older imported orders can show other payment methods. A history `date` is a full
 
 **Order again:** `GET /orders/again` (use case 1). It is not the same as reading `GET /orders` and using the old line prices.
 
-**Reorder one order into the cart:** `POST /cart/reorder` with `{ "orderId": 1 }`. Signed in only; without a sign-in it's `401` "Sign in to reorder an order." It adds that order's quantities on top of the cart, at today's price and limits, and does not place a new order. Calling it again adds them again.
+**Reorder one order into the cart:** `POST /cart/reorder` with `{ "orderId": 1 }`. Signed in only; without a sign-in it's `401` "Sign in to reorder an order." It adds that order's quantities on top of the cart, for the option that was bought, at today's price and that option's stock, and does not place a new order. Calling it again adds them again.
 
 - `added` is what landed in the cart. `quantity` is the line's new total. `note` is set when less than the ordered amount could be added (stock, a maximum, or a minimum).
 - `skipped` is what was left unchanged, each with a `reason`.
@@ -477,7 +484,7 @@ Older imported orders can show other payment methods. A history `date` is a full
 ```json
 POST /cart/reorder  { "orderId": 1 } → 200
 { "success": true, "data": {
-  "added": [ { "productId": 5, "name": "9W LED Bulb", "quantity": 3, "note": null } ],
+  "added": [ { "productId": 5, "variantId": 6, "name": "9W LED Bulb (Warm White)", "quantity": 3, "note": null } ],
   "skipped": [ { "productId": 1, "name": "1.5 Ton Split AC", "reason": "This product is no longer in the catalogue." } ] } }
 ```
 

@@ -10,6 +10,7 @@ import { deliveryPincode } from '../utils/pincode.js';
 import type { OrderStatus } from '../utils/validate.js';
 import { orderAgainItem, orderAgainLimit, restocksOnCancel, statusChangeRefusal, type OrderAgainSource } from '../utils/orderRules.js';
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
+import { VARIANT_SELLING_PRICE } from '../utils/variants.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
 
 export interface OrderFilterParams {
@@ -254,12 +255,11 @@ export class OrderService {
          p.CategoryID as categoryId,
          COALESCE(mu.UnitName, 'unit') as unit,
          (p.ID IS NOT NULL AND p.IsActive = 1) as active,
-         (SELECT MIN(pr.SellingPrice) FROM product_pricing pr
-           WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
-         (SELECT v.ID FROM product_variants v
-           WHERE v.ProductID = p.ID ORDER BY v.ID ASC LIMIT 1) as variantId,
-         COALESCE((SELECT v.StockQuantity FROM product_variants v
-           WHERE v.ProductID = p.ID ORDER BY v.ID ASC LIMIT 1), 0) as stockQuantity,
+         ${VARIANT_SELLING_PRICE} as price,
+         pv.ID as variantId,
+         pv.VariantName as variantName,
+         pv.IsActive as variantActive,
+         COALESCE(pv.StockQuantity, 0) as stockQuantity,
          COALESCE(p.MinOrderQuantity, 1) as minOrderQuantity
        FROM order_items oi
        JOIN orders o ON o.ID = oi.OrderID
@@ -271,6 +271,7 @@ export class OrderService {
          GROUP BY oi2.ProductID
        ) pick ON pick.lastItemId = oi.ID
        LEFT JOIN products p ON p.ID = oi.ProductID
+       LEFT JOIN product_variants pv ON pv.ID = oi.VariantID AND pv.ProductID = oi.ProductID
        LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
        ORDER BY o.ID DESC
        LIMIT ?`,
@@ -288,7 +289,10 @@ export class OrderService {
         active: Number(row.active) === 1,
         price: row.price == null ? null : Number(row.price),
         variantId: row.variantId == null ? null : Number(row.variantId),
-        stockQuantity: Number(row.stockQuantity) || 0,
+        variantName: row.variantName ? String(row.variantName) : null,
+        variantLive: row.variantId != null && Number(row.variantActive) === 1,
+        stockQuantity:
+          row.variantId != null && Number(row.variantActive) === 1 ? Number(row.stockQuantity) || 0 : 0,
         minOrderQuantity: Number(row.minOrderQuantity) || 1,
         lastQuantity: Number(row.lastQuantity) || 1,
         lastOrderedAt: String(row.lastOrderedAt),

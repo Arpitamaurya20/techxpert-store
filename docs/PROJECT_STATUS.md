@@ -81,7 +81,7 @@ What an auditor should check, where it lives.
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
 | Quantity limits and the refusal sentence | `cartRules.quantityRefusal` |
-| Stock the shop sells = first variant's `product_variants.StockQuantity` (read, cart, decrement, portal write) | `catalogService.ts` (`SHOP_STOCK`, `writeCatalogueStock`), `cartService.ts`, `orderService.writeOrder` |
+| A cart call with no `variantId` sells the first variant. A call that names one sells that option: its stock, its price when it has one, and checkout takes that stock back. The product page lists every option. The portal edits each option's stock | `variants.ts`, `catalogService.ts` (`variants`, `writeChosenStocks`), `cartService.setLineQuantity`, `orderService.getOrderAgain`, `CatalogOverview.tsx` |
 | Cart ownership (customer JWT or guest `x-session-id`) | `cartService.assertCartAccess`, `server/src/routes/cart.ts` |
 | Checkout: COD only, expected total must match to the paisa, pincode must be served, one order per cart (`orders.CartID` unique → replay) | `server/src/services/cartCheckoutService.ts`, `cartRules.sameMoney`, `server/sql/shop_s3_checkout.sql` |
 | Guest with a registered phone → guest order, account untouched | `server/src/utils/checkoutPricing.ts` (`guestOrderOwner`), `orderService.ownerForGuest` |
@@ -127,7 +127,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 132 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 138 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `variants`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -169,6 +169,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 13 | Saved items on the server, merged into the account on sign-in | `sql/saved_items.sql`, `wishlist.ts`, `wishlistService.ts`, `routes/wishlist.ts`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-12 | **Done** 24 Oct: 124/124 unit tests. Local: guest save, a removed product refused, merge order device then guest then account, an unpriced product stayed unavailable, guest list cleared, rows removed afterwards |
 | 14 | Help & support structure: phone, WhatsApp, email, hours and questions, empty until staff fill them | `sql/help_content.sql`, `helpService.ts`, `GET/PUT /cms/help`, `HelpManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-13 | **Done** 24 Oct: 128/128 unit tests. The page starts blank. A new Help & support module; super admin sees it, other roles see it once it is ticked on their role |
 | 15 | Home shortcuts and projects: staff pick real categories for the home row and the project tiles | `sql/home_merch.sql`, `homeMerchService.ts`, `GET/PUT /cms/home`, `HomeMerchManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-14 | **Done** 24 Oct: 132/132 unit tests. Both lists start empty. Same access as Home screen sections. The app still uses its own lists until it reads the new call |
+| 16 | Sell the chosen variant: product detail lists options, the cart and reorder keep that option, the portal edits each option's stock. No `variantId` still sells the first | `variants.ts`, `catalogService.ts`, `cartService.ts`, `orderService.getOrderAgain`, `CatalogOverview.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-4 and UC-6 | **Done** 24 Oct: 138/138 unit tests. Guest cart: Brown (variant 4) at ₹1,999 with stock 60, then White (first option) at its own ₹199 with stock 68, both kept; a variant from another product was refused; the cart was emptied and stock was unchanged. Portal: the fan row says "3 options" and the bulb "2 options". Editing Brown 60→61 left White at 68 and Black at 50, then Brown was put back to 60 |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
@@ -178,7 +179,7 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
 
 - **Few orderable products:** 110,100 of 110,106 active products have no active price; four priced products (IDs 4, 6, 7, 8) have no variant. Shown honestly as unavailable; merchandisers must add price/variant.
 - **Phone sign-in is memory-only:** after an app restart the customer sees the guest cart until signing in again.
-- **Stock mismatch for multi-variant products:** the shop sells the first variant only.
+- **Choosing an option is for the app:** the server sells the variant a cart call names, and otherwise still the first one. The phone does not send a variant yet, so a customer cannot pick Brown or Cool White until the app does.
 - **App home, for the app team:**
   - The category shortcuts and project pages are still the app's own lists (`cement-plaster`, `tiling-grouts`…), which are not in this catalogue, so those blocks find nothing until the app reads `GET /cms/home`. The server page starts empty for staff to fill.
   - Banner buttons can't open outside links (they show all products).

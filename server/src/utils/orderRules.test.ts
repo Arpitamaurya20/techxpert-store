@@ -69,6 +69,12 @@ describe('orderAgainItem', () => {
     assert.match(item.unavailableReason ?? '', /isn't available to order/);
   });
 
+  it('says when the bought option is no longer on sale', () => {
+    const item = orderAgainItem(bought({ variantLive: false, stockQuantity: 40 }));
+    assert.equal(item.available, false);
+    assert.match(item.unavailableReason ?? '', /option isn't available/);
+  });
+
   it('says when a priced product is out of stock', () => {
     const item = orderAgainItem(bought({ stockQuantity: 0 }));
     assert.equal(item.available, false);

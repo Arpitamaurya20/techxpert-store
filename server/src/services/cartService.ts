@@ -3,6 +3,7 @@ import { storePool } from '../db/mysql.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 import { PricingService } from './pricingService.js';
 import { orderRefusal } from '../utils/checkoutPricing.js';
+import { VARIANT_SELLING_PRICE } from '../utils/variants.js';
 import {
   cartTotals,
   isUsableSessionId,
@@ -23,6 +24,9 @@ export type CartRow = { id: number; userId: number | null; sessionId: string | n
 
 export type PricedCartLine = {
   productId: string;
+  /** The option in the cart. Omitted by older clients; the server still fills it. */
+  variantId: number;
+  variantName: string | null;
   name: string;
   brandName: string | null;
   categoryId: string | null;
@@ -45,10 +49,10 @@ export type PricedCart = {
   canCheckout: boolean;
 };
 
-/** A priced line plus what checkout needs to write it. */
-export type CheckoutLine = PricedCartLine & { variantId: number; savings: number };
+/** A priced line plus the saving checkout records on the order. */
+export type CheckoutLine = PricedCartLine & { savings: number };
 
-/** Product facts the cart needs; the variant is the first one, as checkout uses. */
+/** Product facts the cart needs. `pv` is the option being sold. */
 const PRODUCT_FACTS = `
   p.ID as productId,
   p.IsActive as isActive,
@@ -60,7 +64,7 @@ const PRODUCT_FACTS = `
   COALESCE(mu.UnitName, 'unit') as unit,
   p.MinOrderQuantity as minOrderQuantity,
   p.MaxOrderQuantity as maxOrderQuantity,
-  (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price`;
+  ${VARIANT_SELLING_PRICE} as price`;
 
 export class CartService {
   /** Ensure the caller owns the cart (user JWT or matching x-session-id). */
@@ -122,10 +126,11 @@ export class CartService {
     return { id: Number(res.insertId), userId: null, sessionId };
   }
 
-  /** The cart's lines with their first-variant stock; `FOR UPDATE` when checkout is about to take them. */
+  /** The cart's lines with the stock of the option on each line; `FOR UPDATE` when checkout is about to take them. */
   static async cartRows(cartId: number, conn: Pick<PoolConnection, 'query'> = storePool, forUpdate = false) {
     const [rows] = await conn.query<any[]>(
-      `SELECT ci.Quantity as quantity, pv.ID as variantId, pv.StockQuantity as stock, ${PRODUCT_FACTS}
+      `SELECT ci.Quantity as quantity, pv.ID as variantId, pv.VariantName as variantName,
+              pv.IsActive as variantActive, pv.StockQuantity as stock, ${PRODUCT_FACTS}
        FROM cart_items ci
        JOIN product_variants pv ON pv.ID = ci.VariantID
        JOIN products p ON p.ID = pv.ProductID
@@ -140,15 +145,16 @@ export class CartService {
 
   /**
    * Prices rows exactly as the Cart screen shows them and as checkout charges them:
-   * lowest active selling price, bulk tier, first-variant stock and order limits.
-   * A product taken off the catalogue is treated as having no price.
+   * the option's own price (or the product price when the option has none), bulk tier, that option's stock.
+   * A product or option taken off sale is treated as having no price.
    */
   static async priceRows(rows: any[]): Promise<{ lines: CheckoutLine[]; totals: CartTotals }> {
     const lines: CheckoutLine[] = [];
     for (const row of rows) {
       const quantity = Number(row.quantity);
       const limits = lineLimits(row);
-      const price = Number(row.isActive) === 1 ? row.price : null;
+      const sellable = Number(row.isActive) === 1 && Number(row.variantActive) === 1;
+      const price = sellable ? row.price : null;
       const base = Number(price);
       const bulk =
         price != null && Number.isFinite(base) && base > 0
@@ -157,6 +163,8 @@ export class CartService {
       const priced = priceLine(quantity, limits, price, bulk);
       lines.push({
         productId: String(row.productId),
+        variantId: Number(row.variantId),
+        variantName: row.variantName ? String(row.variantName) : null,
         name: String(row.name),
         brandName: row.brandName ?? null,
         categoryId: row.categoryId != null ? String(row.categoryId) : null,
@@ -169,7 +177,6 @@ export class CartService {
         lineTotal: priced.lineTotal,
         limits,
         problem: priced.problem,
-        variantId: Number(row.variantId),
         savings: priced.savings,
       });
     }
@@ -178,7 +185,7 @@ export class CartService {
 
   static async pricedCart(cart: CartRow): Promise<PricedCart> {
     const { lines } = await CartService.priceRows(await CartService.cartRows(cart.id));
-    const publicLines: PricedCartLine[] = lines.map(({ variantId: _variantId, savings: _savings, ...line }) => line);
+    const publicLines: PricedCartLine[] = lines.map(({ savings: _savings, ...line }) => line);
     return {
       id: cart.id,
       ...(cart.userId == null && cart.sessionId ? { sessionId: cart.sessionId } : {}),
@@ -201,23 +208,54 @@ export class CartService {
     }
   }
 
-  /** An active product with its first variant (`variantId` is null when it has none). */
-  static async productForCart(productId: number, conn: Pick<PoolConnection, 'query'> = storePool, forUpdate = false) {
-    const [rows] = await conn.query<any[]>(
-      `SELECT pv.ID as variantId, pv.StockQuantity as stock, ${PRODUCT_FACTS}
-       FROM products p
-       LEFT JOIN product_variants pv ON pv.ID = (SELECT MIN(v.ID) FROM product_variants v WHERE v.ProductID = p.ID)
-       LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
-       WHERE p.ID = ? AND p.IsActive = 1
-       LIMIT 1
-       ${forUpdate ? 'FOR UPDATE' : ''}`,
-      [productId]
-    );
+  /**
+   * An active product and one option. With no `variantId`, that option is the first one.
+   * `variantId` null on the row means the product has no option, or the asked-for option is not its.
+   */
+  static async productForCart(
+    productId: number,
+    conn: Pick<PoolConnection, 'query'> = storePool,
+    forUpdate = false,
+    variantId: number | null = null
+  ) {
+    const lock = forUpdate ? 'FOR UPDATE' : '';
+    const [rows] = variantId
+      ? await conn.query<any[]>(
+          `SELECT pv.ID as variantId, pv.VariantName as variantName, pv.IsActive as variantActive,
+                  pv.StockQuantity as stock, ${PRODUCT_FACTS}
+           FROM products p
+           LEFT JOIN product_variants pv ON pv.ID = ? AND pv.ProductID = p.ID
+           LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
+           WHERE p.ID = ? AND p.IsActive = 1
+           LIMIT 1
+           ${lock}`,
+          [variantId, productId]
+        )
+      : await conn.query<any[]>(
+          `SELECT pv.ID as variantId, pv.VariantName as variantName, pv.IsActive as variantActive,
+                  pv.StockQuantity as stock, ${PRODUCT_FACTS}
+           FROM products p
+           LEFT JOIN product_variants pv ON pv.ID = (SELECT MIN(v.ID) FROM product_variants v WHERE v.ProductID = p.ID)
+           LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
+           WHERE p.ID = ? AND p.IsActive = 1
+           LIMIT 1
+           ${lock}`,
+          [productId]
+        );
     return rows[0] ?? null;
   }
 
-  /** Sets the exact quantity of one product in the caller's cart; 0 removes it. */
-  static async setLineQuantity(access: CartAccess, productId: number, quantity: number): Promise<PricedCart> {
+  /**
+   * Sets the exact quantity of one product in the caller's cart.
+   * With no variant, that is the first option, and 0 removes every option of the product.
+   * With a variant, 0 removes only that option and the others stay.
+   */
+  static async setLineQuantity(
+    access: CartAccess,
+    productId: number,
+    quantity: number,
+    variantId: number | null = null
+  ): Promise<PricedCart> {
     if (!Number.isInteger(productId) || productId <= 0) {
       throw orderRefusal(400, 'productId must be a product number');
     }
@@ -226,9 +264,8 @@ export class CartService {
     }
 
     const cart = await CartService.activeCart(access);
-    const product = await CartService.productForCart(productId);
 
-    if (quantity === 0) {
+    if (quantity === 0 && variantId == null) {
       await storePool.query(
         `DELETE ci FROM cart_items ci
          JOIN product_variants pv ON pv.ID = ci.VariantID
@@ -238,11 +275,29 @@ export class CartService {
       return CartService.pricedCart(cart);
     }
 
+    if (variantId != null) {
+      const [owned] = await storePool.query<any[]>(
+        `SELECT ID as id, IsActive as active FROM product_variants WHERE ID = ? AND ProductID = ? LIMIT 1`,
+        [variantId, productId]
+      );
+      if (!owned.length) throw orderRefusal(400, "That option isn't part of this product.");
+      if (quantity === 0) {
+        await storePool.query(`DELETE FROM cart_items WHERE CartID = ? AND VariantID = ?`, [cart.id, variantId]);
+        return CartService.pricedCart(cart);
+      }
+      if (Number(owned[0].active) !== 1) {
+        throw orderRefusal(409, "This option isn't available to order right now.");
+      }
+    }
+
+    const product = await CartService.productForCart(productId, storePool, false, variantId);
     if (!product) throw orderRefusal(409, 'This product is no longer in the catalogue.');
     if (product.variantId == null) {
       throw orderRefusal(409, `"${product.name}" isn't available to order right now.`);
     }
-    const refusal = quantityRefusal(String(product.name), quantity, lineLimits(product), product.price);
+    const label =
+      variantId != null && product.variantName ? `${product.name} (${product.variantName})` : String(product.name);
+    const refusal = quantityRefusal(label, quantity, lineLimits(product), product.price);
     if (refusal) throw orderRefusal(409, refusal);
 
     await storePool.query(
@@ -254,7 +309,7 @@ export class CartService {
     return CartService.pricedCart(cart);
   }
 
-  /** Moves a guest cart into the signed-in customer's cart, keeping the larger quantity per product. */
+  /** Moves a guest cart into the signed-in customer's cart, keeping the larger quantity of each option. */
   static async mergeGuestCart(userId: number, sessionId: unknown): Promise<PricedCart> {
     const account = await CartService.activeCart({ userId });
     if (!isUsableSessionId(sessionId)) return CartService.pricedCart(account);
@@ -275,34 +330,31 @@ export class CartService {
       const guestIds = guests.map((g) => Number(g.id));
 
       const [lines] = await conn.query<any[]>(
-        `SELECT ci.CartID as cartId, pv.ProductID as productId, ci.Quantity as quantity
+        `SELECT ci.CartID as cartId, ci.VariantID as variantId, pv.ProductID as productId, ci.Quantity as quantity
          FROM cart_items ci JOIN product_variants pv ON pv.ID = ci.VariantID
          WHERE ci.CartID IN (?)`,
         [[account.id, ...guestIds]]
       );
-      const byProduct = new Map<number, { account?: number; guest?: number }>();
+      const byVariant = new Map<number, { productId: number; account?: number; guest?: number }>();
       for (const line of lines) {
-        const entry = byProduct.get(Number(line.productId)) ?? {};
+        const variantId = Number(line.variantId);
+        const entry = byVariant.get(variantId) ?? { productId: Number(line.productId) };
         const qty = Number(line.quantity);
         if (Number(line.cartId) === account.id) entry.account = Math.max(entry.account ?? 0, qty);
         else entry.guest = Math.max(entry.guest ?? 0, qty);
-        byProduct.set(Number(line.productId), entry);
+        byVariant.set(variantId, entry);
       }
 
-      for (const [productId, quantities] of byProduct) {
+      for (const [variantId, quantities] of byVariant) {
         if (quantities.guest == null) continue;
-        const product = await CartService.productForCart(productId, conn);
-        if (!product || product.variantId == null) continue;
+        const product = await CartService.productForCart(quantities.productId, conn, false, variantId);
+        if (!product || product.variantId == null || Number(product.variantActive) !== 1) continue;
         const quantity = mergeQuantity(quantities.account, quantities.guest, lineLimits(product));
-        await conn.query(
-          `DELETE ci FROM cart_items ci JOIN product_variants pv ON pv.ID = ci.VariantID
-           WHERE ci.CartID = ? AND pv.ProductID = ?`,
-          [account.id, productId]
-        );
+        await conn.query(`DELETE FROM cart_items WHERE CartID = ? AND VariantID = ?`, [account.id, variantId]);
         await conn.query(
           `INSERT INTO cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
            VALUES (?, ?, ?, CURDATE(), CURTIME())`,
-          [account.id, product.variantId, quantity]
+          [account.id, variantId, quantity]
         );
       }
 
@@ -336,18 +388,19 @@ export class CartService {
 
     const [lines] = await storePool.query<any[]>(
       `SELECT oi.ProductID as productId,
+              oi.VariantID as variantId,
               SUM(oi.Quantity) as quantity,
               COALESCE(MAX(p.ProductName), 'Construction Material') as name
        FROM order_items oi
        LEFT JOIN products p ON p.ID = oi.ProductID
        WHERE oi.OrderID = ?
-       GROUP BY oi.ProductID
-       ORDER BY oi.ProductID`,
+       GROUP BY oi.ProductID, oi.VariantID
+       ORDER BY MIN(oi.ID)`,
       [orderId]
     );
 
     const cart = await CartService.activeCart({ userId });
-    const added: { productId: number; name: string; quantity: number; note: string | null }[] = [];
+    const added: { productId: number; variantId: number; name: string; quantity: number; note: string | null }[] = [];
     const skipped: { productId: number; name: string; reason: string }[] = [];
 
     const conn = await storePool.getConnection();
@@ -355,53 +408,53 @@ export class CartService {
       await conn.beginTransaction();
       await conn.query(`SELECT ID FROM carts WHERE ID = ? FOR UPDATE`, [cart.id]);
       const [current] = await conn.query<any[]>(
-        `SELECT pv.ProductID as productId, ci.Quantity as quantity
+        `SELECT ci.VariantID as variantId, ci.Quantity as quantity
          FROM cart_items ci
-         JOIN product_variants pv ON pv.ID = ci.VariantID
          WHERE ci.CartID = ?`,
         [cart.id]
       );
       const have = new Map<number, number>();
-      for (const row of current) have.set(Number(row.productId), Number(row.quantity));
+      for (const row of current) have.set(Number(row.variantId), Number(row.quantity));
 
       for (const line of lines) {
         const productId = Number(line.productId);
+        const orderedVariant = line.variantId == null ? null : Number(line.variantId);
         const orderedName = String(line.name || 'Construction Material');
-        const product = await CartService.productForCart(productId, conn);
-        if (!product || product.variantId == null) {
-          const reason = product
-            ? `"${product.name}" isn't available to order right now.`
-            : 'This product is no longer in the catalogue.';
+        const product = await CartService.productForCart(productId, conn, false, orderedVariant);
+        if (!product || product.variantId == null || Number(product.variantActive) !== 1) {
+          const reason = !product
+            ? 'This product is no longer in the catalogue.'
+            : product.variantId == null
+              ? "That option isn't part of this product."
+              : "This option isn't available to order right now.";
           skipped.push({ productId, name: product ? String(product.name) : orderedName, reason });
           continue;
         }
 
+        const label = product.variantName ? `${product.name} (${product.variantName})` : String(product.name);
         const decision = reorderTarget(
-          String(product.name),
+          label,
           Number(line.quantity),
-          have.get(productId) ?? 0,
+          have.get(Number(product.variantId)) ?? 0,
           lineLimits(product),
           product.price
         );
         if ('reason' in decision) {
-          skipped.push({ productId, name: String(product.name), reason: decision.reason });
+          skipped.push({ productId, name: label, reason: decision.reason });
           continue;
         }
 
-        await conn.query(
-          `DELETE ci FROM cart_items ci
-           JOIN product_variants pv ON pv.ID = ci.VariantID
-           WHERE ci.CartID = ? AND pv.ProductID = ?`,
-          [cart.id, productId]
-        );
+        await conn.query(`DELETE FROM cart_items WHERE CartID = ? AND VariantID = ?`, [cart.id, product.variantId]);
         await conn.query(
           `INSERT INTO cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
            VALUES (?, ?, ?, CURDATE(), CURTIME())`,
           [cart.id, product.variantId, decision.setTo]
         );
+        have.set(Number(product.variantId), decision.setTo);
         added.push({
           productId,
-          name: String(product.name),
+          variantId: Number(product.variantId),
+          name: label,
           quantity: decision.setTo,
           note: decision.note,
         });

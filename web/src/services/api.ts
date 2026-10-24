@@ -279,6 +279,7 @@ export const api = {
       },
     };
   },
+  getProduct: (id: string) => fetchApi<any>(`/catalog/products/${id}`),
   createProduct: (data: any) =>
     fetchApi<any>('/catalog/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: string, data: any) =>

@@ -3,6 +3,7 @@ import { CartService, type CartAccess } from '../services/cartService.js';
 import { CartCheckoutService } from '../services/cartCheckoutService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
+import { chosenVariantId } from '../utils/variants.js';
 
 const router = Router();
 
@@ -45,7 +46,12 @@ router.put(
   asyncHandler(async (req, res) => {
     const productId = Number(req.params.productId);
     const quantity = Number(req.body?.quantity);
-    const cart = await CartService.setLineQuantity(accessFrom(req), productId, quantity);
+    const cart = await CartService.setLineQuantity(
+      accessFrom(req),
+      productId,
+      quantity,
+      chosenVariantId(req.body?.variantId)
+    );
     return sendSuccess(res, cart);
   })
 );

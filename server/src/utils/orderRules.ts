@@ -30,6 +30,9 @@ export type OrderAgainSource = {
   active: boolean;
   price: number | null;
   variantId: number | null;
+  variantName?: string | null;
+  /** False when the bought option is gone or switched off. Left out means it is still on sale. */
+  variantLive?: boolean;
   stockQuantity: number;
   minOrderQuantity: number;
   lastQuantity: number;
@@ -39,6 +42,7 @@ export type OrderAgainSource = {
 export type OrderAgainItem = {
   productId: number;
   variantId: number | null;
+  variantName: string | null;
   name: string;
   sku: string | null;
   imageUrl: string | null;
@@ -69,14 +73,17 @@ export function orderAgainLimit(asked: unknown): number {
 export function orderAgainItem(row: OrderAgainSource): OrderAgainItem {
   const price = row.price != null && Number.isFinite(row.price) && row.price > 0 ? row.price : null;
   const stockQuantity = Number.isFinite(row.stockQuantity) && row.stockQuantity > 0 ? Math.floor(row.stockQuantity) : 0;
+  const variantLive = row.variantLive !== false;
   let unavailableReason: string | null = null;
   if (!row.active) unavailableReason = 'This product is no longer sold.';
+  else if (!variantLive) unavailableReason = "This option isn't available to order right now.";
   else if (price == null) unavailableReason = "This product isn't available to order right now.";
   else if (stockQuantity <= 0) unavailableReason = 'This product is out of stock.';
 
   return {
     productId: row.productId,
     variantId: row.variantId,
+    variantName: row.variantName ? String(row.variantName) : null,
     name: row.name,
     sku: row.sku,
     imageUrl: row.imageUrl,

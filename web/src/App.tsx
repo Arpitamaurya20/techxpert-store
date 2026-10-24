@@ -423,7 +423,11 @@ function PortalApp({
     addAuditLog(
       'Saved product',
       'product',
-      `Saved ${next.name}: price ${next.price == null ? 'not set' : inr(next.price)}, stock ${next.stockQuantity}`
+      `Saved ${next.name}: price ${next.price == null ? 'not set' : inr(next.price)}, stock ${
+        updated.variants?.length
+          ? updated.variants.map((variant) => `${variant.name} ${variant.stockQuantity}`).join(', ')
+          : next.stockQuantity
+      }`
     );
     toast.success(`"${next.name}" saved.`);
   };
