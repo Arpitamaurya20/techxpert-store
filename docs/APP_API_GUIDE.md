@@ -466,6 +466,22 @@ Older imported orders can show other payment methods. A history `date` is a full
 
 **Order again:** `GET /orders/again` (use case 1). It is not the same as reading `GET /orders` and using the old line prices.
 
+**Reorder one order into the cart:** `POST /cart/reorder` with `{ "orderId": 1 }`. Signed in only; without a sign-in it's `401` "Sign in to reorder an order." It adds that order's quantities on top of the cart, at today's price and limits, and does not place a new order. Calling it again adds them again.
+
+- `added` is what landed in the cart. `quantity` is the line's new total. `note` is set when less than the ordered amount could be added (stock, a maximum, or a minimum).
+- `skipped` is what was left unchanged, each with a `reason`.
+- Someone else's order, or an unknown one, is `404` "Order not found." A bad `orderId` is `400`.
+- `cart` is the priced cart from use case 6.
+
+```json
+POST /cart/reorder  { "orderId": 1 } → 200
+{ "success": true, "data": {
+  "added": [ { "productId": 5, "name": "9W LED Bulb", "quantity": 3, "note": null } ],
+  "skipped": [ { "productId": 1, "name": "1.5 Ton Split AC", "reason": "This product is no longer in the catalogue." } ] } }
+```
+
+The same object also includes `cart`, the priced cart from use case 6. In this example the bulb's 3 were the ordered quantity on an empty cart, and the air conditioner is no longer sold so it was not added.
+
 ---
 
 ## 9. Calls the app should not use

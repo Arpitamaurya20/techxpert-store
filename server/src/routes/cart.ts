@@ -50,6 +50,20 @@ router.put(
   })
 );
 
+// POST /cart/reorder - Add one of the customer's orders back into their cart
+router.post(
+  '/reorder',
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user?.userId) return sendError(res, 401, 'Sign in to reorder an order.');
+    const orderId = Number(req.body?.orderId);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return sendError(res, 400, 'orderId must be an order number.');
+    }
+    return sendSuccess(res, await CartService.reorder(req.user.userId, orderId));
+  })
+);
+
 // POST /cart/merge - After sign-in, move the guest cart into the account cart
 router.post(
   '/merge',

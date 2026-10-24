@@ -9,6 +9,7 @@ import {
   newSessionId,
   priceLine,
   quantityRefusal,
+  reorderTarget,
   sameMoney,
 } from './cartRules.js';
 
@@ -33,6 +34,37 @@ describe('quantityRefusal', () => {
     assert.match(quantityRefusal('Cement', 31, limits, 400)!, /Only 30/);
     assert.match(quantityRefusal('Cement', 60, { ...limits, stock: 100 }, 400)!, /up to 50/);
     assert.match(quantityRefusal('Cement', 2.5, limits, 400)!, /whole number/);
+  });
+});
+
+describe('reorderTarget', () => {
+  const limits = { min: 1, max: 50, stock: 30 };
+
+  it('adds the ordered quantity on top of the cart', () => {
+    assert.deepEqual(reorderTarget('Fan', 2, 1, limits, 100), { setTo: 3, note: null });
+  });
+
+  it('stops at the stock and says why the rest was left out', () => {
+    const result = reorderTarget('Fan', 40, 0, limits, 100);
+    assert.equal('setTo' in result && result.setTo, 30);
+    assert.match('note' in result ? (result.note ?? '') : '', /Only 30/);
+  });
+
+  it('raises a short order up to the minimum', () => {
+    const result = reorderTarget('Cement', 2, 0, { min: 5, max: null, stock: 20 }, 100);
+    assert.equal('setTo' in result && result.setTo, 5);
+    assert.match('note' in result ? (result.note ?? '') : '', /at least 5/);
+  });
+
+  it('leaves the cart alone when it is already at the most', () => {
+    const result = reorderTarget('Fan', 1, 30, limits, 100);
+    assert.match('reason' in result ? result.reason : '', /most of "Fan"/);
+  });
+
+  it('skips a product that cannot be bought, and a line with no quantity', () => {
+    assert.match(reorderTarget('Fan', 1, 0, { ...limits, stock: 0 }, 100).reason ?? '', /out of stock/);
+    assert.match(reorderTarget('Fan', 1, 0, limits, null).reason ?? '', /not available/);
+    assert.match(reorderTarget('Fan', 0, 0, limits, 100).reason ?? '', /no quantity/);
   });
 });
 

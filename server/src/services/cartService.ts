@@ -11,6 +11,7 @@ import {
   newSessionId,
   priceLine,
   quantityRefusal,
+  reorderTarget,
   type CartLimits,
   type CartTotals,
   type LineProblem,
@@ -318,6 +319,102 @@ export class CartService {
       conn.release();
     }
     return CartService.pricedCart(account);
+  }
+
+  /**
+   * Adds one of the customer's past orders into their cart, at today's prices and limits.
+   * A line that cannot be bought is left out and named. This does not place an order.
+   */
+  static async reorder(userId: number, orderId: number) {
+    const [orders] = await storePool.query<any[]>(
+      `SELECT ID as id, UserID as userId FROM orders WHERE ID = ? LIMIT 1`,
+      [orderId]
+    );
+    if (!orders.length || orders[0].userId == null || Number(orders[0].userId) !== Number(userId)) {
+      throw orderRefusal(404, 'Order not found');
+    }
+
+    const [lines] = await storePool.query<any[]>(
+      `SELECT oi.ProductID as productId,
+              SUM(oi.Quantity) as quantity,
+              COALESCE(MAX(p.ProductName), 'Construction Material') as name
+       FROM order_items oi
+       LEFT JOIN products p ON p.ID = oi.ProductID
+       WHERE oi.OrderID = ?
+       GROUP BY oi.ProductID
+       ORDER BY oi.ProductID`,
+      [orderId]
+    );
+
+    const cart = await CartService.activeCart({ userId });
+    const added: { productId: number; name: string; quantity: number; note: string | null }[] = [];
+    const skipped: { productId: number; name: string; reason: string }[] = [];
+
+    const conn = await storePool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(`SELECT ID FROM carts WHERE ID = ? FOR UPDATE`, [cart.id]);
+      const [current] = await conn.query<any[]>(
+        `SELECT pv.ProductID as productId, ci.Quantity as quantity
+         FROM cart_items ci
+         JOIN product_variants pv ON pv.ID = ci.VariantID
+         WHERE ci.CartID = ?`,
+        [cart.id]
+      );
+      const have = new Map<number, number>();
+      for (const row of current) have.set(Number(row.productId), Number(row.quantity));
+
+      for (const line of lines) {
+        const productId = Number(line.productId);
+        const orderedName = String(line.name || 'Construction Material');
+        const product = await CartService.productForCart(productId, conn);
+        if (!product || product.variantId == null) {
+          const reason = product
+            ? `"${product.name}" isn't available to order right now.`
+            : 'This product is no longer in the catalogue.';
+          skipped.push({ productId, name: product ? String(product.name) : orderedName, reason });
+          continue;
+        }
+
+        const decision = reorderTarget(
+          String(product.name),
+          Number(line.quantity),
+          have.get(productId) ?? 0,
+          lineLimits(product),
+          product.price
+        );
+        if ('reason' in decision) {
+          skipped.push({ productId, name: String(product.name), reason: decision.reason });
+          continue;
+        }
+
+        await conn.query(
+          `DELETE ci FROM cart_items ci
+           JOIN product_variants pv ON pv.ID = ci.VariantID
+           WHERE ci.CartID = ? AND pv.ProductID = ?`,
+          [cart.id, productId]
+        );
+        await conn.query(
+          `INSERT INTO cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
+           VALUES (?, ?, ?, CURDATE(), CURTIME())`,
+          [cart.id, product.variantId, decision.setTo]
+        );
+        added.push({
+          productId,
+          name: String(product.name),
+          quantity: decision.setTo,
+          note: decision.note,
+        });
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    return { cart: await CartService.pricedCart(cart), added, skipped };
   }
 
   /** Empties the caller's cart (after the phone has placed its order). */
