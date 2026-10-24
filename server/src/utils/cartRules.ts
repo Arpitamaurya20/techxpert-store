@@ -178,7 +178,10 @@ export function sameMoney(a: unknown, b: unknown): boolean {
   return Number.isFinite(x) && Number.isFinite(y) && Math.round(x * 100) === Math.round(y * 100);
 }
 
-export function cartTotals(lines: { lineTotal: number; savings: number; problem: LineProblem }[]): CartTotals {
+export function cartTotals(
+  lines: { lineTotal: number; savings: number; problem: LineProblem }[],
+  rules?: { taxRate?: number; freeDeliveryFrom?: number | null; deliveryCharge?: number }
+): CartTotals {
   let subtotal = 0;
   let bulkSavings = 0;
   for (const line of lines) {
@@ -187,8 +190,12 @@ export function cartTotals(lines: { lineTotal: number; savings: number; problem:
     bulkSavings += line.savings;
   }
   subtotal = money(subtotal);
-  const delivery = subtotal === 0 || subtotal >= FREE_DELIVERY_FROM ? 0 : DELIVERY_CHARGE;
-  const tax = money(subtotal * TAX_RATE);
+  const taxRate = rules?.taxRate ?? TAX_RATE;
+  const freeFrom = rules && 'freeDeliveryFrom' in rules ? rules.freeDeliveryFrom : FREE_DELIVERY_FROM;
+  const charge = rules?.deliveryCharge ?? DELIVERY_CHARGE;
+  const delivery =
+    subtotal === 0 || charge === 0 || (freeFrom != null && subtotal >= freeFrom) ? 0 : charge;
+  const tax = money(subtotal * taxRate);
   return {
     subtotal,
     bulkSavings: money(bulkSavings),

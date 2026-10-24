@@ -509,6 +509,8 @@ export class OrderService {
       notes: string;
       lines: CheckoutLine[];
       totals: CartTotals;
+      /** The GST rate the cart totals were priced with. */
+      taxRate?: number;
     }
   ): Promise<number> {
     const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
@@ -553,7 +555,7 @@ export class OrderService {
           Number(line.productId),
           line.quantity,
           Number(line.unitPrice).toFixed(2),
-          (line.lineTotal * TAX_RATE).toFixed(2),
+          (line.lineTotal * (order.taxRate ?? TAX_RATE)).toFixed(2),
           line.savings.toFixed(2),
           line.lineTotal.toFixed(2),
         ]
@@ -690,7 +692,7 @@ export class OrderService {
       }
 
       await StoreStockService.capLines(conn, storeId, rows);
-      const { lines, totals } = await CartService.priceRows(rows);
+      const { lines, totals, taxRate } = await CartService.priceRows(rows);
       for (const line of lines) {
         const refusal = quantityRefusal(line.name, line.quantity, line.limits, line.basePrice);
         if (refusal) throw orderRefusal(409, refusal);
@@ -716,6 +718,7 @@ export class OrderService {
         notes: payload.notes || 'Order placed directly via Buy Now',
         lines,
         totals,
+        taxRate,
       });
       await conn.commit();
       return this.receipt(orderId);

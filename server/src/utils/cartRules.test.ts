@@ -143,6 +143,17 @@ describe('cartTotals', () => {
     assert.deepEqual(totals, { subtotal: 1500.5, bulkSavings: 100, delivery: 99, tax: 270.09, grandTotal: 1869.59 });
   });
 
+  it('uses the shop settings for the fee, the free-delivery line and GST', () => {
+    const totals = cartTotals([{ lineTotal: 1500, savings: 0, problem: null }], {
+      taxRate: 0.05,
+      freeDeliveryFrom: null,
+      deliveryCharge: 40,
+    });
+    assert.equal(totals.delivery, 40);
+    assert.equal(totals.tax, 75);
+    assert.equal(totals.grandTotal, 1615);
+  });
+
   it('delivers free from ₹2,000 and charges nothing for an empty cart', () => {
     assert.equal(cartTotals([{ lineTotal: 2000, savings: 0, problem: null }]).delivery, 0);
     assert.deepEqual(cartTotals([]), { subtotal: 0, bulkSavings: 0, delivery: 0, tax: 0, grandTotal: 0 });

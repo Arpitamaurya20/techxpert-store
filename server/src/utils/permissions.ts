@@ -13,6 +13,7 @@ export const MODULES = [
   { key: 'help', label: 'Help & support', levels: ['view', 'edit'] },
   { key: 'about', label: 'About the company', levels: ['view', 'edit'] },
   { key: 'policies', label: 'Policies', levels: ['view', 'edit'] },
+  { key: 'settings', label: 'Shop settings', levels: ['view', 'edit'] },
   { key: 'audit', label: 'Audit trail', levels: ['view'] },
   { key: 'access', label: 'Roles & access', levels: ['view', 'edit', 'delete'] },
 ] as const satisfies readonly { key: string; label: string; levels: readonly Level[] }[];

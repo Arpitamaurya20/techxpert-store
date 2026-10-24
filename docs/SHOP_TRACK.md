@@ -149,7 +149,7 @@ One transaction, in this order:
    - Grand total differs from `expectedTotal` by any paisa: 409 "Prices changed since you opened checkout. Check the new total and place the order again."
 5. Write the order. Insert `orders` (with `CartID`), `order_items` and `order_status_history`, decrement `product_variants` and `inventory_stock`, and mark the product out of stock when every variant reaches 0. If the serving store has its own row in `store_variant_stock`, that row is decremented too, and it is what the stock check used. No row means the company figure.
    - Status is `confirmed`, payment `pending`, method `COD` (as today).
-   - Delivery charge and tax use `cartTotals`.
+   - Delivery charge and tax use `cartTotals`, with the fee, the free-delivery line and the GST rate from shop settings (₹99, ₹2,000 and 18% until staff change them).
 6. Delete the cart's lines, set `carts.Status = 'ordered'`, and commit.
 
 Response 201: `{ id, orderNumber, placedAt, status, paymentStatus, paymentMethod, customerName, deliveryAddress, lines, totals }`, where `totals` has the same shape as the cart's. A replay (step 1) returns the same body with 200.

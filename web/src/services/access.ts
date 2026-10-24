@@ -15,6 +15,7 @@ export type ModuleKey =
   | 'help'
   | 'about'
   | 'policies'
+  | 'settings'
   | 'audit'
   | 'access';
 
@@ -41,6 +42,7 @@ const TAB_MODULE: Record<Exclude<TabId, 'dashboard' | 'api'>, ModuleKey> = {
   help: 'help',
   about: 'about',
   policies: 'policies',
+  settings: 'settings',
   audit: 'audit',
   access: 'access',
 };
@@ -60,6 +62,7 @@ export const TAB_ORDER: TabId[] = [
   'help',
   'about',
   'policies',
+  'settings',
   'api',
   'audit',
   'access',

@@ -19,6 +19,7 @@ import {
   Store,
   KeyRound,
   LogOut,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 export type TabId =
@@ -36,6 +37,7 @@ export type TabId =
   | 'help'
   | 'about'
   | 'policies'
+  | 'settings'
   | 'api'
   | 'audit'
   | 'access';
@@ -105,6 +107,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       label: 'Admin',
       items: [
+        { id: 'settings', label: 'Shop settings', icon: <SlidersHorizontal size={18} /> },
         { id: 'stores', label: 'Stores & groups', icon: <Store size={18} /> },
         { id: 'access', label: 'Roles & access', icon: <ShieldCheck size={18} /> },
         { id: 'audit', label: 'Audit trail', icon: <History size={18} /> },

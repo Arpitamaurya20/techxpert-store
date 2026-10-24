@@ -71,7 +71,7 @@ export class CartCheckoutService {
       if (rows.length === 0) throw orderRefusal(400, 'Your cart is empty.');
 
       await StoreStockService.capLines(conn, storeId, rows);
-      const { lines, totals } = await CartService.priceRows(rows);
+      const { lines, totals, taxRate } = await CartService.priceRows(rows);
       for (const line of lines) {
         if (!line.problem) continue;
         const reason =
@@ -98,6 +98,7 @@ export class CartCheckoutService {
         notes: text(body.notes) ?? 'Order placed from the cart',
         lines,
         totals,
+        taxRate,
       });
 
       await conn.query(`DELETE FROM cart_items WHERE CartID = ?`, [cartId]);

@@ -10,6 +10,7 @@ import cmsRouter from './routes/cms.js';
 import pricingRouter from './routes/pricing.js';
 import cartRouter from './routes/cart.js';
 import auditRouter from './routes/audit.js';
+import shopRouter from './routes/shop.js';
 import deliveryRouter from './routes/delivery.js';
 import accessRouter from './routes/access.js';
 import storesRouter from './routes/stores.js';
@@ -75,6 +76,7 @@ const mountRouters = (prefix: string) => {
   app.use(`${prefix}/delivery`, deliveryRouter);
   app.use(`${prefix}/access`, accessRouter);
   app.use(`${prefix}/stores`, storesRouter);
+  app.use(`${prefix}/shop`, shopRouter);
 };
 mountRouters('');
 mountRouters('/api');

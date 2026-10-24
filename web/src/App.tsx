@@ -14,6 +14,7 @@ import { TrustStripManager } from './components/TrustStripManager';
 import { HelpManager } from './components/HelpManager';
 import { AboutManager } from './components/AboutManager';
 import { PoliciesManager } from './components/PoliciesManager';
+import { SettingsManager } from './components/SettingsManager';
 import { HomeMerchManager } from './components/HomeMerchManager';
 import { SearchIdeasManager } from './components/SearchIdeasManager';
 import { DealsManager } from './components/DealsManager';
@@ -36,7 +37,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { AboutContent, DealsContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, TrustContent } from './services/api';
+import type { AboutContent, DealsContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, ShopSettings, TrustContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -247,6 +248,8 @@ function PortalApp({
   const [aboutError, setAboutError] = useState<string | null>(null);
   const [policies, setPolicies] = useState<PoliciesContent | null>(null);
   const [policiesError, setPoliciesError] = useState<string | null>(null);
+  const [shopSettings, setShopSettings] = useState<ShopSettings | null>(null);
+  const [shopSettingsError, setShopSettingsError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -316,6 +319,7 @@ function PortalApp({
     let trustFailed: string | null = null;
     let aboutFailed: string | null = null;
     let policiesFailed: string | null = null;
+    let settingsFailed: string | null = null;
     try {
       setLoading(true);
       const [
@@ -333,6 +337,7 @@ function PortalApp({
         trustData,
         aboutData,
         policiesData,
+        settingsData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -392,6 +397,13 @@ function PortalApp({
               return undefined;
             })
           : skip,
+        can(permissions, 'settings', 'view')
+          ? api.getShopSettings().catch((err: Error) => {
+              failed.push('shop settings');
+              settingsFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
         can(permissions, 'audit', 'view') ? soft(api.getAuditLogs(AUDIT_LIMIT), 'audit trail', 'audit') : skip,
         api
           .getHealth()
@@ -439,6 +451,8 @@ function PortalApp({
       if (aboutData) setAbout(aboutData);
       setPoliciesError(policiesFailed);
       if (policiesData) setPolicies(policiesData);
+      setShopSettingsError(settingsFailed);
+      if (settingsData) setShopSettings(settingsData);
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -784,6 +798,10 @@ function PortalApp({
       title: 'Policies',
       subtitle: 'Privacy, terms, cancellation and shipping. Paste the published words; leave a page empty until they exist',
     },
+    settings: {
+      title: 'Shop settings',
+      subtitle: 'Delivery, GST and the limits staff can change without an app release',
+    },
     api: {
       title: 'Developer tools',
       subtitle: 'For developers: test server endpoints and connect the phone app (super admin only)',
@@ -998,6 +1016,19 @@ function PortalApp({
               canEdit={can(permissions, 'about', 'edit')}
               onSaved={setAbout}
               onAudit={(action, details) => addAuditLog(action, 'about', details)}
+            />
+          )}
+
+          {currentTab === 'settings' && (
+            <SettingsManager
+              settings={shopSettings}
+              loading={loading}
+              loadError={shopSettingsError}
+              onRetry={() => loadData(true)}
+              canEdit={can(permissions, 'settings', 'edit')}
+              onSaved={setShopSettings}
+              onAudit={(action, details) => addAuditLog(action, 'setting', details)}
+              save={api.saveShopSettings}
             />
           )}
 

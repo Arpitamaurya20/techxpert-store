@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `home_deals`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `home_deals`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes`, `shop_settings` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -522,12 +522,19 @@ CREATE TABLE techxpertstore.cms_homepage_sections (
 CREATE TABLE techxpertstore.portal_audit_logs (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   action VARCHAR(255) NOT NULL,
-  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store', 'help', 'about', 'policy') NOT NULL,
+  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store', 'help', 'about', 'policy', 'setting') NOT NULL,
   details TEXT NULL,
   actor VARCHAR(255) NOT NULL DEFAULT 'Store Admin',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_audit_created (created_at),
   INDEX idx_audit_entity (entity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Shop rules staff can change. A switched-off row does not apply.
+CREATE TABLE techxpertstore.shop_settings (
+  SettingKey VARCHAR(64) NOT NULL PRIMARY KEY,
+  SettingValue VARCHAR(40) NULL,
+  Enabled TINYINT(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Portal roles: per-module View / Edit / Delete (server/sql/portal_access.sql)

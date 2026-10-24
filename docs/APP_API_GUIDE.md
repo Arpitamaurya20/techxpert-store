@@ -407,6 +407,8 @@ GET /auth/addresses → 200
 
 The cart still shows the company stock, because a pincode is not known yet. Checkout uses the store that serves the pincode. If staff have set a quantity for that store, the order can take only that many, and never more than the company figure. The same "only N are in stock" refusal covers it. Cancelling the order puts the quantity back on that store as well as on the company stock.
 
+`GET /shop/rules` is public. `deliveryFee`, `freeDeliveryFrom` and `gstPercent` are the numbers the cart uses. A null value means that rule is switched off. `largeOrderValue`, `largeOrderQuantity` and `codLimit` are saved for staff and are null until switched on. Checkout does not hold an order for staff yet. The cart total is still the amount to charge. Do not add the fee or the tax again on the phone.
+
 | Field | Required | Notes |
 |---|---|---|
 | `expectedTotal` | **yes** | The `totals.grandTotal` the customer saw. A mismatch is refused, so they never pay a total they didn't see |

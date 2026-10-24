@@ -17,6 +17,7 @@ import {
   type CartTotals,
   type LineProblem,
 } from '../utils/cartRules.js';
+import { ShopSettingsService } from './shopSettingsService.js';
 
 export type CartAccess = { userId?: number; sessionId?: string };
 
@@ -149,7 +150,8 @@ export class CartService {
    * the option's own price (or the product price when the option has none), bulk tier, that option's stock.
    * A product or option taken off sale is treated as having no price.
    */
-  static async priceRows(rows: any[]): Promise<{ lines: CheckoutLine[]; totals: CartTotals }> {
+  static async priceRows(rows: any[]): Promise<{ lines: CheckoutLine[]; totals: CartTotals; taxRate: number }> {
+    const rules = await ShopSettingsService.moneyRules();
     const lines: CheckoutLine[] = [];
     for (const row of rows) {
       const quantity = Number(row.quantity);
@@ -181,18 +183,18 @@ export class CartService {
         savings: priced.savings,
       });
     }
-    return { lines, totals: cartTotals(lines) };
+    return { lines, totals: cartTotals(lines, rules), taxRate: rules.taxRate };
   }
 
   static async pricedCart(cart: CartRow): Promise<PricedCart> {
-    const { lines } = await CartService.priceRows(await CartService.cartRows(cart.id));
-    const publicLines: PricedCartLine[] = lines.map(({ savings: _savings, ...line }) => line);
+    const priced = await CartService.priceRows(await CartService.cartRows(cart.id));
+    const publicLines: PricedCartLine[] = priced.lines.map(({ savings: _savings, ...line }) => line);
     return {
       id: cart.id,
       ...(cart.userId == null && cart.sessionId ? { sessionId: cart.sessionId } : {}),
       lines: publicLines,
-      totals: cartTotals(lines),
-      canCheckout: lines.length > 0 && lines.every((line) => line.problem === null),
+      totals: priced.totals,
+      canCheckout: priced.lines.length > 0 && priced.lines.every((line) => line.problem === null),
     };
   }
 

@@ -101,6 +101,15 @@ export type DealDraft = {
   tone: string;
   imageUrl: string;
 };
+export type ShopRule = { enabled: boolean; amount: number | null };
+export type ShopSettings = {
+  largeOrderValue: ShopRule;
+  largeOrderQuantity: ShopRule;
+  codLimit: ShopRule;
+  freeDeliveryFrom: ShopRule;
+  deliveryFee: ShopRule;
+  gstPercent: ShopRule;
+};
 export type TrustClaim = { label: string; icon: string; action: string; position: number };
 export type TrustContent = { claims: TrustClaim[] };
 export type TrustDraft = { label: string; icon: string; action: string };
@@ -417,6 +426,9 @@ export const api = {
   getAbout: () => fetchApi<AboutContent>('/cms/about'),
   saveAbout: (body: AboutDraft) =>
     fetchApi<AboutContent>('/cms/about', { method: 'PUT', body: JSON.stringify(body) }),
+  getShopSettings: () => fetchApi<ShopSettings>('/shop/settings'),
+  saveShopSettings: (body: ShopSettings) =>
+    fetchApi<ShopSettings>('/shop/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getHelp: () => fetchApi<HelpContent>('/cms/help'),
   saveHelp: (body: HelpDraft) =>
     fetchApi<HelpContent>('/cms/help', { method: 'PUT', body: JSON.stringify(body) }),
