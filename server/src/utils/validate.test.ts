@@ -47,4 +47,12 @@ describe('validateProductUpdateBody', () => {
     assert.equal(validateProductUpdateBody({ brandName: null }).brandName, null);
     refusal(() => validateProductUpdateBody({ brandName: 'x'.repeat(256) }), /at most 255/);
   });
+
+  it('keeps a pack size that is left out, and refuses one that is not a whole number', () => {
+    assert.equal(validateProductUpdateBody({ name: 'Cable' }).quantityStep, undefined);
+    assert.equal(validateProductUpdateBody({ quantityStep: '6' }).quantityStep, 6);
+    assert.equal(validateProductUpdateBody({ quantityStep: 1 }).quantityStep, 1);
+    refusal(() => validateProductUpdateBody({ quantityStep: 0 }), /quantityStep/);
+    refusal(() => validateProductUpdateBody({ quantityStep: 1.5 }), /whole number/);
+  });
 });

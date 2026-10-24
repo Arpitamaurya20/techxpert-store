@@ -455,6 +455,7 @@ export class CatalogService {
           ${SHOP_STOCK_STATUS} as stockStatus,
           p.MinOrderQuantity as minOrderQuantity,
           p.MaxOrderQuantity as maxOrderQuantity,
+          p.QuantityStep as quantityStep,
           p.IsFeatured as featured,
           p.CreatedDate as createdAt,
           (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
@@ -516,6 +517,7 @@ export class CatalogService {
            ${SHOP_STOCK_STATUS} as stockStatus,
            p.MinOrderQuantity as minOrderQuantity,
            p.MaxOrderQuantity as maxOrderQuantity,
+           p.QuantityStep as quantityStep,
            p.IsFeatured as featured,
            p.CreatedDate as createdAt,
            (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
@@ -614,8 +616,8 @@ export class CatalogService {
 
       await conn.query(
         `INSERT INTO products
-         (ID, ProductCode, ProductName, ProductDescription, CategoryID, Brand, MeasurementUnitID, StockStatus, MinOrderQuantity, IsActive, IsFeatured)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 0)`,
+         (ID, ProductCode, ProductName, ProductDescription, CategoryID, Brand, MeasurementUnitID, StockStatus, MinOrderQuantity, QuantityStep, IsActive, IsFeatured)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1, 0)`,
         [
           productId,
           productCode,
@@ -625,6 +627,7 @@ export class CatalogService {
           brand,
           measurementUnitId,
           stockStatus,
+          Number(data.quantityStep) >= 1 ? Number(data.quantityStep) : 1,
         ]
       );
 
@@ -713,7 +716,7 @@ export class CatalogService {
 
   /** `data` comes from `validateProductUpdateBody`: `price: null` removes the price, `brandName: null` clears it. */
   static async updateProduct(id: string | number, data: any) {
-    const { name, price, stockQuantity, description, brandName, unit } = data;
+    const { name, price, stockQuantity, description, brandName, unit, quantityStep } = data;
     const hasNewPrice = typeof price === 'number';
 
     try {
@@ -738,6 +741,7 @@ export class CatalogService {
              Brand = IF(? = 1, ?, Brand),
              StockStatus = COALESCE(?, StockStatus),
              MeasurementUnitID = COALESCE(?, MeasurementUnitID),
+             QuantityStep = IF(? = 1, ?, QuantityStep),
              UpdatedDate = CURDATE(),
              UpdatedTime = CURTIME()
            WHERE ID = ?`,
@@ -748,6 +752,8 @@ export class CatalogService {
             brandName ?? null,
             stockStatus,
             measurementUnitId,
+            quantityStep !== undefined ? 1 : 0,
+            quantityStep ?? null,
             numId,
           ]
         );

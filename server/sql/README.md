@@ -19,6 +19,7 @@ mysql -u root -p < sql/trust_claims.sql   # home trust-strip claims, empty until
 mysql -u root -p < sql/about_page.sql     # about page, empty until staff fill it; safe to run again; after the audit table exists
 mysql -u root -p < sql/policies.sql       # privacy, terms, cancellation and shipping, empty until staff paste them; safe to run again
 mysql -u root -p < sql/home_deals.sql     # deals-for-you tiles, empty until staff pick categories; safe to run again
+mysql -u root -p < sql/quantity_step.sql  # pack size on products; existing rows stay at 1; safe to run again
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -41,6 +42,7 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `about_page.sql` | About page (`about_page`, `about_facts`, `about_values`) and the `about` audit label. Starts empty. Safe to run again |
 | `policies.sql` | Privacy, terms, cancellation and shipping (`policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`) and the `policy` audit label. Starts empty. Safe to run again |
 | `home_deals.sql` | Deals-for-you tiles (`home_deals`). Starts empty. Safe to run again |
+| `quantity_step.sql` | Pack size on `products.QuantityStep`. Existing products stay at 1. Safe to run again |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

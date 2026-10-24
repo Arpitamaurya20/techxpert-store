@@ -25,6 +25,7 @@ export type NewProductInput = {
   unit: string;
   stockQuantity: number;
   description: string;
+  quantityStep: number;
   sku?: string;
   brandName?: string;
 };
@@ -64,6 +65,7 @@ interface ProductForm {
   price: string;
   stock: string;
   unit: string;
+  quantityStep: string;
   sku: string;
   brandName: string;
   description: string;
@@ -80,6 +82,7 @@ const formFor = (product: Product | null): ProductForm => ({
   price: product?.price != null ? String(product.price) : '',
   stock: product ? String(product.stockQuantity ?? 0) : '',
   unit: product?.unit ?? '',
+  quantityStep: String(product?.quantityStep ?? 1),
   sku: product?.sku ?? '',
   brandName: product?.brandName ?? '',
   description: product?.description ?? '',
@@ -124,6 +127,10 @@ function checkForm(form: ProductForm, editing: Product | null): FormErrors {
     }
   }
   if (!form.unit.trim()) errors.unit = 'Enter the selling unit, e.g. "50 kg bag".';
+  const pack = Number(form.quantityStep.trim());
+  if (form.quantityStep.trim() === '' || !Number.isInteger(pack) || pack < 1 || pack > 9999) {
+    errors.quantityStep = 'Enter a whole number from 1 to 9,999.';
+  }
   const highlights = form.highlights.map((row) => row.text.trim()).filter(Boolean);
   if (highlights.length > HIGHLIGHT_MAX) errors.highlights = 'A product can have up to 8 highlights.';
   else if (highlights.some((text) => text.length > 160)) errors.highlights = 'Each highlight is 160 characters or less.';
@@ -470,6 +477,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                     }
                   : { stockQuantity: Number(form.stock) }),
                 unit: form.unit.trim(),
+                quantityStep: Number(form.quantityStep),
                 brandName: form.brandName.trim(),
                 description: form.description.trim(),
                 highlights: form.highlights.map((row) => row.text.trim()).filter(Boolean),
@@ -484,6 +492,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                 price: Number(form.price),
                 stockQuantity: Number(form.stock),
                 unit: form.unit.trim(),
+                quantityStep: Number(form.quantityStep),
                 description: form.description.trim(),
                 sku: form.sku.trim() || undefined,
                 brandName: form.brandName.trim() || undefined,
@@ -614,6 +623,15 @@ const ProductFormDialog: React.FC<{
           )}
           <Field id={`${formId}-unit`} label="Sold as" error={errors.unit} style={{ flex: 1.3 }}>
             <input value={form.unit} onChange={set('unit')} maxLength={60} placeholder="50 kg bag" />
+          </Field>
+          <Field
+            id={`${formId}-step`}
+            label="Sold in multiples of"
+            error={errors.quantityStep}
+            hint="1 means any quantity. 6 means 6, then 12, then 18."
+            style={{ flex: 1 }}
+          >
+            <input inputMode="numeric" value={form.quantityStep} onChange={set('quantityStep')} placeholder="1" />
           </Field>
         </div>
         <div style={styles.row}>

@@ -70,6 +70,8 @@ export interface Product {
   originalPrice?: number;
   stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock';
   stockQuantity: number;
+  /** 1 means any quantity. 6 means 6, then 12, then 18. */
+  quantityStep?: number;
   /** How many options the product has. More than one means each has its own stock. */
   variantCount?: number;
   variants?: ProductVariant[];

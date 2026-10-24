@@ -186,6 +186,7 @@ CREATE TABLE techxpertstore.products (
   StockStatus ENUM('in_stock', 'out_of_stock', 'pre_order') NOT NULL DEFAULT 'in_stock',
   MinOrderQuantity INT NOT NULL DEFAULT 1,
   MaxOrderQuantity INT NULL,
+  QuantityStep INT NOT NULL DEFAULT 1,
   INDEX idx_products_cat (CategoryID),
   INDEX idx_products_brand (Brand),
   INDEX idx_products_active (IsActive)

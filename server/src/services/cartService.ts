@@ -64,6 +64,7 @@ const PRODUCT_FACTS = `
   COALESCE(mu.UnitName, 'unit') as unit,
   p.MinOrderQuantity as minOrderQuantity,
   p.MaxOrderQuantity as maxOrderQuantity,
+  p.QuantityStep as quantityStep,
   ${VARIANT_SELLING_PRICE} as price`;
 
 export class CartService {

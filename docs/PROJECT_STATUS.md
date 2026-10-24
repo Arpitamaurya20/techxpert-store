@@ -85,7 +85,7 @@ What an auditor should check, where it lives.
 | Cancelling: cancelled is final (409 on any change); a delivered order can't be cancelled (409). Cancelling an order placed through this shop (`TX-ORD-`) puts each line's quantity back on the variant it took from, in the same transaction, resizes that variant's inventory rows and marks an out-of-stock product in stock; imported orders (`ORD-`) put nothing back. The history note says which | `server/src/utils/orderRules.ts`, `orderService.updateOrderStatus` / `putStockBack`, `web/src/services/orderStatus.ts` (`statusChoices`, `restocksOnCancel`), `web/src/components/OrdersManager.tsx` |
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
-| Quantity limits and the refusal sentence | `cartRules.quantityRefusal` |
+| Quantity limits and the refusal sentence. A pack size of 1 means any whole number from the minimum. A larger pack size means that size, then twice that, and so on, starting at the higher of the minimum and the pack size | `cartRules.quantityRefusal`, `products.QuantityStep`, `sql/quantity_step.sql`, `CatalogOverview.tsx` |
 | A cart call with no `variantId` sells the first variant. A call that names one sells that option: its stock, its price when it has one, and checkout takes that stock back. The product page lists every option. The portal edits each option's stock | `variants.ts`, `catalogService.ts` (`variants`, `writeChosenStocks`), `cartService.setLineQuantity`, `orderService.getOrderAgain`, `CatalogOverview.tsx` |
 | Product page highlights and specifications start empty. Staff fill them on the product screen. A save that leaves a list out does not clear it; an empty list does | `productPage.ts`, `catalogService.ts` (`readProductPage`, `writeProductPage`), `CatalogOverview.tsx`, `sql/product_page.sql` |
 | Cart ownership (customer JWT or guest `x-session-id`) | `cartService.assertCartAccess`, `server/src/routes/cart.ts` |
@@ -133,7 +133,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 162 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `searchSuggestions`, `trustClaims`, `aboutPage`, `policies`, `deals`, `variants`, `productPage`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 167 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `searchSuggestions`, `trustClaims`, `aboutPage`, `policies`, `deals`, `variants`, `productPage`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -157,6 +157,7 @@ Run in this order on production (all applied to the local DB already). See [`ser
 14. `server/sql/about_page.sql`: the About page (mission, facts, values) and the `about` audit label. Starts empty. Safe to run again. Comes after the audit table exists. The previous API ignores the tables.
 15. `server/sql/policies.sql`: privacy, terms, cancellation and shipping, and the `policy` audit label. Starts empty. Safe to run again. Comes after the audit table exists. The previous API ignores the tables.
 16. `server/sql/home_deals.sql`: the deals-for-you tiles. Starts empty. Safe to run again. The previous API ignores the table.
+17. `server/sql/quantity_step.sql`: pack size on each product. Existing products stay at 1, which is any whole number from the minimum. Safe to run again.
 
 Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 
@@ -188,6 +189,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 20 | About the company, empty until staff fill it | `sql/about_page.sql`, `aboutPage.ts`, `aboutService.ts`, `AboutManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-17 | **Done** 24 Oct: 154/154 unit tests. The page starts empty. Saving a mission, the fact 2017 Founded and the value Excellence left the eight home blocks shown; a half-filled fact and an unknown symbol were refused and the page stayed; clearing the page put it back to empty. Unsigned saves are 401. Portal: Add fact, Add value, Save, then Remove, on About the company. Dashboard still Orders 5, Customers 7, Products 1,10,106 |
 | 21 | Policies, empty until staff paste the published text | `sql/policies.sql`, `policies.ts`, `policyService.ts`, `PoliciesManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-18 | **Done** 24 Oct: 158/158 unit tests. All four pages start empty. Saving cancellation with a date, a website link, an opening paragraph and one section left privacy, terms and shipping empty; a save that left the lists out was refused and the page stayed; a heading with no name and a link that was not a web address were refused; clearing the lists put cancellation back to empty. Unsigned saves are 401. Portal: Add paragraph, Add section, Save, then Remove, on Policies. Dashboard still Orders 5, Customers 7, Products 1,10,106 |
 | 22 | Deals tiles, empty until staff pick categories | `sql/home_deals.sql`, `deals.ts`, `dealService.ts`, `DealsManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-19 | **Done** 24 Oct: 162/162 unit tests. The row starts empty. Saving Electrical Appliances as Desk tile, peach, with a tagline and no picture left the shortcut row and project tiles empty; a save that left the list out was refused; a category that is not on sale and an unknown colour were refused; clearing the list put the row back to empty. Unsigned saves are 401. Portal: Add tile, Save, then Remove, on Shortcuts & projects. Dashboard still Orders 5, Customers 7, Products 1,10,106, and 8 of 8 home sections |
+| 23 | Sold in multiples | `sql/quantity_step.sql`, `cartRules.ts`, `catalogService.ts`, `CatalogOverview.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-4 and UC-6 | **Done** 24 Oct: 167/167 unit tests. Every product starts at 1, which is any whole number from the minimum. Setting the ceiling fan to 6 left stock at 68, 60 and 50; a quantity of 1 and 7 was refused; 6 was accepted with `limits.step` 6; a save that left the pack size out kept 6; putting it back to 1 restored the old rule. Portal: Sold in multiples of, on the product screen |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
@@ -198,6 +200,7 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
 - **Few orderable products:** 110,100 of 110,106 active products have no active price; four priced products (IDs 4, 6, 7, 8) have no variant. Shown honestly as unavailable; merchandisers must add price/variant.
 - **Phone sign-in is memory-only:** after an app restart the customer sees the guest cart until signing in again.
 - **Choosing an option is for the app:** the server sells the variant a cart call names, and otherwise still the first one. The phone does not send a variant yet, so a customer cannot pick Brown or Cool White until the app does.
+- **Pack size on the cart screen:** the product page already reads `quantityStep`. The cart screen still keeps the step it stored on the line, so it stays 1 until the app reads `limits.step`. The server already refuses a quantity that is not a whole pack.
 - **Product page points:** highlights and specifications are empty until staff fill them. The phone already reads both lists from product detail.
 - **App home, for the app team:**
   - The category shortcuts and project pages are still the app's own lists (`cement-plaster`, `tiling-grouts`…), which are not in this catalogue, so those blocks find nothing until the app reads `GET /cms/home`. The server page starts empty for staff to fill.

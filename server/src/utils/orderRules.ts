@@ -35,6 +35,8 @@ export type OrderAgainSource = {
   variantLive?: boolean;
   stockQuantity: number;
   minOrderQuantity: number;
+  /** 1 means any whole number from the minimum. */
+  quantityStep?: number;
   lastQuantity: number;
   lastOrderedAt: string;
 };
@@ -53,6 +55,7 @@ export type OrderAgainItem = {
   stockQuantity: number;
   stockStatus: 'in_stock' | 'out_of_stock';
   minOrderQuantity: number;
+  quantityStep: number;
   lastQuantity: number;
   lastOrderedAt: string;
   available: boolean;
@@ -93,6 +96,7 @@ export function orderAgainItem(row: OrderAgainSource): OrderAgainItem {
     stockQuantity,
     stockStatus: stockQuantity > 0 ? 'in_stock' : 'out_of_stock',
     minOrderQuantity: row.minOrderQuantity > 0 ? Math.floor(row.minOrderQuantity) : 1,
+    quantityStep: row.quantityStep != null && row.quantityStep > 0 ? Math.floor(row.quantityStep) : 1,
     lastQuantity: row.lastQuantity > 0 ? Math.floor(row.lastQuantity) : 1,
     lastOrderedAt: row.lastOrderedAt,
     available: unavailableReason == null,

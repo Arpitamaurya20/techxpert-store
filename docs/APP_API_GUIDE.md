@@ -240,7 +240,7 @@ GET /catalog/products?search=bulb&limit=2 → 200
 { "success": true,
   "data": [ { "id": 5, "sku": "LIGHT001", "name": "9W LED Bulb", "description": "9W LED bulb equivalent to 60W …",
     "categoryId": 4, "categoryName": "Lighting", "subcategoryId": 10, "brandName": "BrightLED",
-    "imageUrl": "store/assets/catalog/…", "stockStatus": "in_stock", "minOrderQuantity": 1, "maxOrderQuantity": 50,
+    "imageUrl": "store/assets/catalog/…", "stockStatus": "in_stock", "minOrderQuantity": 1, "maxOrderQuantity": 50, "quantityStep": 1,
     "featured": 1, "createdAt": "2026-01-16T18:30:00.000Z", "price": "149.00", "originalPrice": "199.00",
     "unit": "unit", "stockQuantity": 500 } ],
   "meta": { "page": 1, "limit": 2, "total": 2720, "totalPages": 1360 } }
@@ -253,13 +253,13 @@ GET /catalog/products?search=bulb&limit=2 → 200
 ### UC-4 Product detail and the price for a quantity
 
 **Calls, all public:**
-- `GET /catalog/products/:id`. This is the same product, plus `gallery`, its active `bulkTiers`, `variants`, `highlights` and `specifications`. Each variant is one option: `id`, `name`, `sku`, `stockQuantity`, `stockStatus`, `price`, `available`. The first option is the one a cart call uses when it does not send `variantId`. `price` on the product is still the lowest price stored against the product. An option with no price of its own uses that. On the 48" ceiling fan, White (id 3) has its own price of ₹199, so a cart that leaves `variantId` out sells White at ₹199. Brown and Black use the product price of ₹1,999. `available` is false when the option is switched off, unpriced, or out of stock. `highlights` is a list of short points. `specifications` is a list of `{ "label", "value" }`. Both start empty until staff fill them on the product screen. Draw nothing when a list is empty. A product can have 8 highlights of 160 characters, and 16 specifications (name 80, value 160).
+- `GET /catalog/products/:id`. This is the same product, plus `gallery`, its active `bulkTiers`, `variants`, `highlights` and `specifications`. `quantityStep` is the pack size. `1` means any whole number from `minOrderQuantity`. `6` means 6, then 12, then 18, and the first pack is the higher of the minimum and 6. The cart refuses any other quantity. Each variant is one option: `id`, `name`, `sku`, `stockQuantity`, `stockStatus`, `price`, `available`. The first option is the one a cart call uses when it does not send `variantId`. `price` on the product is still the lowest price stored against the product. An option with no price of its own uses that. On the 48" ceiling fan, White (id 3) has its own price of ₹199, so a cart that leaves `variantId` out sells White at ₹199. Brown and Black use the product price of ₹1,999. `available` is false when the option is switched off, unpriced, or out of stock. `highlights` is a list of short points. `specifications` is a list of `{ "label", "value" }`. Both start empty until staff fill them on the product screen. Draw nothing when a list is empty. A product can have 8 highlights of 160 characters, and 16 specifications (name 80, value 160).
 - `GET /pricing/calculate?productId=&quantity=` gives the exact price for a quantity, worked out from the product's own price.
 
 ```json
 GET /catalog/products/5 → 200
 { "success": true, "data": { "id": 5, "name": "9W LED Bulb", "price": "149.00", "originalPrice": "199.00",
-  "minOrderQuantity": 1, "maxOrderQuantity": 50, "stockQuantity": 500, "unit": "unit", "gallery": "",
+  "minOrderQuantity": 1, "maxOrderQuantity": 50, "quantityStep": 1, "stockQuantity": 500, "unit": "unit", "gallery": "",
   "variants": [
     { "id": 6, "name": "Warm White", "sku": null, "stockQuantity": 500, "stockStatus": "in_stock", "price": 149, "available": true },
     { "id": 7, "name": "Cool White", "sku": null, "stockQuantity": 400, "stockStatus": "in_stock", "price": 149, "available": true } ],
@@ -310,7 +310,7 @@ The cart lives on the server for guests and signed-in customers alike. Its total
 2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`. Add `"variantId": 7` to sell that option. Leave `variantId` out and the server uses the product's first option, so an app that does not choose yet keeps working.
    - This sets the exact quantity; it doesn't add to it.
    - `0` with no `variantId` removes every option of that product. `0` with a `variantId` removes only that option.
-   - A line includes `variantId` and `variantName`. `limits.stock` is that option's stock.
+   - A line includes `variantId` and `variantName`. `limits` is `{ min, max, stock, step }`. `step` is the pack size, the same number as `quantityStep` on the product. The cart stepper should use `step`.
    - Every answer is the whole priced cart.
 3. **Empty the cart.** `DELETE /cart`.
 
@@ -667,6 +667,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
+- **Pack size on the cart screen:** product detail already reads `quantityStep`. The cart screen still keeps the step it stored when the line was added, which is 1 until it reads `limits.step`.
 - **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). About us still uses the app's own mission, facts and values until it reads `GET /cms/about` (use case 17). Privacy and terms are still the app's own copies, and cancellation and shipping are still blank, until it reads `GET /cms/policies` (use case 18). The deals tiles are still the app's own two cards until it reads `GET /cms/deals` (use case 19). Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 

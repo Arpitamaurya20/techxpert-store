@@ -260,7 +260,8 @@ export class OrderService {
          pv.VariantName as variantName,
          pv.IsActive as variantActive,
          COALESCE(pv.StockQuantity, 0) as stockQuantity,
-         COALESCE(p.MinOrderQuantity, 1) as minOrderQuantity
+         COALESCE(p.MinOrderQuantity, 1) as minOrderQuantity,
+         COALESCE(p.QuantityStep, 1) as quantityStep
        FROM order_items oi
        JOIN orders o ON o.ID = oi.OrderID
        JOIN (
@@ -294,6 +295,7 @@ export class OrderService {
         stockQuantity:
           row.variantId != null && Number(row.variantActive) === 1 ? Number(row.stockQuantity) || 0 : 0,
         minOrderQuantity: Number(row.minOrderQuantity) || 1,
+        quantityStep: Number(row.quantityStep) || 1,
         lastQuantity: Number(row.lastQuantity) || 1,
         lastOrderedAt: String(row.lastOrderedAt),
       } satisfies OrderAgainSource)

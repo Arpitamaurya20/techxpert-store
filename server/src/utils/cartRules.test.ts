@@ -15,8 +15,14 @@ import {
 
 describe('lineLimits', () => {
   it('reads the minimum, maximum and stock, treating blanks as no limit', () => {
-    assert.deepEqual(lineLimits({ minOrderQuantity: 5, maxOrderQuantity: 200, stock: 40 }), { min: 5, max: 200, stock: 40 });
-    assert.deepEqual(lineLimits({ minOrderQuantity: null, maxOrderQuantity: 0, stock: null }), { min: 1, max: null, stock: 0 });
+    assert.deepEqual(lineLimits({ minOrderQuantity: 5, maxOrderQuantity: 200, stock: 40 }), { min: 5, max: 200, stock: 40, step: 1 });
+    assert.deepEqual(lineLimits({ minOrderQuantity: null, maxOrderQuantity: 0, quantityStep: 6, stock: null }), {
+      min: 1,
+      max: null,
+      stock: 0,
+      step: 6,
+    });
+    assert.deepEqual(lineLimits({ minOrderQuantity: null, maxOrderQuantity: 0, stock: null }), { min: 1, max: null, stock: 0, step: 1 });
   });
 });
 
@@ -34,6 +40,16 @@ describe('quantityRefusal', () => {
     assert.match(quantityRefusal('Cement', 31, limits, 400)!, /Only 30/);
     assert.match(quantityRefusal('Cement', 60, { ...limits, stock: 100 }, 400)!, /up to 50/);
     assert.match(quantityRefusal('Cement', 2.5, limits, 400)!, /whole number/);
+  });
+
+  it('refuses a quantity that is not a whole pack', () => {
+    const packs = { min: 1, max: 50, stock: 40, step: 6 };
+    assert.equal(quantityRefusal('Bulbs', 6, packs, 100), null);
+    assert.equal(quantityRefusal('Bulbs', 12, packs, 100), null);
+    assert.match(quantityRefusal('Bulbs', 1, packs, 100)!, /multiples of 6/);
+    assert.match(quantityRefusal('Bulbs', 7, packs, 100)!, /multiples of 6/);
+    assert.match(quantityRefusal('Bags', 6, { min: 10, max: null, stock: 40, step: 6 }, 100)!, /starting at 10/);
+    assert.equal(quantityRefusal('Bags', 16, { min: 10, max: null, stock: 40, step: 6 }, 100), null);
   });
 });
 
@@ -54,6 +70,17 @@ describe('reorderTarget', () => {
     const result = reorderTarget('Cement', 2, 0, { min: 5, max: null, stock: 20 }, 100);
     assert.equal('setTo' in result && result.setTo, 5);
     assert.match('note' in result ? (result.note ?? '') : '', /at least 5/);
+  });
+
+  it('raises a short order up to the next pack', () => {
+    const result = reorderTarget('Bulbs', 1, 0, { min: 1, max: null, stock: 40, step: 6 }, 100);
+    assert.equal('setTo' in result && result.setTo, 6);
+    assert.match('note' in result ? (result.note ?? '') : '', /multiples of 6/);
+  });
+
+  it('leaves the cart alone when the order does not fill another pack', () => {
+    const result = reorderTarget('Bulbs', 1, 6, { min: 1, max: null, stock: 40, step: 6 }, 100);
+    assert.match('reason' in result ? result.reason : '', /multiples of 6/);
   });
 
   it('leaves the cart alone when it is already at the most', () => {
@@ -77,6 +104,8 @@ describe('lineProblem', () => {
     assert.equal(lineProblem(4, { ...limits, stock: 0 }, 100), 'out_of_stock');
     assert.equal(lineProblem(9, limits, 100), 'over_limit');
     assert.equal(lineProblem(11, { ...limits, stock: 50 }, 100), 'over_limit');
+    assert.equal(lineProblem(7, { min: 1, max: 20, stock: 20, step: 6 }, 100), 'over_limit');
+    assert.equal(lineProblem(6, { min: 1, max: 20, stock: 20, step: 6 }, 100), null);
   });
 });
 
@@ -92,6 +121,11 @@ describe('mergeQuantity', () => {
   it('caps at the maximum and stock when that still meets the minimum', () => {
     assert.equal(mergeQuantity(12, 18, limits), 15);
     assert.equal(mergeQuantity(30, 2, { min: 1, max: 20, stock: 100 }), 20);
+  });
+
+  it('keeps the larger quantity on the pack step', () => {
+    assert.equal(mergeQuantity(6, 7, { min: 1, max: null, stock: 40, step: 6 }), 6);
+    assert.equal(mergeQuantity(6, 12, { min: 1, max: null, stock: 40, step: 6 }), 12);
   });
 
   it('leaves the quantity alone when the cap is below the minimum, so the line shows its problem', () => {

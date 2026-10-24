@@ -43,6 +43,13 @@ export function optionalNumber(value: unknown, field: string, opts?: { min?: num
   return requireNumber(value, field, opts);
 }
 
+/** 1 means any whole number from the minimum. Larger means packs of that size. */
+function quantityStepValue(value: unknown): number {
+  const step = requireNumber(value, 'quantityStep', { min: 1, max: 9999 });
+  if (!Number.isInteger(step)) badRequest('Sold in multiples of a whole number from 1 to 9,999.');
+  return step;
+}
+
 const BANNER_STATUSES = new Set(['draft', 'published', 'scheduled', 'paused', 'archived']);
 const CTA_TYPES = new Set(['category', 'product', 'external', 'deals', 'url']);
 
@@ -72,7 +79,8 @@ export function validateProductCreateBody(body: any) {
   const description = optionalString(body?.description, 'description', { max: 5000 });
   const sku = optionalString(body?.sku, 'sku', { max: 100 });
   const brandName = optionalString(body?.brandName ?? body?.brandId, 'brandName', { max: 255 });
-  return { ...body, name, categoryId, price, stockQuantity, unit, description, sku, brandName };
+  const quantityStep = body?.quantityStep === undefined ? 1 : quantityStepValue(body.quantityStep);
+  return { ...body, name, categoryId, price, stockQuantity, unit, description, sku, brandName, quantityStep };
 }
 
 /** Fields left out stay as they are. `price: null` removes the price; an empty or null `brandName` clears it. */
@@ -91,6 +99,7 @@ export function validateProductUpdateBody(body: any) {
   if (body?.stockQuantity !== undefined) requireNumber(body.stockQuantity, 'stockQuantity', { min: 0 });
   if (body?.unit !== undefined) optionalString(body.unit, 'unit', { max: 100 });
   if (body?.description !== undefined) optionalString(body.description, 'description', { max: 5000 });
+  if (body?.quantityStep !== undefined) next.quantityStep = quantityStepValue(body.quantityStep);
   return next;
 }
 
