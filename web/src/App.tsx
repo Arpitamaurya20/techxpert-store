@@ -16,6 +16,7 @@ import { AboutManager } from './components/AboutManager';
 import { PoliciesManager } from './components/PoliciesManager';
 import { HomeMerchManager } from './components/HomeMerchManager';
 import { SearchIdeasManager } from './components/SearchIdeasManager';
+import { DealsManager } from './components/DealsManager';
 import { ApiExplorer } from './components/ApiExplorer';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { DeliveryPincodeManager } from './components/DeliveryPincodeManager';
@@ -35,7 +36,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { AboutContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, TrustContent } from './services/api';
+import type { AboutContent, DealsContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, TrustContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -238,6 +239,8 @@ function PortalApp({
   const [homeMerchError, setHomeMerchError] = useState<string | null>(null);
   const [searchIdeas, setSearchIdeas] = useState<SearchIdeas | null>(null);
   const [searchIdeasError, setSearchIdeasError] = useState<string | null>(null);
+  const [deals, setDeals] = useState<DealsContent | null>(null);
+  const [dealsError, setDealsError] = useState<string | null>(null);
   const [trustClaims, setTrustClaims] = useState<TrustContent | null>(null);
   const [trustError, setTrustError] = useState<string | null>(null);
   const [about, setAbout] = useState<AboutContent | null>(null);
@@ -309,6 +312,7 @@ function PortalApp({
     let helpFailed: string | null = null;
     let homeFailed: string | null = null;
     let searchFailed: string | null = null;
+    let dealsFailed: string | null = null;
     let trustFailed: string | null = null;
     let aboutFailed: string | null = null;
     let policiesFailed: string | null = null;
@@ -325,6 +329,7 @@ function PortalApp({
         helpData,
         homeData,
         searchData,
+        dealsData,
         trustData,
         aboutData,
         policiesData,
@@ -356,6 +361,13 @@ function PortalApp({
           ? api.getSearchSuggestions().catch((err: Error) => {
               failed.push('the search ideas');
               searchFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'sections', 'view')
+          ? api.getDeals().catch((err: Error) => {
+              failed.push('the deals');
+              dealsFailed = err?.message || "The server didn't answer.";
               return undefined;
             })
           : skip,
@@ -419,6 +431,8 @@ function PortalApp({
       if (homeData) setHomeMerch(homeData);
       setSearchIdeasError(searchFailed);
       if (searchData) setSearchIdeas(searchData);
+      setDealsError(dealsFailed);
+      if (dealsData) setDeals(dealsData);
       setTrustError(trustFailed);
       if (trustData) setTrustClaims(trustData);
       setAboutError(aboutFailed);
@@ -756,7 +770,7 @@ function PortalApp({
     },
     shortcuts: {
       title: 'Shortcuts & projects',
-      subtitle: 'The category row and project tiles on the app home screen',
+      subtitle: 'The category row, project tiles, search ideas and deals on the app home screen',
     },
     help: {
       title: 'Help & support',
@@ -1018,6 +1032,16 @@ function PortalApp({
                 onRetry={() => loadData(true)}
                 canEdit={can(permissions, 'sections', 'edit')}
                 onSaved={setSearchIdeas}
+                onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              />
+              <DealsManager
+                content={deals}
+                categories={categories}
+                loading={loading}
+                loadError={dealsError}
+                onRetry={() => loadData(true)}
+                canEdit={can(permissions, 'sections', 'edit')}
+                onSaved={setDeals}
                 onAudit={(action, details) => addAuditLog(action, 'section', details)}
               />
             </>

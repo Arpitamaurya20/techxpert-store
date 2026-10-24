@@ -81,6 +81,26 @@ export type HomeProject = {
 };
 export type HomeContent = { shortcuts: HomeShortcut[]; projects: HomeProject[] };
 export type SearchIdeas = { suggestions: string[] };
+export type HomeDeal = {
+  categoryId: number;
+  name: string;
+  available: boolean;
+  title: string;
+  highlight: string;
+  tagline: string;
+  tone: string;
+  imageUrl: string;
+  position: number;
+};
+export type DealsContent = { deals: HomeDeal[] };
+export type DealDraft = {
+  categoryId: number;
+  title: string;
+  highlight: string;
+  tagline: string;
+  tone: string;
+  imageUrl: string;
+};
 export type TrustClaim = { label: string; icon: string; action: string; position: number };
 export type TrustContent = { claims: TrustClaim[] };
 export type TrustDraft = { label: string; icon: string; action: string };
@@ -376,6 +396,9 @@ export const api = {
   getSearchSuggestions: () => fetchApi<SearchIdeas>('/cms/search-suggestions'),
   saveSearchSuggestions: (suggestions: string[]) =>
     fetchApi<SearchIdeas>('/cms/search-suggestions', { method: 'PUT', body: JSON.stringify({ suggestions }) }),
+  getDeals: () => fetchApi<DealsContent>('/cms/deals'),
+  saveDeals: (deals: DealDraft[]) =>
+    fetchApi<DealsContent>('/cms/deals', { method: 'PUT', body: JSON.stringify({ deals }) }),
   getTrustClaims: () => fetchApi<TrustContent>('/cms/trust'),
   saveTrustClaims: (claims: TrustDraft[]) =>
     fetchApi<TrustContent>('/cms/trust', { method: 'PUT', body: JSON.stringify({ claims }) }),

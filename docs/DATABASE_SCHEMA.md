@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `home_deals`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -454,6 +454,18 @@ CREATE TABLE techxpertstore.policy_bullets (
   ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   BlockID INT NOT NULL,
   Bullet VARCHAR(400) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Deals-for-you tiles. See server/sql/home_deals.sql. Starts empty. Two tiles fill the row.
+CREATE TABLE techxpertstore.home_deals (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CategoryID INT NOT NULL,
+  Title VARCHAR(32) NOT NULL,
+  Highlight VARCHAR(24) NOT NULL DEFAULT '',
+  Tagline VARCHAR(60) NOT NULL DEFAULT '',
+  Tone VARCHAR(8) NOT NULL,
+  ImageURL VARCHAR(1000) NOT NULL DEFAULT '',
   Position INT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```

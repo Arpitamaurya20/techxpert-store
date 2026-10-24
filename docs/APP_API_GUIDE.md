@@ -636,6 +636,19 @@ GET /cms/policies → 200
 
 Saving one policy replaces that policy only. `intro` and `sections` must both be sent, so an empty body cannot clear a page by accident. Sending both as empty lists does clear that page. The other three stay as they were.
 
+### UC-19 Deals tiles
+
+**Call, public:** `GET /cms/deals`. The two tiles under Deals for You, in the order staff set. The list is empty until staff pick categories on the portal (Shortcuts & projects, same access as the home layout). The app can keep its own two tiles until it switches to this call. Draw nothing when the list is empty. Skip a tile with `available: false`.
+
+```json
+GET /cms/deals → 200
+{ "success": true, "data": { "deals": [] } }
+```
+
+A tile has `categoryId`, `name`, `available`, `title`, `highlight`, `tagline`, `tone`, `imageUrl` and `position` (1 is first). Tapping it opens that category. `tone` is `peach` or `navy`. Draw `highlight` only when it has words. `tagline` is the short line under the title. There is no discount on this tile; do not invent one. `imageUrl` is the picture staff set. When it is blank, use the category's own picture. Two tiles fill the row. The same category cannot appear twice.
+
+Saving replaces this row only. Leaving `deals` out of the save is refused, so an empty body cannot clear the row by accident. An empty list does clear it. The shortcut row, project tiles and search ideas are separate calls.
+
 ---
 
 ## 9. Calls the app should not use
@@ -654,7 +667,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). About us still uses the app's own mission, facts and values until it reads `GET /cms/about` (use case 17). Privacy and terms are still the app's own copies, and cancellation and shipping are still blank, until it reads `GET /cms/policies` (use case 18). Banners can't open outside links yet (use case 1).
+- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). About us still uses the app's own mission, facts and values until it reads `GET /cms/about` (use case 17). Privacy and terms are still the app's own copies, and cancellation and shipping are still blank, until it reads `GET /cms/policies` (use case 18). The deals tiles are still the app's own two cards until it reads `GET /cms/deals` (use case 19). Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting

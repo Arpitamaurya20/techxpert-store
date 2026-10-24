@@ -4,6 +4,7 @@ import { HelpService } from '../services/helpService.js';
 import { HomeMerchService } from '../services/homeMerchService.js';
 import { SearchSuggestionService } from '../services/searchSuggestionService.js';
 import { TrustClaimService } from '../services/trustClaimService.js';
+import { DealService } from '../services/dealService.js';
 import { AboutService } from '../services/aboutService.js';
 import { PolicyService } from '../services/policyService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
@@ -198,6 +199,24 @@ router.put(
   requirePermission('sections', 'edit'),
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await TrustClaimService.save(req.body), 'Trust strip saved');
+  })
+);
+
+// GET /cms/deals - Deals-for-you tiles. Empty until staff pick categories.
+router.get(
+  '/deals',
+  asyncHandler(async (_req, res) => {
+    return sendSuccess(res, await DealService.get());
+  })
+);
+
+// PUT /cms/deals - Replace the deals row (home screen sections edit)
+router.put(
+  '/deals',
+  requireAdmin,
+  requirePermission('sections', 'edit'),
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await DealService.save(req.body), 'Deals saved');
   })
 );
 
