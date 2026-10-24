@@ -52,6 +52,17 @@ router.get(
   })
 );
 
+// GET /orders/again - Products this customer bought, at today's price and stock
+router.get(
+  '/again',
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user?.userId) return sendError(res, 401, 'Sign in to see your orders.');
+    const items = await OrderService.getOrderAgain(req.user.userId, req.query.limit);
+    return sendSuccess(res, items);
+  })
+);
+
 // GET /orders/stats - Order fulfillment metrics (staff with orders view)
 router.get(
   '/stats',

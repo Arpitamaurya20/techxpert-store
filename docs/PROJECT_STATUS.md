@@ -1,6 +1,6 @@
 # Techxpert Store — status and audit index
 
-As of **23 Oct 2026**. One page that says what was built, why, by which files, and what comes next. Detail lives in the linked docs; this file points to them.
+As of **24 Oct 2026**. One page that says what was built, why, by which files, and what comes next. Detail lives in the linked docs; this file points to them.
 
 **State of the repo:** pushed to GitHub as four commits on top of `1df128a` (`feef46e` server, `8092aa6` portal, `68923f1` phone app, `d698a52` docs), which are on both `main` and `develop`. From here all work is committed on **`develop`**; `main` moves only when asked. All database proof was run against the **local** MySQL (`homecare` + `techxpertstore` on localhost), not production.
 
@@ -72,6 +72,7 @@ What an auditor should check, where it lives.
 | Unit price = lowest active `product_pricing.SellingPrice`; none → product not orderable (no ₹450 fallback) | `server/src/utils/cartRules.ts` (`priceLine`), `server/src/services/cartService.ts` (`priceRows`), `server/src/services/catalogService.ts` |
 | Bulk tier applied on top of base price: of the tiers covering the quantity, the one giving the lowest unit price (percent off, or a fixed unit price); a tier that wouldn't lower the price is ignored. `GET /pricing/calculate` uses the product's own price, never one sent by the caller | `server/src/utils/bulkPricing.ts`, `server/src/services/pricingService.ts`, `cartRules.priceLine` |
 | Order status is one of pending, confirmed, processing, shipped, delivered, cancelled; anything else is refused | `server/src/utils/validate.ts` (`validateOrderStatusBody`), `server/src/routes/orders.ts` |
+| Order Again is the products this customer bought (cancelled orders left out), one row each, at today's price and stock. A product that can't be bought stays, with a reason. Unsigned and staff tokens get 401 | `server/src/utils/orderRules.ts` (`orderAgainItem`), `orderService.getOrderAgain`, `GET /orders/again` |
 | Cancelling: cancelled is final (409 on any change); a delivered order can't be cancelled (409). Cancelling an order placed through this shop (`TX-ORD-`) puts each line's quantity back on the variant it took from, in the same transaction, resizes that variant's inventory rows and marks an out-of-stock product in stock; imported orders (`ORD-`) put nothing back. The history note says which | `server/src/utils/orderRules.ts`, `orderService.updateOrderStatus` / `putStockBack`, `web/src/services/orderStatus.ts` (`statusChoices`, `restocksOnCancel`), `web/src/components/OrdersManager.tsx` |
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
@@ -122,7 +123,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 107 unit tests, including `security`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 113 unit tests, including `security`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -156,6 +157,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 8 | Server gaps from the UI pass: order status, `/pricing/calculate` price, bulk tier picking, clearing a product's brand or price | `bulkPricing.ts`, `validate.ts`, `pricingService.ts`, `routes/orders.ts`, `routes/pricing.ts`, `catalogService.updateProduct`, `CatalogOverview.tsx` | **Done** 23 Oct: 99/99 unit tests, HTTP checks, browser check (remove-price confirm) |
 | 9 | Cancelling puts stock back. Decided 23 Oct: delivered orders can't be cancelled, cancelled is final, imported orders put nothing back | `orderRules.ts`, `orderService.ts`, `OrdersManager.tsx`, `orderStatus.ts`, `App.tsx` | **Done** 23 Oct: 104/104 unit tests. A test guest order took 1 + 2 units, and cancelling it put them back exactly (68 and 500 again); reopening, cancelling twice and cancelling delivered order 1 were refused without touching stock. Browser: cancelled order locked, delivered order has no Cancel, confirm wording for shop vs imported orders |
 | 10 | Customer API holes found while writing the app guide: `GET /orders` without a sign-in listed every customer's orders; `POST /auth/login` gave a customer token with no code; code `123456` worked in production | `config/security.ts`, `authService.ts`, `routes/auth.ts`, `routes/orders.ts`; guide [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) | **Done** 23 Oct: 107/107 unit tests. Local: anonymous and staff-without-`all` get 401, a customer sees only their own orders. Production mode: `/auth/login` 403, `123456` refused, anonymous orders 401 |
+| 11 | Order Again for the app: one call for the products a customer bought, at today's price and stock | `orderRules.ts`, `orderService.getOrderAgain`, `GET /orders/again`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-1 | **Done** 24 Oct: 113/113 unit tests. Local: unsigned and staff get 401; a customer with 9 bought products got those 9, unique, today's price matching the catalogue (₹1,999); a product with stock but no price came back `available: false`; `limit=1` and the cap at 20 held |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 

@@ -146,7 +146,7 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 
 ### UC-1 Home screen
 
-**Screen:** Home. **Calls, all public:**
+**Screen:** Home. The first four calls are public. Order Again needs a sign-in.
 
 | Call | Gives |
 |---|---|
@@ -154,6 +154,7 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 | `GET /cms/banners` | Only the banners live right now, in order |
 | `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
 | `GET /catalog/categories` | Category tiles |
+| `GET /orders/again` | Signed in. Products this customer bought, at today's price and stock |
 
 ```json
 GET /cms/sections → 200
@@ -170,6 +171,25 @@ GET /cms/banners → 200
     "ctaType": "category", "ctaTarget": "5", "status": "published", "startsAt": null, "endsAt": null,
     "position": 1, "termsText": null, "locationScope": "All serviceable zones", "updatedAt": "2026-10-16" } ] }
 ```
+
+**Order Again** without a sign-in is `401` "Sign in to see your orders." It returns one row per product from this customer's orders, newest first. Cancelled orders are left out. `limit` defaults to 10 and stops at 20.
+
+`price` and `stockQuantity` are today's. A product that can't be bought stays in the list with `available: false` and `unavailableReason`, so the app can label it. To buy one that is available, set the cart quantity with `PUT /cart/items/:productId` (use case 6), using `lastQuantity` as the starting quantity.
+
+```json
+GET /orders/again → 200
+{ "success": true, "data": [
+  { "productId": 3, "variantId": 3, "name": "48\" Ceiling Fan", "sku": "FAN001",
+    "imageUrl": "store/assets/catalog/…", "categoryId": 3, "unit": "unit",
+    "price": 1999, "stockQuantity": 68, "stockStatus": "in_stock", "minOrderQuantity": 1,
+    "lastQuantity": 1, "lastOrderedAt": "2026-06-17T13:03:37Z",
+    "available": true, "unavailableReason": null },
+  { "productId": 8155, "name": "ABB 16A Socket 2 Pin", "sku": "TXE-ELEC-SOK-008037",
+    "price": null, "stockQuantity": 81, "stockStatus": "in_stock", "available": false,
+    "unavailableReason": "This product isn't available to order right now." } ] }
+```
+
+`variantId` on an available row is the variant the shop sells today (the first one). The second row has stock but no price, so it is not for sale. The same three reasons are used throughout: "This product is no longer sold.", "This product isn't available to order right now.", and "This product is out of stock."
 
 **App rules:**
 - Draw only the section types you know, in the order given, and skip `enabled: false`.
@@ -444,7 +464,7 @@ Older imported orders can show other payment methods. A history `date` is a full
 - A delivered order can't be cancelled.
 - Customers can't cancel from the app yet; there is no endpoint for it.
 
-**Order again:** set each item's quantity in the cart with `PUT /cart/items/:productId` (use case 6). The cart applies today's prices and limits.
+**Order again:** `GET /orders/again` (use case 1). It is not the same as reading `GET /orders` and using the old line prices.
 
 ---
 

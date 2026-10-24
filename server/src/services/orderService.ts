@@ -8,7 +8,7 @@ import { guestOrderOwner, isOrderRefusal, orderFailed, orderRefusal } from '../u
 import { quantityRefusal, TAX_RATE, type CartTotals } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
 import type { OrderStatus } from '../utils/validate.js';
-import { restocksOnCancel, statusChangeRefusal } from '../utils/orderRules.js';
+import { orderAgainItem, orderAgainLimit, restocksOnCancel, statusChangeRefusal, type OrderAgainSource } from '../utils/orderRules.js';
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
 
@@ -234,6 +234,66 @@ export class OrderService {
       orders,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  /**
+   * Products this customer ordered, one row each, most recent first.
+   * Price and stock are today's, and a product that can no longer be bought stays in the list with a reason.
+   * Cancelled orders don't count.
+   */
+  static async getOrderAgain(userId: number, askedLimit: unknown) {
+    const limit = orderAgainLimit(askedLimit);
+    const [rows] = await storePool.query<any[]>(
+      `SELECT
+         oi.ProductID as productId,
+         oi.Quantity as lastQuantity,
+         CONCAT(o.CreatedDate, 'T', COALESCE(o.CreatedTime, '12:00:00'), 'Z') as lastOrderedAt,
+         COALESCE(p.ProductName, 'Construction Material') as name,
+         p.ProductCode as sku,
+         p.ProductImage as imageUrl,
+         p.CategoryID as categoryId,
+         COALESCE(mu.UnitName, 'unit') as unit,
+         (p.ID IS NOT NULL AND p.IsActive = 1) as active,
+         (SELECT MIN(pr.SellingPrice) FROM product_pricing pr
+           WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
+         (SELECT v.ID FROM product_variants v
+           WHERE v.ProductID = p.ID ORDER BY v.ID ASC LIMIT 1) as variantId,
+         COALESCE((SELECT v.StockQuantity FROM product_variants v
+           WHERE v.ProductID = p.ID ORDER BY v.ID ASC LIMIT 1), 0) as stockQuantity,
+         COALESCE(p.MinOrderQuantity, 1) as minOrderQuantity
+       FROM order_items oi
+       JOIN orders o ON o.ID = oi.OrderID
+       JOIN (
+         SELECT MAX(oi2.ID) as lastItemId
+         FROM order_items oi2
+         JOIN orders o2 ON o2.ID = oi2.OrderID
+         WHERE o2.UserID = ? AND o2.OrderStatus <> 'cancelled'
+         GROUP BY oi2.ProductID
+       ) pick ON pick.lastItemId = oi.ID
+       LEFT JOIN products p ON p.ID = oi.ProductID
+       LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
+       ORDER BY o.ID DESC
+       LIMIT ?`,
+      [userId, limit]
+    );
+
+    return rows.map((row) =>
+      orderAgainItem({
+        productId: Number(row.productId),
+        name: String(row.name || 'Construction Material'),
+        sku: row.sku == null ? null : String(row.sku),
+        imageUrl: row.imageUrl == null || row.imageUrl === '' ? null : String(row.imageUrl),
+        categoryId: row.categoryId == null ? null : Number(row.categoryId),
+        unit: String(row.unit || 'unit'),
+        active: Number(row.active) === 1,
+        price: row.price == null ? null : Number(row.price),
+        variantId: row.variantId == null ? null : Number(row.variantId),
+        stockQuantity: Number(row.stockQuantity) || 0,
+        minOrderQuantity: Number(row.minOrderQuantity) || 1,
+        lastQuantity: Number(row.lastQuantity) || 1,
+        lastOrderedAt: String(row.lastOrderedAt),
+      } satisfies OrderAgainSource)
+    );
   }
 
   static async getOrderById(orderId: string | number) {
