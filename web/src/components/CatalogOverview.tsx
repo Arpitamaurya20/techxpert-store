@@ -31,6 +31,14 @@ export type NewProductInput = {
 
 const PAGE_SIZE = 50;
 const ALL = 'all';
+const HIGHLIGHT_MAX = 8;
+const SPEC_MAX = 16;
+
+let nextPageKey = 1;
+function pageKey() {
+  nextPageKey += 1;
+  return `page-${nextPageKey}`;
+}
 
 interface CatalogOverviewProps {
   /** First page from the shell's load, shown until this screen's own page arrives. */
@@ -60,6 +68,8 @@ interface ProductForm {
   brandName: string;
   description: string;
   variantStocks: { id: number; name: string; stock: string }[];
+  highlights: { key: string; text: string }[];
+  specifications: { key: string; label: string; value: string }[];
 }
 
 type FormErrors = Partial<Record<keyof ProductForm | 'form', string>>;
@@ -81,6 +91,12 @@ const formFor = (product: Product | null): ProductForm => ({
           stock: String(variant.stockQuantity ?? 0),
         }))
       : [],
+  highlights: (product?.highlights ?? []).map((text) => ({ key: pageKey(), text })),
+  specifications: (product?.specifications ?? []).map((row) => ({
+    key: pageKey(),
+    label: row.label,
+    value: row.value,
+  })),
 });
 
 /** Mirrors the server: a new product needs a price; an edited one may have it removed. A price must be more than ₹0. */
@@ -108,6 +124,16 @@ function checkForm(form: ProductForm, editing: Product | null): FormErrors {
     }
   }
   if (!form.unit.trim()) errors.unit = 'Enter the selling unit, e.g. "50 kg bag".';
+  const highlights = form.highlights.map((row) => row.text.trim()).filter(Boolean);
+  if (highlights.length > HIGHLIGHT_MAX) errors.highlights = 'A product can have up to 8 highlights.';
+  else if (highlights.some((text) => text.length > 160)) errors.highlights = 'Each highlight is 160 characters or less.';
+  const specs = form.specifications.filter((row) => row.label.trim() || row.value.trim());
+  if (specs.length > SPEC_MAX) errors.specifications = 'A product can have up to 16 specifications.';
+  else if (specs.some((row) => !row.label.trim() || !row.value.trim())) {
+    errors.specifications = 'Each specification needs a name and a value.';
+  } else if (specs.some((row) => row.label.trim().length > 80 || row.value.trim().length > 160)) {
+    errors.specifications = 'Keep each name to 80 characters and each value to 160.';
+  }
   return errors;
 }
 
@@ -446,6 +472,10 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                 unit: form.unit.trim(),
                 brandName: form.brandName.trim(),
                 description: form.description.trim(),
+                highlights: form.highlights.map((row) => row.text.trim()).filter(Boolean),
+                specifications: form.specifications
+                  .filter((row) => row.label.trim() || row.value.trim())
+                  .map((row) => ({ label: row.label.trim(), value: row.value.trim() })),
               });
             } else {
               await onCreateProduct({
@@ -633,6 +663,115 @@ const ProductFormDialog: React.FC<{
         <Field id={`${formId}-description`} label="Description">
           <textarea value={form.description} onChange={set('description')} maxLength={2000} />
         </Field>
+        {editing ? (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <span style={styles.strong}>Highlights</span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={form.highlights.length >= HIGHLIGHT_MAX}
+                  onClick={() => setForm((prev) => ({ ...prev, highlights: [...prev.highlights, { key: pageKey(), text: '' }] }))}
+                >
+                  Add highlight
+                </Button>
+              </div>
+              <p style={styles.small}>Short points on the product page. Leave this empty until you have them. Up to 8.</p>
+              {form.highlights.map((row, index) => (
+                <div key={row.key} style={styles.row}>
+                  <Field id={`${formId}-highlight-${row.key}`} label={`Highlight ${index + 1}`} error={index === 0 ? errors.highlights : null} style={{ flex: 1 }}>
+                    <input
+                      value={row.text}
+                      maxLength={160}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setForm((prev) => ({
+                          ...prev,
+                          highlights: prev.highlights.map((item) => (item.key === row.key ? { ...item, text: value } : item)),
+                        }));
+                        if (errors.highlights || errors.form) setErrors((prev) => ({ ...prev, highlights: undefined, form: undefined }));
+                      }}
+                    />
+                  </Field>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setForm((prev) => ({ ...prev, highlights: prev.highlights.filter((item) => item.key !== row.key) }))}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <span style={styles.strong}>Specifications</span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={form.specifications.length >= SPEC_MAX}
+                  onClick={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      specifications: [...prev.specifications, { key: pageKey(), label: '', value: '' }],
+                    }))
+                  }
+                >
+                  Add specification
+                </Button>
+              </div>
+              <p style={styles.small}>Name and value rows, such as Sweep and 48 inch. Leave this empty until you have them. Up to 16.</p>
+              {form.specifications.map((row, index) => (
+                <div key={row.key} style={styles.row}>
+                  <Field id={`${formId}-spec-label-${row.key}`} label={`Specification ${index + 1}`} error={index === 0 ? errors.specifications : null} style={{ flex: 1 }}>
+                    <input
+                      value={row.label}
+                      maxLength={80}
+                      placeholder="Sweep"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setForm((prev) => ({
+                          ...prev,
+                          specifications: prev.specifications.map((item) => (item.key === row.key ? { ...item, label: value } : item)),
+                        }));
+                        if (errors.specifications || errors.form) setErrors((prev) => ({ ...prev, specifications: undefined, form: undefined }));
+                      }}
+                    />
+                  </Field>
+                  <Field id={`${formId}-spec-value-${row.key}`} label="Value" style={{ flex: 1.4 }}>
+                    <input
+                      value={row.value}
+                      maxLength={160}
+                      placeholder="48 inch"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setForm((prev) => ({
+                          ...prev,
+                          specifications: prev.specifications.map((item) => (item.key === row.key ? { ...item, value } : item)),
+                        }));
+                        if (errors.specifications || errors.form) setErrors((prev) => ({ ...prev, specifications: undefined, form: undefined }));
+                      }}
+                    />
+                  </Field>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setForm((prev) => ({ ...prev, specifications: prev.specifications.filter((item) => item.key !== row.key) }))
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
         {errors.form ? <FormError>{errors.form}</FormError> : null}
       </form>
     </Modal>

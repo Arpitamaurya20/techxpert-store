@@ -75,6 +75,10 @@ export interface Product {
   variants?: ProductVariant[];
   featured?: boolean;
   description: string;
+  /** Short points on the product page. Empty until staff fill them. */
+  highlights?: string[];
+  /** Name-and-value rows on the product page. Empty until staff fill them. */
+  specifications?: { label: string; value: string }[];
 }
 
 export interface ProductVariant {

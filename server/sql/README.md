@@ -13,6 +13,7 @@ mysql -u root -p < sql/portal_staff.sql   # before restarting the API on the A3 
 mysql -u root -p < sql/saved_items.sql    # customer wishlist; safe to run again; the previous API ignores it
 mysql -u root -p < sql/help_content.sql   # help page, empty until staff fill it; safe to run again; after the audit table exists
 mysql -u root -p < sql/home_merch.sql     # home shortcuts and projects, empty until staff fill them; safe to run again
+mysql -u root -p < sql/product_page.sql   # product highlights and specifications, empty until staff fill them; safe to run again
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -29,6 +30,7 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `saved_items.sql` | Customer and guest wishlists (`saved_items`). Safe to run again |
 | `help_content.sql` | Help page (`help_contact`, `help_faqs`) and the `help` audit label. Starts empty. Safe to run again |
 | `home_merch.sql` | Home category shortcuts and project tiles (`home_shortcuts`, `home_projects`, `home_project_categories`). Starts empty. Safe to run again |
+| `product_page.sql` | Product page highlights and specifications (`product_highlights`, `product_specifications`). Starts empty. Safe to run again |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

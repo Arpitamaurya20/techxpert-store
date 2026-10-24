@@ -1,6 +1,7 @@
 import { storePool } from '../db/mysql.js';
 import type { PoolConnection } from 'mysql2/promise';
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
+import { productPageUpdates } from '../utils/productPage.js';
 import { variantStockUpdates } from '../utils/variants.js';
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
@@ -565,6 +566,9 @@ export class CatalogService {
             available: active && priced && stockQuantity > 0,
           };
         });
+        const page = await CatalogService.readProductPage(Number(prod.id));
+        prod.highlights = page.highlights;
+        prod.specifications = page.specifications;
         return prod;
       }
       return null;
@@ -716,6 +720,7 @@ export class CatalogService {
       const numId = Number(id);
       if (!isNaN(numId)) {
         const optionStocks = variantStockUpdates(data.variants);
+        const page = productPageUpdates(data);
         const stockStatus =
           !optionStocks && stockQuantity !== undefined
             ? Number(stockQuantity) > 0
@@ -760,6 +765,11 @@ export class CatalogService {
           await CatalogService.writeChosenStocks(numId, optionStocks);
         } else if (stockQuantity !== undefined) {
           await CatalogService.writeCatalogueStock(numId, Number(stockQuantity));
+        }
+
+        if (page.highlights || page.specifications) {
+          const [exists] = await storePool.query<any[]>(`SELECT ID FROM products WHERE ID = ? LIMIT 1`, [numId]);
+          if (exists.length > 0) await CatalogService.writeProductPage(numId, page);
         }
       }
       const updated = await CatalogService.getProductById(id);
@@ -835,6 +845,57 @@ export class CatalogService {
       }
       await CatalogService.writeVariantStock(conn, variantId, quantity);
     });
+  }
+
+  /** Highlights and specifications. Missing tables read as an empty page so the product still loads. */
+  private static async readProductPage(productId: number): Promise<{
+    highlights: string[];
+    specifications: { label: string; value: string }[];
+  }> {
+    try {
+      const [highlights] = await storePool.query<any[]>(
+        `SELECT Text as text FROM product_highlights WHERE ProductID = ? ORDER BY Position ASC, ID ASC`,
+        [productId]
+      );
+      const [specifications] = await storePool.query<any[]>(
+        `SELECT SpecLabel as label, SpecValue as value
+         FROM product_specifications WHERE ProductID = ? ORDER BY Position ASC, ID ASC`,
+        [productId]
+      );
+      return {
+        highlights: highlights.map((row) => String(row.text)),
+        specifications: specifications.map((row) => ({ label: String(row.label), value: String(row.value) })),
+      };
+    } catch (err) {
+      console.warn('[CatalogService] product page read skipped', err);
+      return { highlights: [], specifications: [] };
+    }
+  }
+
+  /** Replaces the lists that were sent. A list left out stays as it is. */
+  private static async writeProductPage(
+    productId: number,
+    page: { highlights?: string[]; specifications?: { label: string; value: string }[] }
+  ) {
+    if (page.highlights) {
+      await storePool.query(`DELETE FROM product_highlights WHERE ProductID = ?`, [productId]);
+      for (let index = 0; index < page.highlights.length; index += 1) {
+        await storePool.query(
+          `INSERT INTO product_highlights (ProductID, Text, Position) VALUES (?, ?, ?)`,
+          [productId, page.highlights[index], index + 1]
+        );
+      }
+    }
+    if (page.specifications) {
+      await storePool.query(`DELETE FROM product_specifications WHERE ProductID = ?`, [productId]);
+      for (let index = 0; index < page.specifications.length; index += 1) {
+        const row = page.specifications[index];
+        await storePool.query(
+          `INSERT INTO product_specifications (ProductID, SpecLabel, SpecValue, Position) VALUES (?, ?, ?, ?)`,
+          [productId, row.label, row.value, index + 1]
+        );
+      }
+    }
   }
 
   /** Sets each named option's stock. Every id must already belong to this product. */

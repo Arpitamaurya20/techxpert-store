@@ -30,6 +30,7 @@ Run from `server/`, against the MySQL host that has both `homecare` and `techxpe
 | 1.5 | `sql/saved_items.sql` | `SHOW TABLES IN techxpertstore LIKE 'saved_items'` returns a row | Safe to run again. The previous API ignores the table |
 | 1.6 | `sql/help_content.sql` | `SHOW TABLES IN techxpertstore LIKE 'help_contact'` returns a row | Safe to run again. After the audit table exists. The page starts empty |
 | 1.7 | `sql/home_merch.sql` | `SHOW TABLES IN techxpertstore LIKE 'home_shortcuts'` returns a row | Safe to run again. The shortcut row and project tiles start empty |
+| 1.8 | `sql/product_page.sql` | `SHOW TABLES IN techxpertstore LIKE 'product_highlights'` returns a row | Safe to run again. Highlights and specifications start empty. The previous API ignores the tables |
 
 `sql/portal_audit_logs_alter_category.sql` can be skipped: 1.3 and 1.4 make the same change. `sql/portal_staff.sql` is **not** run here, because it renames a column that the live API reads. It runs in step 3.2, right before the restart.
 

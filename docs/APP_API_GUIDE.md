@@ -251,7 +251,7 @@ GET /catalog/products?search=bulb&limit=2 → 200
 ### UC-4 Product detail and the price for a quantity
 
 **Calls, all public:**
-- `GET /catalog/products/:id`. This is the same product, plus `gallery`, its active `bulkTiers`, and `variants`. Each variant is one option: `id`, `name`, `sku`, `stockQuantity`, `stockStatus`, `price`, `available`. The first option is the one a cart call uses when it does not send `variantId`. `price` on the product is still the lowest price stored against the product. An option with no price of its own uses that. On the 48" ceiling fan, White (id 3) has its own price of ₹199, so a cart that leaves `variantId` out sells White at ₹199. Brown and Black use the product price of ₹1,999. `available` is false when the option is switched off, unpriced, or out of stock.
+- `GET /catalog/products/:id`. This is the same product, plus `gallery`, its active `bulkTiers`, `variants`, `highlights` and `specifications`. Each variant is one option: `id`, `name`, `sku`, `stockQuantity`, `stockStatus`, `price`, `available`. The first option is the one a cart call uses when it does not send `variantId`. `price` on the product is still the lowest price stored against the product. An option with no price of its own uses that. On the 48" ceiling fan, White (id 3) has its own price of ₹199, so a cart that leaves `variantId` out sells White at ₹199. Brown and Black use the product price of ₹1,999. `available` is false when the option is switched off, unpriced, or out of stock. `highlights` is a list of short points. `specifications` is a list of `{ "label", "value" }`. Both start empty until staff fill them on the product screen. Draw nothing when a list is empty. A product can have 8 highlights of 160 characters, and 16 specifications (name 80, value 160).
 - `GET /pricing/calculate?productId=&quantity=` gives the exact price for a quantity, worked out from the product's own price.
 
 ```json
@@ -261,6 +261,8 @@ GET /catalog/products/5 → 200
   "variants": [
     { "id": 6, "name": "Warm White", "sku": null, "stockQuantity": 500, "stockStatus": "in_stock", "price": 149, "available": true },
     { "id": 7, "name": "Cool White", "sku": null, "stockQuantity": 400, "stockStatus": "in_stock", "price": 149, "available": true } ],
+  "highlights": [],
+  "specifications": [],
   "bulkTiers": [ { "id": 4, "minQty": 25, "maxQty": 99, "discountType": "percentage", "discountValue": "10.00",
                    "terms": "Contractor box pack rate." } ] } }
 
