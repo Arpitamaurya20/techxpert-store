@@ -22,6 +22,7 @@ mysql -u root -p < sql/home_deals.sql     # deals-for-you tiles, empty until sta
 mysql -u root -p < sql/quantity_step.sql  # pack size on products; existing rows stay at 1; safe to run again
 mysql -u root -p < sql/store_variant_stock.sql  # per-store stock; no row means the company stock; safe to run again
 mysql -u root -p < sql/shop_settings.sql  # delivery, GST and thresholds staff can change; safe to run again; after the audit table exists
+mysql -u root -p < sql/talk_requests.sql  # Talk to us queue; nothing is ordered; safe to run again; after the audit table exists
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -47,6 +48,7 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `quantity_step.sql` | Pack size on `products.QuantityStep`. Existing products stay at 1. Safe to run again |
 | `store_variant_stock.sql` | A store's own quantity for an option. No row means that store sells the company stock. Safe to run again |
 | `shop_settings.sql` | Delivery fee, free delivery, GST, and the large-order thresholds. Safe to run again |
+| `talk_requests.sql` | A customer's request for staff. Nothing is ordered and no stock is held. Safe to run again |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

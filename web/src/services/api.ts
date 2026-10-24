@@ -101,6 +101,31 @@ export type DealDraft = {
   tone: string;
   imageUrl: string;
 };
+export type TalkLine = {
+  productId: string;
+  variantId: number;
+  name: string;
+  variantName: string | null;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  stockAtRequest: number;
+  note: string | null;
+};
+export type TalkRequest = {
+  id: string;
+  name: string;
+  phone: string;
+  pincode: string;
+  storeId: number;
+  storeName: string | null;
+  note: string | null;
+  status: 'new' | 'closed';
+  placedAt: string;
+  totals: { subtotal: number; tax: number; delivery: number; grandTotal: number };
+  lines: TalkLine[];
+  message: string | null;
+};
 export type ShopRule = { enabled: boolean; amount: number | null };
 export type ShopSettings = {
   largeOrderValue: ShopRule;
@@ -426,6 +451,9 @@ export const api = {
   getAbout: () => fetchApi<AboutContent>('/cms/about'),
   saveAbout: (body: AboutDraft) =>
     fetchApi<AboutContent>('/cms/about', { method: 'PUT', body: JSON.stringify(body) }),
+  getTalkRequests: () => fetchApi<TalkRequest[]>('/shop/requests'),
+  setTalkRequestStatus: (id: string, status: 'new' | 'closed') =>
+    fetchApi<TalkRequest>(`/shop/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) }),
   getShopSettings: () => fetchApi<ShopSettings>('/shop/settings'),
   saveShopSettings: (body: ShopSettings) =>
     fetchApi<ShopSettings>('/shop/settings', { method: 'PUT', body: JSON.stringify(body) }),

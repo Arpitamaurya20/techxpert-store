@@ -39,6 +39,7 @@ Run from `server/`, against the MySQL host that has both `homecare` and `techxpe
 | 1.14 | `sql/quantity_step.sql` | `SHOW COLUMNS FROM techxpertstore.products LIKE 'QuantityStep'` returns a row | Safe to run again. Existing products stay at 1 |
 | 1.15 | `sql/store_variant_stock.sql` | `SHOW TABLES FROM techxpertstore LIKE 'store_variant_stock'` returns a row | Safe to run again. No rows means every store still sells the company stock |
 | 1.16 | `sql/shop_settings.sql` | `SHOW TABLES FROM techxpertstore LIKE 'shop_settings'` returns a row | Safe to run again. After the audit table exists. Missing rows keep delivery ₹99, free from ₹2,000, GST 18% |
+| 1.17 | `sql/talk_requests.sql` | `SHOW TABLES FROM techxpertstore LIKE 'talk_requests'` returns a row | Safe to run again. After the audit table exists. An empty queue is the start |
 
 `sql/portal_audit_logs_alter_category.sql` can be skipped: 1.3 and 1.4 make the same change. `sql/portal_staff.sql` is **not** run here, because it renames a column that the live API reads. It runs in step 3.2, right before the restart.
 

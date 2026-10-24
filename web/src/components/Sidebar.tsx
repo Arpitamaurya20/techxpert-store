@@ -20,6 +20,7 @@ import {
   KeyRound,
   LogOut,
   SlidersHorizontal,
+  MessageSquare,
 } from 'lucide-react';
 
 export type TabId =
@@ -27,6 +28,7 @@ export type TabId =
   | 'catalog'
   | 'categories'
   | 'orders'
+  | 'requests'
   | 'delivery'
   | 'stores'
   | 'users'
@@ -46,6 +48,7 @@ interface SidebarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   ordersCount?: number;
+  requestsCount?: number;
   productsCount?: number;
   usersCount?: number;
   adminName?: string;
@@ -60,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onTabChange,
   ordersCount,
+  requestsCount,
   productsCount,
   usersCount,
   adminName = 'Staff',
@@ -81,6 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
         { id: 'orders', label: 'Orders', icon: <ShoppingBag size={18} />, badge: ordersCount?.toLocaleString('en-IN') },
+        { id: 'requests', label: 'Talk to us', icon: <MessageSquare size={18} />, badge: requestsCount ? requestsCount.toLocaleString('en-IN') : undefined },
         { id: 'users', label: 'Customers', icon: <Users size={18} />, badge: usersCount?.toLocaleString('en-IN') },
         { id: 'delivery', label: 'Delivery pincodes', icon: <MapPin size={18} /> },
       ],

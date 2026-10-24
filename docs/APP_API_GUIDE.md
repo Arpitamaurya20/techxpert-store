@@ -544,6 +544,34 @@ POST /wishlist/merge  { "sessionId": "…", "productIds": [8155, 5] } → 200
 
 The second example is shortened to the fields that decide what the screen shows. The socket has stock but no price, so it stays saved and is not for sale.
 
+### UC-20 Talk to us
+
+**Call, public:** `POST /shop/requests`. The customer asks staff to look at a cart. Nothing is ordered and no stock is held. The same price, GST, delivery fee and pincode rules as checkout apply. A quantity above the stock, or above the shelf limit, is accepted and staff see why. A missing price, a broken pack and an area we don't deliver to are refused with the same sentences as the cart.
+
+```json
+POST /shop/requests
+{ "name": "Ravi Kumar", "phone": "9999999999", "pincode": "201301",
+  "note": "Need this next week",
+  "lines": [ { "productId": 3, "variantId": 3, "quantity": 100 } ] }
+```
+
+`variantId` may be left out. That sells the first option, as the cart does. Two lines for the same option are added together. Up to 30 products.
+
+```json
+200 → { "success": true, "data": {
+  "id": "1", "status": "new",
+  "message": "Staff will call this number. Nothing is ordered, and no stock is held.",
+  "totals": { "subtotal": 0, "tax": 0, "delivery": 0, "grandTotal": 0 } } }
+```
+
+The totals in a real answer are the priced cart. Show `message`. Do not take the customer to an order screen.
+
+| Status | `error` |
+|---|---|
+| 400 | `Enter the customer's name.` / `Enter a 10-digit mobile number.` / `Add a 6-digit pincode.` / `Add at least one product.` |
+| 409 | `We don't deliver to 110001 yet.` or a pack, price or catalogue sentence |
+| 503 | `We couldn't send that request. Nothing was saved.` |
+
 ### UC-13 Help and support
 
 **Call, public:** `GET /cms/help`. The phone number, WhatsApp number, email, working hours and questions. All of them are blank until staff fill them in on the portal (Help & support). The app can keep its current copy until it switches to this call.

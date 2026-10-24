@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `home_deals`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes`, `shop_settings` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `home_deals`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes`, `shop_settings`, `talk_requests`, `talk_request_lines` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -522,7 +522,7 @@ CREATE TABLE techxpertstore.cms_homepage_sections (
 CREATE TABLE techxpertstore.portal_audit_logs (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   action VARCHAR(255) NOT NULL,
-  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store', 'help', 'about', 'policy', 'setting') NOT NULL,
+  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store', 'help', 'about', 'policy', 'setting', 'request') NOT NULL,
   details TEXT NULL,
   actor VARCHAR(255) NOT NULL DEFAULT 'Store Admin',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -535,6 +535,39 @@ CREATE TABLE techxpertstore.shop_settings (
   SettingKey VARCHAR(64) NOT NULL PRIMARY KEY,
   SettingValue VARCHAR(40) NULL,
   Enabled TINYINT(1) NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- A customer's request for staff. Nothing is ordered and no stock is held.
+CREATE TABLE techxpertstore.talk_requests (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CustomerName VARCHAR(80) NOT NULL,
+  CustomerPhone VARCHAR(10) NOT NULL,
+  Pincode VARCHAR(6) NOT NULL,
+  StoreID INT NOT NULL,
+  Note VARCHAR(400) NULL,
+  Status ENUM('new', 'closed') NOT NULL DEFAULT 'new',
+  SubTotal DECIMAL(12,2) NOT NULL,
+  TaxTotal DECIMAL(12,2) NOT NULL,
+  ShippingCharges DECIMAL(12,2) NOT NULL,
+  GrandTotal DECIMAL(12,2) NOT NULL,
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL,
+  UpdatedDate DATE NULL,
+  UpdatedTime TIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.talk_request_lines (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  RequestID INT NOT NULL,
+  ProductID INT NOT NULL,
+  VariantID INT NOT NULL,
+  ProductName VARCHAR(255) NOT NULL,
+  VariantName VARCHAR(255) NULL,
+  Quantity INT NOT NULL,
+  UnitPrice DECIMAL(12,2) NOT NULL,
+  LineTotal DECIMAL(12,2) NOT NULL,
+  StockAtRequest INT NOT NULL,
+  Note VARCHAR(255) NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Portal roles: per-module View / Edit / Delete (server/sql/portal_access.sql)

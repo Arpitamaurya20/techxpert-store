@@ -15,6 +15,7 @@ import { HelpManager } from './components/HelpManager';
 import { AboutManager } from './components/AboutManager';
 import { PoliciesManager } from './components/PoliciesManager';
 import { SettingsManager } from './components/SettingsManager';
+import { RequestsManager } from './components/RequestsManager';
 import { HomeMerchManager } from './components/HomeMerchManager';
 import { SearchIdeasManager } from './components/SearchIdeasManager';
 import { DealsManager } from './components/DealsManager';
@@ -37,7 +38,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { AboutContent, DealsContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, ShopSettings, TrustContent } from './services/api';
+import type { AboutContent, DealsContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, ShopSettings, TalkRequest, TrustContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -250,6 +251,8 @@ function PortalApp({
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [shopSettings, setShopSettings] = useState<ShopSettings | null>(null);
   const [shopSettingsError, setShopSettingsError] = useState<string | null>(null);
+  const [talkRequests, setTalkRequests] = useState<TalkRequest[]>([]);
+  const [talkError, setTalkError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -320,6 +323,7 @@ function PortalApp({
     let aboutFailed: string | null = null;
     let policiesFailed: string | null = null;
     let settingsFailed: string | null = null;
+    let requestsFailed: string | null = null;
     try {
       setLoading(true);
       const [
@@ -338,6 +342,7 @@ function PortalApp({
         aboutData,
         policiesData,
         settingsData,
+        requestsData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -404,6 +409,13 @@ function PortalApp({
               return undefined;
             })
           : skip,
+        can(permissions, 'requests', 'view')
+          ? api.getTalkRequests().catch((err: Error) => {
+              failed.push('talk requests');
+              requestsFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
         can(permissions, 'audit', 'view') ? soft(api.getAuditLogs(AUDIT_LIMIT), 'audit trail', 'audit') : skip,
         api
           .getHealth()
@@ -453,6 +465,8 @@ function PortalApp({
       if (policiesData) setPolicies(policiesData);
       setShopSettingsError(settingsFailed);
       if (settingsData) setShopSettings(settingsData);
+      setTalkError(requestsFailed);
+      if (requestsData) setTalkRequests(requestsData);
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -758,6 +772,10 @@ function PortalApp({
       title: 'Orders',
       subtitle: 'Orders placed in the app, and where each one is in fulfilment',
     },
+    requests: {
+      title: 'Talk to us',
+      subtitle: 'Carts a customer asked staff to look at. Nothing is ordered until staff place one',
+    },
     delivery: {
       title: 'Delivery pincodes',
       subtitle: 'Where each store delivers; checkout refuses pincodes that are paused or have no store',
@@ -851,6 +869,7 @@ function PortalApp({
         visibleTabs={tabs}
         onTabChange={(tab) => setActiveTab(tab)}
         ordersCount={loaded.orders ? orders.length : undefined}
+        requestsCount={talkRequests.filter((request) => request.status === 'new').length}
         productsCount={loaded.products ? catalogTotal || products.length : undefined}
         usersCount={loaded.users ? users.length : undefined}
         adminName={session.admin.name}
@@ -1016,6 +1035,19 @@ function PortalApp({
               canEdit={can(permissions, 'about', 'edit')}
               onSaved={setAbout}
               onAudit={(action, details) => addAuditLog(action, 'about', details)}
+            />
+          )}
+
+          {currentTab === 'requests' && (
+            <RequestsManager
+              requests={talkRequests}
+              loading={loading}
+              loadError={talkError}
+              onRetry={() => loadData(true)}
+              canEdit={can(permissions, 'requests', 'edit')}
+              onUpdated={(saved) => setTalkRequests((prev) => prev.map((request) => (request.id === saved.id ? saved : request)))}
+              onAudit={(action, details) => addAuditLog(action, 'request', details)}
+              saveStatus={api.setTalkRequestStatus}
             />
           )}
 

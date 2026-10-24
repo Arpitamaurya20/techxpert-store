@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { ShopSettingsService } from '../services/shopSettingsService.js';
+import { TalkRequestService } from '../services/talkRequestService.js';
+import { storeFilter } from '../utils/scope.js';
 import { asyncHandler, sendSuccess } from '../utils/response.js';
 import { accessActor, requireAdmin, requirePermission } from '../middleware/auth.js';
 
@@ -19,6 +21,34 @@ router.get(
   requirePermission('settings', 'view'),
   asyncHandler(async (_req, res) => {
     return sendSuccess(res, await ShopSettingsService.read());
+  })
+);
+
+/** A customer asks staff to look at a cart. Nothing is ordered and no stock is held. */
+router.post(
+  '/requests',
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await TalkRequestService.create(req.body ?? {}), 'Request sent');
+  })
+);
+
+router.get(
+  '/requests',
+  requireAdmin,
+  requirePermission('requests', 'view'),
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await TalkRequestService.list(storeFilter(accessActor(req).access.scope)));
+  })
+);
+
+router.put(
+  '/requests/:id',
+  requireAdmin,
+  requirePermission('requests', 'edit'),
+  asyncHandler(async (req, res) => {
+    const actor = accessActor(req);
+    const saved = await TalkRequestService.setStatus(req.params.id, req.body ?? {}, storeFilter(actor.access.scope), actor.name);
+    return sendSuccess(res, saved, 'Request updated');
   })
 );
 

@@ -29,6 +29,7 @@ const AREA: Record<AuditLog['entity'], string> = {
   about: 'About the company',
   policy: 'Policies',
   setting: 'Shop settings',
+  request: 'Talk to us',
 };
 
 const areaOf = (entity: string) => AREA[entity as AuditLog['entity']] ?? 'Other';
