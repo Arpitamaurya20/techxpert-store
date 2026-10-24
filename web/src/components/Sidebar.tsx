@@ -9,6 +9,7 @@ import {
   History,
   LayoutDashboard,
   LayoutList,
+  LifeBuoy,
   FolderTree,
   MapPin,
   ShieldCheck,
@@ -28,6 +29,7 @@ export type TabId =
   | 'pricing'
   | 'banners'
   | 'sections'
+  | 'help'
   | 'api'
   | 'audit'
   | 'access';
@@ -88,6 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { id: 'banners', label: 'Campaign banners', icon: <ImageIcon size={18} /> },
         { id: 'sections', label: 'Home screen sections', icon: <LayoutList size={18} /> },
+        { id: 'help', label: 'Help & support', icon: <LifeBuoy size={18} /> },
       ],
     },
     {

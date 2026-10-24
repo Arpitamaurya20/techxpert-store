@@ -16,6 +16,24 @@ export function setPasswordChangeHandler(handler: (() => void) | null) {
   onPasswordChangeRequired = handler;
 }
 
+export type HelpFaq = { id: number; question: string; answer: string; position: number };
+export type HelpContent = {
+  phone: string;
+  phoneLabel: string;
+  whatsapp: string;
+  email: string;
+  hours: string;
+  faqs: HelpFaq[];
+};
+export type HelpDraft = {
+  phone: string;
+  phoneLabel: string;
+  whatsapp: string;
+  email: string;
+  hours: string;
+  faqs: { question: string; answer: string }[];
+};
+
 type ApiEnvelope<T> = {
   success?: boolean;
   data?: T;
@@ -295,6 +313,10 @@ export const api = {
       body: JSON.stringify({ items }),
     }),
   resetSections: () => fetchApi<any[]>('/cms/sections/reset', { method: 'POST' }),
+
+  getHelp: () => fetchApi<HelpContent>('/cms/help'),
+  saveHelp: (body: HelpDraft) =>
+    fetchApi<HelpContent>('/cms/help', { method: 'PUT', body: JSON.stringify(body) }),
 
   // Bulk Pricing
   getBulkTiers: () => fetchApi<any[]>('/pricing/bulk-tiers'),

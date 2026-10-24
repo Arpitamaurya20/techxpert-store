@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { CmsService } from '../services/cmsService.js';
+import { HelpService } from '../services/helpService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { requireAdmin, requirePermission, optionalAuth, isActiveStaff } from '../middleware/auth.js';
 import { validateBannerBody } from '../utils/validate.js';
@@ -138,6 +139,24 @@ router.put(
   asyncHandler(async (req, res) => {
     const updated = await CmsService.updateSection(req.params.id, req.body);
     return sendSuccess(res, updated, 'Section updated');
+  })
+);
+
+// GET /cms/help - Phone, WhatsApp, email, hours and questions. Empty until staff fill them in.
+router.get(
+  '/help',
+  asyncHandler(async (_req, res) => {
+    return sendSuccess(res, await HelpService.get());
+  })
+);
+
+// PUT /cms/help - Replace the help page (help edit)
+router.put(
+  '/help',
+  requireAdmin,
+  requirePermission('help', 'edit'),
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await HelpService.save(req.body), 'Help page saved');
   })
 );
 

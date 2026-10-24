@@ -11,6 +11,7 @@ mysql -u root -p < sql/portal_access.sql
 mysql -u root -p < sql/portal_scope.sql   # before restarting the API on the A2 code
 mysql -u root -p < sql/portal_staff.sql   # before restarting the API on the A3 code; back up portal_staff_roles and portal_staff_scope first
 mysql -u root -p < sql/saved_items.sql    # customer wishlist; safe to run again; the previous API ignores it
+mysql -u root -p < sql/help_content.sql   # help page, empty until staff fill it; safe to run again; after the audit table exists
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -25,6 +26,7 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `portal_scope.sql` | Groups tree, store placement, store↔pincode links, staff places, whole-company switch, `orders.StoreID`, `stores` module grants (portal access A2); adds `store` to audit entities. Links existing pincodes and orders when there is exactly one store; otherwise stops until pincodes are linked |
 | `portal_staff.sql` | Store-owned staff list `portal_staff`: store logins and linked Homecare logins (portal access A3). Removes the store roles that A1 copied from Homecare roles, and renames `AdminID` to `StaffID` in the staff role and places tables |
 | `saved_items.sql` | Customer and guest wishlists (`saved_items`). Safe to run again |
+| `help_content.sql` | Help page (`help_contact`, `help_faqs`) and the `help` audit label. Starts empty. Safe to run again |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

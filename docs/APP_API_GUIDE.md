@@ -527,6 +527,18 @@ POST /wishlist/merge  { "sessionId": "…", "productIds": [8155, 5] } → 200
 
 The second example is shortened to the fields that decide what the screen shows. The socket has stock but no price, so it stays saved and is not for sale.
 
+### UC-13 Help and support
+
+**Call, public:** `GET /cms/help`. The phone number, WhatsApp number, email, working hours and questions. All of them are blank until staff fill them in on the portal (Help & support). The app can keep its current copy until it switches to this call.
+
+```json
+GET /cms/help → 200
+{ "success": true, "data": {
+  "phone": "", "phoneLabel": "", "whatsapp": "", "email": "", "hours": "", "faqs": [] } }
+```
+
+When a question is published it has `id`, `question`, `answer` and `position` (1 is first). `phone` and `whatsapp` are digits the app can dial or open in WhatsApp, with an optional leading `+`. `phoneLabel` is the number as a person should read it.
+
 ---
 
 ## 9. Calls the app should not use

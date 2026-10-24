@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -318,6 +318,27 @@ CREATE TABLE techxpertstore.saved_items (
   UNIQUE KEY uq_saved_owner_product (OwnerKey, ProductID),
   INDEX idx_saved_user (UserID),
   INDEX idx_saved_session (SessionID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Help page. One contact row, questions in order. See server/sql/help_content.sql. Starts empty.
+CREATE TABLE techxpertstore.help_contact (
+  ID TINYINT NOT NULL PRIMARY KEY,
+  Phone VARCHAR(20) NOT NULL DEFAULT '',
+  PhoneLabel VARCHAR(40) NOT NULL DEFAULT '',
+  Whatsapp VARCHAR(20) NOT NULL DEFAULT '',
+  Email VARCHAR(120) NOT NULL DEFAULT '',
+  Hours VARCHAR(80) NOT NULL DEFAULT '',
+  UpdatedDate DATE NULL,
+  UpdatedTime TIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.help_faqs (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Question VARCHAR(300) NOT NULL,
+  Answer VARCHAR(2000) NOT NULL,
+  Position INT NOT NULL,
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
