@@ -108,6 +108,67 @@ function shown(rule: ShopRule): number | null {
   return rule.enabled ? rule.amount : null;
 }
 
+export type CheckoutPlacement = {
+  /** Why the order is refused. Nothing is written. */
+  refusal: string | null;
+  status: 'pending' | 'confirmed';
+  /** Why it waits, stored on the first history line. Null when it confirms straight away. */
+  reason: string | null;
+};
+
+/**
+ * A switched-on large-order rule places the order as pending and the caller still takes the stock,
+ * so two pending orders cannot be promised the same goods. Cancel puts that stock back.
+ * A switched-on cash limit refuses cash above the amount. A switched-off rule does not apply.
+ */
+export function checkoutPlacement(input: {
+  settings: ShopSettings;
+  grandTotal: number;
+  lines: { name: string; quantity: number }[];
+  paymentMethod: string;
+}): CheckoutPlacement {
+  const total = roundMoney(input.grandTotal);
+  const cashLimit = activeAmount(input.settings.codLimit);
+  if (String(input.paymentMethod).toUpperCase() === 'COD' && cashLimit != null && total > cashLimit) {
+    return {
+      refusal: `Cash on delivery stops at ${rupees(cashLimit)}. This order is ${rupees(total)}.`,
+      status: 'confirmed',
+      reason: null,
+    };
+  }
+
+  const reasons: string[] = [];
+  const value = activeAmount(input.settings.largeOrderValue);
+  if (value != null && total >= value) {
+    reasons.push(`the total is at the large-order value of ${rupees(value)}`);
+  }
+  const quantity = activeAmount(input.settings.largeOrderQuantity);
+  if (quantity != null) {
+    const hits = input.lines.filter((line) => line.quantity >= quantity);
+    if (hits.length === 1) {
+      reasons.push(`"${hits[0].name}" is ${hits[0].quantity}, at the large-order quantity of ${quantity}`);
+    } else if (hits.length > 1) {
+      reasons.push(`${hits.length} lines are at the large-order quantity of ${quantity}`);
+    }
+  }
+  if (!reasons.length) return { refusal: null, status: 'confirmed', reason: null };
+  return {
+    refusal: null,
+    status: 'pending',
+    reason: `Waiting for staff: ${reasons.join(', and ')}. The goods are held until staff confirm the order or cancel it.`,
+  };
+}
+
+/** A switched-on rule with a positive amount. Anything else does not apply. */
+function activeAmount(rule: ShopRule): number | null {
+  if (!rule.enabled || rule.amount == null || !Number.isFinite(rule.amount) || rule.amount <= 0) return null;
+  return rule.amount;
+}
+
+function rupees(amount: number): string {
+  return `₹${amount.toLocaleString('en-IN')}`;
+}
+
 function readRule(key: ShopSettingKey, raw: unknown): ShopRule {
   const spec = LIMITS[key];
   if (!raw || typeof raw !== 'object') throw ruleError(`${spec.label} needs a number, or switch it off.`);

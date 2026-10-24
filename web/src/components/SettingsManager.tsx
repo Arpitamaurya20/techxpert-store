@@ -8,18 +8,18 @@ const ROWS: { key: RuleKey; label: string; hint: string; suffix?: string; whole?
   {
     key: 'largeOrderValue',
     label: 'Large-order value (₹)',
-    hint: 'An order at or above this value waits for staff. Checkout does not use this yet.',
+    hint: 'An order at or above this value is placed as pending. The goods are held until staff confirm it or cancel it.',
   },
   {
     key: 'largeOrderQuantity',
     label: 'Large-order quantity',
-    hint: 'One line at or above this quantity waits for staff. Checkout does not use this yet.',
+    hint: 'One line at or above this quantity is placed as pending. The goods are held until staff confirm it or cancel it.',
     whole: true,
   },
   {
     key: 'codLimit',
     label: 'Cash on delivery limit (₹)',
-    hint: 'Cash above this can be refused. Checkout does not use this yet.',
+    hint: 'Cash on delivery above this amount is refused. The order is not placed.',
   },
   {
     key: 'freeDeliveryFrom',
@@ -129,7 +129,7 @@ export const SettingsManager: React.FC<{
         <form onSubmit={submit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '640px' }}>
           <PageIntro>
             These rules apply to the next cart and the next order. Switching one off means that limit does not apply.
-            The large-order lines are saved here. Orders still confirm straight away until that rule is switched on at checkout.
+            A large order is placed as pending and holds its stock. Staff confirm it, or cancel it to put the stock back.
           </PageIntro>
           {ROWS.map((row) => (
             <div key={row.key} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>

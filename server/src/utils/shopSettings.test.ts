@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  checkoutPlacement,
   defaultShopSettings,
   moneyRulesFrom,
   publicShopRules,
@@ -89,5 +90,64 @@ describe('shopSettingsFromRows', () => {
     ]);
     assert.deepEqual(settings.deliveryFee, { enabled: true, amount: 120 });
     assert.equal(settings.gstPercent.amount, 18);
+  });
+});
+
+describe('checkoutPlacement', () => {
+  const lines = [{ name: 'Cement', quantity: 10 }];
+
+  it('confirms straight away while the thresholds are off', () => {
+    const placed = checkoutPlacement({
+      settings: defaultShopSettings(),
+      grandTotal: 5000,
+      lines,
+      paymentMethod: 'COD',
+    });
+    assert.equal(placed.refusal, null);
+    assert.equal(placed.status, 'confirmed');
+    assert.equal(placed.reason, null);
+  });
+
+  it('holds a large order for staff once the value is on', () => {
+    const settings = defaultShopSettings();
+    settings.largeOrderValue = { enabled: true, amount: 5000 };
+    const placed = checkoutPlacement({ settings, grandTotal: 5000, lines, paymentMethod: 'COD' });
+    assert.equal(placed.refusal, null);
+    assert.equal(placed.status, 'pending');
+    assert.match(placed.reason!, /₹5,000/);
+    assert.match(placed.reason!, /held/);
+  });
+
+  it('holds the order when one line reaches the quantity', () => {
+    const settings = defaultShopSettings();
+    settings.largeOrderQuantity = { enabled: true, amount: 10 };
+    const placed = checkoutPlacement({ settings, grandTotal: 400, lines, paymentMethod: 'COD' });
+    assert.equal(placed.status, 'pending');
+    assert.match(placed.reason!, /Cement/);
+  });
+
+  it('leaves a smaller order confirmed', () => {
+    const settings = defaultShopSettings();
+    settings.largeOrderValue = { enabled: true, amount: 5000 };
+    settings.largeOrderQuantity = { enabled: true, amount: 50 };
+    const placed = checkoutPlacement({ settings, grandTotal: 4999.99, lines, paymentMethod: 'COD' });
+    assert.equal(placed.status, 'confirmed');
+  });
+
+  it('refuses cash above the limit and writes nothing', () => {
+    const settings = defaultShopSettings();
+    settings.codLimit = { enabled: true, amount: 2000 };
+    settings.largeOrderValue = { enabled: true, amount: 1000 };
+    const placed = checkoutPlacement({ settings, grandTotal: 2000.01, lines, paymentMethod: 'COD' });
+    assert.match(placed.refusal!, /stops at ₹2,000/);
+    assert.equal(placed.reason, null);
+  });
+
+  it('allows cash exactly at the limit', () => {
+    const settings = defaultShopSettings();
+    settings.codLimit = { enabled: true, amount: 2000 };
+    const placed = checkoutPlacement({ settings, grandTotal: 2000, lines, paymentMethod: 'COD' });
+    assert.equal(placed.refusal, null);
+    assert.equal(placed.status, 'confirmed');
   });
 });

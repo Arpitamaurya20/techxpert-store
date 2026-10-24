@@ -366,6 +366,13 @@ const OrderDetail: React.FC<{ order: Order; onClose: () => void; statusControl: 
               Status
             </label>
             <div>{statusControl}</div>
+            {order.status === 'pending' ? (
+              <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: '13px' }}>
+                {String(order.orderNumber).startsWith('TX-ORD-')
+                  ? 'This order is waiting for confirmation. The goods are held. Set it to Confirmed, or cancel it to put the stock back.'
+                  : 'This order is waiting for confirmation. Set it to Confirmed when it should go ahead.'}
+              </p>
+            ) : null}
           </div>
           <div style={styles.fact}>
             <span style={styles.factLabel}>Payment</span>

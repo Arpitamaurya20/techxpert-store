@@ -6,6 +6,8 @@ import { isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPric
 import { quantityRefusal, sameMoney } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
 import { StoreStockService } from './storeStockService.js';
+import { ShopSettingsService } from './shopSettingsService.js';
+import { checkoutPlacement } from '../utils/shopSettings.js';
 
 export type CartCheckoutRequest = {
   cartId?: unknown;
@@ -86,8 +88,17 @@ export class CartCheckoutService {
         );
       }
 
+      const placement = checkoutPlacement({
+        settings: await ShopSettingsService.read(),
+        grandTotal: totals.grandTotal,
+        lines,
+        paymentMethod,
+      });
+      if (placement.refusal) throw orderRefusal(409, placement.refusal);
+
       const userId = access.userId ?? (await OrderService.ownerForGuest(guest));
       const customer = await OrderService.resolveCustomerInfo(userId, guest);
+      const notes = text(body.notes) ?? 'Order placed from the cart';
       const orderId = await OrderService.writeOrder(conn, {
         cartId,
         storeId,
@@ -95,10 +106,12 @@ export class CartCheckoutService {
         customer,
         deliveryAddress: address.addressString,
         paymentMethod,
-        notes: text(body.notes) ?? 'Order placed from the cart',
+        notes,
         lines,
         totals,
         taxRate,
+        orderStatus: placement.status,
+        historyNote: placement.reason ?? notes,
       });
 
       await conn.query(`DELETE FROM cart_items WHERE CartID = ?`, [cartId]);

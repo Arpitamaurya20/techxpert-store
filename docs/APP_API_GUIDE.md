@@ -407,7 +407,7 @@ GET /auth/addresses → 200
 
 The cart still shows the company stock, because a pincode is not known yet. Checkout uses the store that serves the pincode. If staff have set a quantity for that store, the order can take only that many, and never more than the company figure. The same "only N are in stock" refusal covers it. Cancelling the order puts the quantity back on that store as well as on the company stock.
 
-`GET /shop/rules` is public. `deliveryFee`, `freeDeliveryFrom` and `gstPercent` are the numbers the cart uses. A null value means that rule is switched off. `largeOrderValue`, `largeOrderQuantity` and `codLimit` are saved for staff and are null until switched on. Checkout does not hold an order for staff yet. The cart total is still the amount to charge. Do not add the fee or the tax again on the phone.
+`GET /shop/rules` is public. `deliveryFee`, `freeDeliveryFrom` and `gstPercent` are the numbers the cart uses. A null value means that rule is switched off. `largeOrderValue` and `largeOrderQuantity` are the amounts at which checkout places the order as `pending` and holds the stock. `codLimit` is the cash total above which checkout refuses the order. Null means that rule is off. The cart total is still the amount to charge. Do not add the fee or the tax again on the phone.
 
 | Field | Required | Notes |
 |---|---|---|
@@ -445,11 +445,12 @@ POST /cart/checkout
 | 409 | `Prices changed since you opened checkout. Check the new total and place the order again.` | Reload the cart, show the new total, ask again |
 | 409 | `We don't deliver to 110001 yet.` | Ask for another address |
 | 409 | A line's limit or stock sentence, as in use case 6 | Back to the cart |
+| 409 | `Cash on delivery stops at ₹…. This order is ₹….` | The cash limit is on and this total is above it. Nothing is ordered |
 | 409 | `This cart was moved to your account. Open the cart again.` | Reload the cart with the token |
 | 503 | `We couldn't place your order. Your cart is unchanged.` | Offer a retry with the same `cartId` |
 
 **Effects:**
-- An order takes its stock at once and starts as `confirmed`.
+- An order takes its stock at once. It starts as `confirmed`, unless it is at or above a switched-on large-order value or a switched-on quantity on one line. Then `status` is `pending`, `awaitingStaff` is true, and `message` says staff still have to confirm it. The goods stay held. Staff confirm it in the portal, or cancel it to put the stock back. `GET /shop/rules` shows the thresholds; null means that rule is off.
 - **Guests:** if `guestPhone` is a 10-digit number with no account, a new customer is created for it. If the number already has an account, the order stays a guest order and the account isn't touched.
 
 ### UC-11 My orders

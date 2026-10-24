@@ -46,7 +46,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 - Homepage, help, About, policies and deals are empty until staff fill them.
 - Staff roles, stores, scope and an audit trail.
 
-183 unit tests pass, including shop settings. The old `inventory_stock` warehouse table is not the number the shop sells.
+189 unit tests pass, including shop settings and the large-order rule. The old `inventory_stock` warehouse table is not the number the shop sells.
 
 ## Phase 0 — close what is already built
 
@@ -75,7 +75,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 
 9. **Show the bulk tier.** The server already picks it. The product page and the cart must show it.
 10. **Full-quantity check.** Already the checkout refusal. The app must show that sentence so the customer can order the available amount or contact staff.
-11. **Large-order rule.** Above a staff-set value or a staff-set quantity, the order is `pending`. Cash on delivery is not treated as already confirmed. Staff confirm it. The thresholds are stored as settings. Checkout does not use them yet: the stock question below has to be answered first.
+11. **Large-order rule.** Above a staff-set value or a staff-set quantity, the order is `pending`. Cash on delivery is not treated as already confirmed. Staff confirm it. **Built.** The stock is taken when the order is placed and put back if staff cancel it. A switched-on cash limit refuses cash above that amount. Thresholds that are off leave the order confirmed.
 12. **"Talk to us"** and a staff queue for orders that do not fit the shelf.
 13. **Staff-created orders**, with the source tag and an audit line.
 
@@ -85,7 +85,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 
 **Rules as settings**
 
-15. **Shop settings**, with its own permission, audited. **Built.** Delivery fee, free delivery and GST are read from here. The large-order thresholds and the cash-on-delivery limit are saved here and not yet applied at checkout. A rule that is switched off does not apply. Defaults match what the code used before: delivery ₹99, free from ₹2,000, GST 18%. The three thresholds start off.
+15. **Shop settings**, with its own permission, audited. **Built.** Delivery fee, free delivery, GST, the large-order thresholds and the cash-on-delivery limit are read from here. A rule that is switched off does not apply. Defaults match what the code used before: delivery ₹99, free from ₹2,000, GST 18%. The three thresholds start off.
 
 ## Phase 2 — soon after launch
 
@@ -112,9 +112,9 @@ A customer website, ERP, warehouse management (warehouses, transfers, purchase o
 
 | Setting | Starting value | Checkout uses it |
 |---|---|---|
-| Large-order value | Off | Not yet |
-| Large-order quantity on one line | Off | Not yet |
-| Cash-on-delivery limit | Off | Not yet |
+| Large-order value | Off | Yes, when switched on. The order is pending and holds its stock |
+| Large-order quantity on one line | Off | Yes, when switched on. The order is pending and holds its stock |
+| Cash-on-delivery limit | Off | Yes, when switched on. Cash above it is refused |
 | Free delivery from | ₹2,000 | Yes |
 | Delivery fee | ₹99 | Yes |
 | GST | 18% | Yes |
@@ -124,8 +124,8 @@ Company-wide first. Per-store fees can wait. Switching a threshold off means tha
 ## Still to decide
 
 1. **Starting threshold numbers.** They are editable, so the first numbers are only a start.
-2. **Pending orders and stock.** Today stock is taken when the order is written. If a large order is `pending` and also takes stock, an abandoned order locks the shelf until someone cancels it. If stock is taken only when staff confirm, two pending orders can both be promised the same goods. This is unanswered, so checkout still confirms every order and takes stock immediately.
-3. **Cash on a large order.** Placing it as `pending` already stops it being treated as confirmed. A separate cash limit can still refuse cash above an amount.
+2. **Pending orders and stock.** Decided: a pending order holds its stock from the moment it is placed. Staff confirm it, or cancel it to put the stock back. An order left pending keeps that stock until one of those happens.
+3. **Cash on a large order.** Decided: placing it as `pending` stops it being treated as confirmed. A switched-on cash limit still refuses cash above that amount, and that order is not placed.
 4. **Accountant sign-off** on the invoice and GSTIN.
 5. **Who prices and stocks the launch catalogue.**
 

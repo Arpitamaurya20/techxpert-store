@@ -13,6 +13,8 @@ import { allocateCatalogueStock } from '../utils/stockAllocation.js';
 import { VARIANT_SELLING_PRICE } from '../utils/variants.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
 import { StoreStockService } from './storeStockService.js';
+import { ShopSettingsService } from './shopSettingsService.js';
+import { checkoutPlacement } from '../utils/shopSettings.js';
 
 export interface OrderFilterParams {
   userId?: number;
@@ -511,10 +513,14 @@ export class OrderService {
       totals: CartTotals;
       /** The GST rate the cart totals were priced with. */
       taxRate?: number;
+      /** Pending holds the stock for staff to confirm. Omitted means confirmed. */
+      orderStatus?: 'pending' | 'confirmed';
+      /** First history line. The customer's note stays on the order either way. */
+      historyNote?: string;
     }
   ): Promise<number> {
     const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-    const orderStatus = 'confirmed';
+    const orderStatus = order.orderStatus ?? 'confirmed';
     const paymentStatus = 'pending';
     const { totals } = order;
 
@@ -592,7 +598,7 @@ export class OrderService {
       `INSERT INTO order_status_history
        (OrderID, OrderStatus, PaymentStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
        VALUES (?, ?, ?, ?, ?, CURDATE(), CURTIME())`,
-      [orderId, orderStatus, paymentStatus, order.notes, order.userId || 1]
+      [orderId, orderStatus, paymentStatus, order.historyNote ?? order.notes, order.userId || 1]
     );
     return orderId;
   }
@@ -641,6 +647,11 @@ export class OrderService {
       },
       total: o.grandTotal,
       shippingCharges: o.delivery,
+      awaitingStaff: o.status === 'pending',
+      message:
+        o.status === 'pending'
+          ? 'This order is waiting for staff to confirm it. The goods are held until they confirm it or cancel it.'
+          : null,
     };
   }
 
@@ -698,6 +709,14 @@ export class OrderService {
         if (refusal) throw orderRefusal(409, refusal);
       }
 
+      const placement = checkoutPlacement({
+        settings: await ShopSettingsService.read(),
+        grandTotal: totals.grandTotal,
+        lines,
+        paymentMethod,
+      });
+      if (placement.refusal) throw orderRefusal(409, placement.refusal);
+
       const userId = payload.userId ?? (await this.ownerForGuest({
         name: payload.guestName,
         phone: payload.guestPhone,
@@ -708,17 +727,19 @@ export class OrderService {
         phone: payload.guestPhone,
         email: payload.guestEmail,
       });
-
+      const notes = payload.notes || 'Order placed directly via Buy Now';
       const orderId = await this.writeOrder(conn, {
         storeId,
         userId,
         customer,
         deliveryAddress: address.addressString,
         paymentMethod,
-        notes: payload.notes || 'Order placed directly via Buy Now',
+        notes,
         lines,
         totals,
         taxRate,
+        orderStatus: placement.status,
+        historyNote: placement.reason ?? notes,
       });
       await conn.commit();
       return this.receipt(orderId);
