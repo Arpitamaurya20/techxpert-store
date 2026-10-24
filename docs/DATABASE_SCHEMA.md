@@ -192,6 +192,16 @@ CREATE TABLE techxpertstore.products (
   INDEX idx_products_active (IsActive)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Per-store stock. No row means that store sells the company figure on product_variants.StockQuantity.
+CREATE TABLE techxpertstore.store_variant_stock (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  StoreID INT NOT NULL,
+  VariantID INT NOT NULL,
+  StockQuantity INT NOT NULL,
+  UNIQUE KEY uniq_store_variant (StoreID, VariantID),
+  INDEX idx_store_stock_variant (VariantID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Product Pricing
 CREATE TABLE techxpertstore.product_pricing (
   ID INT NOT NULL PRIMARY KEY,

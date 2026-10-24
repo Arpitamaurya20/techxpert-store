@@ -12,6 +12,7 @@ import { orderAgainItem, orderAgainLimit, restocksOnCancel, statusChangeRefusal,
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
 import { VARIANT_SELLING_PRICE } from '../utils/variants.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
+import { StoreStockService } from './storeStockService.js';
 
 export interface OrderFilterParams {
   userId?: number;
@@ -569,6 +570,14 @@ export class OrderService {
          WHERE VariantID = ?`,
         [line.quantity, line.variantId]
       );
+      if (order.storeId) {
+        await conn.query(
+          `UPDATE store_variant_stock
+           SET StockQuantity = GREATEST(0, StockQuantity - ?)
+           WHERE StoreID = ? AND VariantID = ?`,
+          [line.quantity, order.storeId, line.variantId]
+        );
+      }
       await conn.query(
         `UPDATE products
          SET StockStatus = 'out_of_stock', UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
@@ -680,6 +689,7 @@ export class OrderService {
         rows.push({ ...product, quantity });
       }
 
+      await StoreStockService.capLines(conn, storeId, rows);
       const { lines, totals } = await CartService.priceRows(rows);
       for (const line of lines) {
         const refusal = quantityRefusal(line.name, line.quantity, line.limits, line.basePrice);
@@ -781,8 +791,11 @@ export class OrderService {
   /**
    * The reverse of the stock taken in `writeOrder`: each line's quantity goes back on its variant, the
    * variant's inventory rows are resized to add up to it again, and an out-of-stock product is back in stock.
+   * A store that had its own quantity gets the same amount back on that row. A store with no row is unchanged.
    */
   private static async putStockBack(conn: PoolConnection, orderId: number) {
+    const [orders] = await conn.query<any[]>(`SELECT StoreID as storeId FROM orders WHERE ID = ? LIMIT 1`, [orderId]);
+    const storeId = Number(orders[0]?.storeId) || 0;
     const [lines] = await conn.query<any[]>(
       `SELECT ProductID as productId, VariantID as variantId, Quantity as quantity FROM order_items WHERE OrderID = ?`,
       [orderId]
@@ -811,6 +824,12 @@ export class OrderService {
         await conn.query(
           `UPDATE inventory_stock SET StockQuantity = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
           [row.quantity, row.id]
+        );
+      }
+      if (storeId) {
+        await conn.query(
+          `UPDATE store_variant_stock SET StockQuantity = StockQuantity + ? WHERE StoreID = ? AND VariantID = ?`,
+          [quantity, storeId, variantId]
         );
       }
       await conn.query(

@@ -338,6 +338,15 @@ export const api = {
     fetchApi<any>('/catalog/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: string, data: any) =>
     fetchApi<any>(`/catalog/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getProductStoreStock: (id: string) =>
+    fetchApi<{
+      variants: {
+        variantId: number;
+        name: string;
+        companyStock: number;
+        stores: { storeId: number; name: string; quantity: number | null }[];
+      }[];
+    }>(`/catalog/products/${id}/store-stock`),
   deleteProduct: (id: string) =>
     fetchApi<{ success: boolean }>(`/catalog/products/${id}`, { method: 'DELETE' }),
 

@@ -147,7 +147,7 @@ One transaction, in this order:
    - No lines: 400 "Your cart is empty."
    - Any line with a problem: 409 with that line's sentence.
    - Grand total differs from `expectedTotal` by any paisa: 409 "Prices changed since you opened checkout. Check the new total and place the order again."
-5. Write the order. Insert `orders` (with `CartID`), `order_items` and `order_status_history`, decrement `product_variants` and `inventory_stock`, and mark the product out of stock when every variant reaches 0.
+5. Write the order. Insert `orders` (with `CartID`), `order_items` and `order_status_history`, decrement `product_variants` and `inventory_stock`, and mark the product out of stock when every variant reaches 0. If the serving store has its own row in `store_variant_stock`, that row is decremented too, and it is what the stock check used. No row means the company figure.
    - Status is `confirmed`, payment `pending`, method `COD` (as today).
    - Delivery charge and tax use `cartTotals`.
 6. Delete the cart's lines, set `carts.Status = 'ordered'`, and commit.
@@ -187,7 +187,7 @@ Response 201: `{ id, orderNumber, placedAt, status, paymentStatus, paymentMethod
 ### Product page honesty (`catalogService`)
 
 - **Price:** no ₹450 fallback. A product without an active price is sent without `price`, so the phone shows "Price unavailable", blocks Add to cart, and sorts it after priced items (existing phone behaviour).
-- **Stock:** a product card reports the first variant's `product_variants.StockQuantity`. The product page lists every option. A cart call with no `variantId` sells the first; a call that names one sells that option. This replaces the sum of `inventory_stock` with a 150 fallback.
+- **Stock:** a product card reports the first variant's `product_variants.StockQuantity`. The product page lists every option. A cart call with no `variantId` sells the first; a call that names one sells that option. This replaces the sum of `inventory_stock` with a 150 fallback. A store with a row in `store_variant_stock` sells that quantity at checkout; no row means this company figure.
   - A product with no variant reports 0 and out of stock.
   - Expected change: the 48" Ceiling Fan shows 68 instead of 150.
 - **Cart message:** for a product with no variant (`setLineQuantity`), it changes from "no longer in the catalogue" to "\"<name>\" isn't available to order right now."

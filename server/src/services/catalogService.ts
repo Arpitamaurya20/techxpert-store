@@ -1,6 +1,8 @@
 import { storePool } from '../db/mysql.js';
 import type { PoolConnection } from 'mysql2/promise';
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
+import { allocationOver } from '../utils/storeStock.js';
+import { StoreStockService } from './storeStockService.js';
 import { productPageUpdates } from '../utils/productPage.js';
 import { variantStockUpdates } from '../utils/variants.js';
 import { store } from '../db/store.js';
@@ -768,9 +770,11 @@ export class CatalogService {
         }
 
         if (optionStocks) {
-          await CatalogService.writeChosenStocks(numId, optionStocks);
+          await CatalogService.writeChosenStocks(numId, optionStocks, data.storeStock);
         } else if (stockQuantity !== undefined) {
-          await CatalogService.writeCatalogueStock(numId, Number(stockQuantity));
+          await CatalogService.writeCatalogueStock(numId, Number(stockQuantity), data.storeStock);
+        } else if (data.storeStock !== undefined) {
+          await CatalogService.writeStoreStockOnly(numId, data.storeStock);
         }
 
         if (page.highlights || page.specifications) {
@@ -832,7 +836,7 @@ export class CatalogService {
    * sells when it does not name an option. A product without a variant gets one. Existing inventory
    * rows are resized to that figure; a variant with none keeps the number on the variant row.
    */
-  private static async writeCatalogueStock(productId: number, quantity: number) {
+  private static async writeCatalogueStock(productId: number, quantity: number, storeStock?: unknown) {
     await CatalogService.withProductIdLock(async (conn) => {
       const [variants] = await conn.query<any[]>(
         `SELECT ID FROM product_variants WHERE ProductID = ? ORDER BY ID ASC LIMIT 1`,
@@ -849,7 +853,17 @@ export class CatalogService {
           [variantId, productId]
         );
       }
+      if (storeStock !== undefined) {
+        await StoreStockService.apply(conn, productId, storeStock, new Map([[variantId, quantity]]));
+      }
       await CatalogService.writeVariantStock(conn, variantId, quantity);
+    });
+  }
+
+  /** Store quantities only. The company figure on each option stays as it is. */
+  private static async writeStoreStockOnly(productId: number, storeStock: unknown) {
+    await CatalogService.withProductIdLock(async (conn) => {
+      await StoreStockService.apply(conn, productId, storeStock, null);
     });
   }
 
@@ -907,7 +921,8 @@ export class CatalogService {
   /** Sets each named option's stock. Every id must already belong to this product. */
   private static async writeChosenStocks(
     productId: number,
-    updates: { id: number; stockQuantity: number }[]
+    updates: { id: number; stockQuantity: number }[],
+    storeStock?: unknown,
   ) {
     await CatalogService.withProductIdLock(async (conn) => {
       const [variants] = await conn.query<any[]>(
@@ -915,6 +930,14 @@ export class CatalogService {
         [productId]
       );
       const ids = new Set(variants.map((row) => Number(row.id)));
+      if (storeStock !== undefined) {
+        await StoreStockService.apply(
+          conn,
+          productId,
+          storeStock,
+          new Map(updates.map((update) => [update.id, update.stockQuantity])),
+        );
+      }
       for (const update of updates) {
         if (!ids.has(update.id)) {
           throw Object.assign(new Error("That option isn't part of this product."), { statusCode: 400 });
@@ -940,6 +963,19 @@ export class CatalogService {
    */
   private static async writeVariantStock(conn: PoolConnection, variantId: number, quantity: number) {
     const target = Math.max(0, Math.round(quantity));
+    const [heldRows] = await conn.query<any[]>(
+      `SELECT COALESCE(SUM(StockQuantity), 0) as held FROM store_variant_stock WHERE VariantID = ?`,
+      [variantId]
+    );
+    const held = Number(heldRows[0]?.held) || 0;
+    if (held > target) {
+      const [names] = await conn.query<any[]>(
+        `SELECT VariantName as name FROM product_variants WHERE ID = ? LIMIT 1`,
+        [variantId]
+      );
+      const reason = allocationOver(target, [held], String(names[0]?.name || 'this option'));
+      throw Object.assign(new Error(reason || 'The stores hold more than that.'), { statusCode: 400 });
+    }
     const [rows] = await conn.query<any[]>(
       `SELECT ID as id, StockQuantity as quantity FROM inventory_stock WHERE VariantID = ? ORDER BY ID ASC`,
       [variantId]

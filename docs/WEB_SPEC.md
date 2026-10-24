@@ -133,7 +133,7 @@ The staging run itself is still to do once a staging API exists.
 
 ### P9 note
 
-Saving a product writes `product_pricing.SellingPrice` for every active price row. If the product has none, one row is inserted, so the catalogue price is no longer the ₹450 fallback. Stock is the sum of `inventory_stock` for that product: existing rows are resized to the typed total, and a product with no inventory row gets one. `PUT /pricing/bulk-tiers/:id` updates that tier in place. The desk has Edit on each tier.
+Saving a product writes `product_pricing.SellingPrice` for every active price row. If the product has none, one row is inserted, so the catalogue price is no longer the ₹450 fallback. Stock is the sum of `inventory_stock` for that product: existing rows are resized to the typed total, and a product with no inventory row gets one. `PUT /pricing/bulk-tiers/:id` updates that tier in place. The desk has Edit on each tier. As built now, the shop reads `product_variants.StockQuantity`. A store with a row in `store_variant_stock` sells that quantity at checkout; no row means the company figure. Staff set it on the product screen. The stores together cannot hold more than the company figure.
 
 ### P8 note
 

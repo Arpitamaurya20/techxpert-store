@@ -81,6 +81,17 @@ export interface Product {
   highlights?: string[];
   /** Name-and-value rows on the product page. Empty until staff fill them. */
   specifications?: { label: string; value: string }[];
+  /**
+   * Staff only. Empty quantity means that store sells the company stock.
+   * A number is only what that store can sell.
+   */
+  storeStock?: {
+    variantId: number;
+    variantName: string;
+    storeId: number;
+    storeName: string;
+    quantity: number | null;
+  }[];
 }
 
 export interface ProductVariant {

@@ -70,6 +70,7 @@ interface ProductForm {
   brandName: string;
   description: string;
   variantStocks: { id: number; name: string; stock: string }[];
+  storeStock: { variantId: number; variantName: string; storeId: number; storeName: string; quantity: string }[];
   highlights: { key: string; text: string }[];
   specifications: { key: string; label: string; value: string }[];
 }
@@ -94,6 +95,13 @@ const formFor = (product: Product | null): ProductForm => ({
           stock: String(variant.stockQuantity ?? 0),
         }))
       : [],
+  storeStock: (product?.storeStock ?? []).map((row) => ({
+    variantId: row.variantId,
+    variantName: row.variantName,
+    storeId: row.storeId,
+    storeName: row.storeName,
+    quantity: row.quantity == null ? '' : String(row.quantity),
+  })),
   highlights: (product?.highlights ?? []).map((text) => ({ key: pageKey(), text })),
   specifications: (product?.specifications ?? []).map((row) => ({
     key: pageKey(),
@@ -101,6 +109,37 @@ const formFor = (product: Product | null): ProductForm => ({
     value: row.value,
   })),
 });
+
+/** Empty uses the company stock. A number is only what that store can sell, and the stores together cannot exceed it. */
+function storeQuantityError(form: ProductForm): string | null {
+  const companyFor = (variantId: number) => {
+    const variant = form.variantStocks.find((row) => row.id === variantId);
+    if (form.variantStocks.length > 1 && variant) return Number(variant.stock);
+    return Number(form.stock);
+  };
+  const held = new Map<number, { name: string; quantity: number; company: number }>();
+  for (const row of form.storeStock) {
+    const text = row.quantity.trim();
+    if (text === '') continue;
+    const quantity = Number(text);
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      return 'Stock at a store is a whole number, or empty to use the company stock.';
+    }
+    const current = held.get(row.variantId) ?? {
+      name: row.variantName || 'this option',
+      quantity: 0,
+      company: companyFor(row.variantId),
+    };
+    current.quantity += quantity;
+    held.set(row.variantId, current);
+  }
+  for (const row of held.values()) {
+    if (row.quantity > row.company) {
+      return `The stores hold ${row.quantity} of ${row.name}, which is more than the ${row.company} in stock.`;
+    }
+  }
+  return null;
+}
 
 /** Mirrors the server: a new product needs a price; an edited one may have it removed. A price must be more than ₹0. */
 function checkForm(form: ProductForm, editing: Product | null): FormErrors {
@@ -126,6 +165,8 @@ function checkForm(form: ProductForm, editing: Product | null): FormErrors {
       errors.stock = 'Enter a whole number, 0 or more.';
     }
   }
+  const storeStockError = storeQuantityError(form);
+  if (storeStockError) errors.stock = errors.stock || storeStockError;
   if (!form.unit.trim()) errors.unit = 'Enter the selling unit, e.g. "50 kg bag".';
   const pack = Number(form.quantityStep.trim());
   if (form.quantityStep.trim() === '' || !Number.isInteger(pack) || pack < 1 || pack > 9999) {
@@ -253,6 +294,23 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
       }
     } catch {
       detail = product;
+    }
+    try {
+      const stock = await api.getProductStoreStock(String(product.id));
+      detail = {
+        ...detail,
+        storeStock: (stock?.variants ?? []).flatMap((variant) =>
+          (variant.stores ?? []).map((store) => ({
+            variantId: variant.variantId,
+            variantName: variant.name,
+            storeId: store.storeId,
+            storeName: store.name,
+            quantity: store.quantity,
+          }))
+        ),
+      };
+    } catch {
+      detail = { ...detail, storeStock: undefined };
     }
     setEditing(detail);
     setFormOpen(true);
@@ -484,6 +542,17 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                 specifications: form.specifications
                   .filter((row) => row.label.trim() || row.value.trim())
                   .map((row) => ({ label: row.label.trim(), value: row.value.trim() })),
+                ...(form.storeStock.length
+                  ? {
+                      storeStock: form.storeStock.map((row) => ({
+                        variantId: row.variantId,
+                        variantName: row.variantName,
+                        storeId: row.storeId,
+                        storeName: row.storeName,
+                        quantity: row.quantity.trim() === '' ? null : Number(row.quantity),
+                      })),
+                    }
+                  : {}),
               });
             } else {
               await onCreateProduct({
@@ -554,6 +623,36 @@ const ProductFormDialog: React.FC<{
   };
 
   const formId = editing ? `product-edit-${editing.id}` : 'product-add';
+
+  const storeFields = (variantId: number | null) =>
+    form.storeStock
+      .filter((row) => variantId == null || row.variantId === variantId)
+      .map((row, index) => (
+        <Field
+          key={`${row.variantId}-${row.storeId}`}
+          id={`${formId}-store-${row.variantId}-${row.storeId}`}
+          label={`Stock at ${row.storeName}`}
+          hint={index === 0 ? 'Empty uses the company stock. 0 means this store has none.' : undefined}
+        >
+          <input
+            inputMode="numeric"
+            value={row.quantity}
+            placeholder="Company stock"
+            onChange={(event) => {
+              const value = event.target.value;
+              setForm((prev) => ({
+                ...prev,
+                storeStock: prev.storeStock.map((item) =>
+                  item.variantId === row.variantId && item.storeId === row.storeId
+                    ? { ...item, quantity: value }
+                    : item
+                ),
+              }));
+              if (errors.stock || errors.form) setErrors((prev) => ({ ...prev, stock: undefined, form: undefined }));
+            }}
+          />
+        </Field>
+      ));
 
   return (
     <Modal
@@ -634,6 +733,7 @@ const ProductFormDialog: React.FC<{
             <input inputMode="numeric" value={form.quantityStep} onChange={set('quantityStep')} placeholder="1" />
           </Field>
         </div>
+        {form.variantStocks.length > 1 ? null : storeFields(null)}
         <div style={styles.row}>
           {editing ? null : (
             <Field
@@ -653,28 +753,30 @@ const ProductFormDialog: React.FC<{
         {form.variantStocks.length > 1 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {form.variantStocks.map((variant, index) => (
-              <Field
-                key={variant.id}
-                id={`${formId}-option-${variant.id}`}
-                label={`${variant.name} stock`}
-                error={index === 0 ? errors.stock : null}
-                hint={index === 0 ? 'Each option has its own stock. The app sells the one the customer picks.' : undefined}
-              >
-                <input
-                  inputMode="numeric"
-                  value={variant.stock}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setForm((prev) => ({
-                      ...prev,
-                      variantStocks: prev.variantStocks.map((row) =>
-                        row.id === variant.id ? { ...row, stock: value } : row
-                      ),
-                    }));
-                    if (errors.stock || errors.form) setErrors((prev) => ({ ...prev, stock: undefined, form: undefined }));
-                  }}
-                />
-              </Field>
+              <div key={variant.id} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <Field
+                  id={`${formId}-option-${variant.id}`}
+                  label={`${variant.name} stock`}
+                  error={index === 0 ? errors.stock : null}
+                  hint={index === 0 ? 'Each option has its own stock. The app sells the one the customer picks.' : undefined}
+                >
+                  <input
+                    inputMode="numeric"
+                    value={variant.stock}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        variantStocks: prev.variantStocks.map((row) =>
+                          row.id === variant.id ? { ...row, stock: value } : row
+                        ),
+                      }));
+                      if (errors.stock || errors.form) setErrors((prev) => ({ ...prev, stock: undefined, form: undefined }));
+                    }}
+                  />
+                </Field>
+                {storeFields(variant.id)}
+              </div>
             ))}
           </div>
         ) : null}

@@ -5,6 +5,7 @@ import { DeliveryAreaService } from './deliveryAreaService.js';
 import { isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPricing.js';
 import { quantityRefusal, sameMoney } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
+import { StoreStockService } from './storeStockService.js';
 
 export type CartCheckoutRequest = {
   cartId?: unknown;
@@ -69,6 +70,7 @@ export class CartCheckoutService {
       const rows = await CartService.cartRows(cartId, conn, true);
       if (rows.length === 0) throw orderRefusal(400, 'Your cart is empty.');
 
+      await StoreStockService.capLines(conn, storeId, rows);
       const { lines, totals } = await CartService.priceRows(rows);
       for (const line of lines) {
         if (!line.problem) continue;

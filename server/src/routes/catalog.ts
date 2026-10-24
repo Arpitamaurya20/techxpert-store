@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { CatalogService } from '../services/catalogService.js';
+import { StoreStockService } from '../services/storeStockService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { requireAdmin, requirePermission } from '../middleware/auth.js';
 import { validateProductCreateBody, validateProductUpdateBody } from '../utils/validate.js';
@@ -136,6 +137,18 @@ router.post(
     const body = validateProductCreateBody(req.body);
     const newProduct = await CatalogService.createProduct(body);
     return sendSuccess(res, newProduct, 'Product created successfully', 201);
+  })
+);
+
+// GET /catalog/products/:id/store-stock — staff only. The shop still shows the company figure.
+router.get(
+  '/products/:id/store-stock',
+  requireAdmin,
+  requirePermission('products', 'view'),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return sendError(res, 404, 'Product not found');
+    return sendSuccess(res, await StoreStockService.forProduct(id));
   })
 );
 
