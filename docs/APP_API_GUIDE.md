@@ -482,6 +482,51 @@ POST /cart/reorder  { "orderId": 1 } → 200
 
 The same object also includes `cart`, the priced cart from use case 6. In this example the bulb's 3 were the ordered quantity on an empty cart, and the air conditioner is no longer sold so it was not added.
 
+### UC-12 Saved items
+
+The list follows the account, so it is still there after a reinstall or on another phone. A guest list is kept against the same `x-session-id` as the cart. Saving a product that is already saved moves it to the front. Newest first. At most 100 products.
+
+| Call | Notes |
+|---|---|
+| `GET /wishlist` | The caller's saved products, at today's price and stock. A guest with no session gets a new `sessionId` and an empty list; send that id from then on |
+| `PUT /wishlist/:productId` | Body `{ "saved": true }` or `{ "saved": false }`. `saved` must be a boolean |
+| `POST /wishlist/merge` | Signed in. Body `{ "sessionId", "productIds" }`. Folds the guest session and the ids saved on the device into the account, then clears the guest session |
+
+```json
+PUT /wishlist/5  { "saved": true } → 200
+{ "success": true, "data": {
+  "sessionId": "…",
+  "items": [ { "productId": 5, "name": "9W LED Bulb", "price": 149, "available": true, "unavailableReason": null } ] } }
+```
+
+Each item also includes `sku`, `imageUrl`, `categoryId`, `brandName`, `unit`, `stockQuantity`, `stockStatus`, `minOrderQuantity` and `variantId`, the same facts as a product in the catalogue.
+
+A signed-in response has no `sessionId`. A product that can no longer be bought stays in the list with `available: false` and `unavailableReason`, the same three sentences as Order Again.
+
+**Refusals:**
+
+| Status | `error` |
+|---|---|
+| 400 | `saved must be true or false.` |
+| 400 | `productId must be a product number.` |
+| 400 | `productIds must be a list of product numbers.` |
+| 401 | `Sign in to keep your saved items.` on merge, when there is no customer sign-in |
+| 409 | `This product is no longer in the catalogue.` when saving a product that is not on sale |
+| 409 | `You can save up to 100 products. Remove one to save another.` |
+
+**After sign-in**, send the device's saved ids too, newest first. They are kept ahead of the guest session and the account, duplicates are dropped, and anything past 100 is the oldest and is left out.
+
+```json
+POST /wishlist/merge  { "sessionId": "…", "productIds": [8155, 5] } → 200
+{ "success": true, "data": { "items": [
+  { "productId": 8155, "name": "ABB 16A Socket 2 Pin", "price": null, "available": false,
+    "unavailableReason": "This product isn't available to order right now." },
+  { "productId": 5, "price": 149, "available": true, "unavailableReason": null },
+  { "productId": 3, "price": 1999, "available": true, "unavailableReason": null } ] } }
+```
+
+The second example is shortened to the fields that decide what the screen shows. The socket has stock but no price, so it stays saved and is not for sale.
+
 ---
 
 ## 9. Calls the app should not use

@@ -27,6 +27,7 @@ Run from `server/`, against the MySQL host that has both `homecare` and `techxpe
 | 1.2 | `sql/shop_s3_checkout.sql` | `SHOW COLUMNS FROM techxpertstore.orders LIKE 'CartID'` returns a row | **Not** safe to run again; it fails if `CartID` exists. Must come before 1.4 |
 | 1.3 | `sql/portal_access.sql` | `SHOW TABLES IN techxpertstore LIKE 'portal_roles'` returns a row | Safe to run again; seeds the Merchandiser and Store Admin roles |
 | 1.4 | `sql/portal_scope.sql` | `SHOW TABLES IN techxpertstore LIKE 'store_pincodes'` returns a row and the query below returns 0 | Safe to run again. See below |
+| 1.5 | `sql/saved_items.sql` | `SHOW TABLES IN techxpertstore LIKE 'saved_items'` returns a row | Safe to run again. The previous API ignores the table |
 
 `sql/portal_audit_logs_alter_category.sql` can be skipped: 1.3 and 1.4 make the same change. `sql/portal_staff.sql` is **not** run here, because it renames a column that the live API reads. It runs in step 3.2, right before the restart.
 

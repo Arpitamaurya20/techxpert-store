@@ -13,6 +13,7 @@ import auditRouter from './routes/audit.js';
 import deliveryRouter from './routes/delivery.js';
 import accessRouter from './routes/access.js';
 import storesRouter from './routes/stores.js';
+import wishlistRouter from './routes/wishlist.js';
 import { getCorsOptions, getJwtSecret } from './config/security.js';
 import { DB_STORE, DB_USERS, logDbBootStatus, testDbConnections } from './db/mysql.js';
 
@@ -69,6 +70,7 @@ const mountRouters = (prefix: string) => {
   app.use(`${prefix}/cms`, cmsRouter);
   app.use(`${prefix}/pricing`, pricingRouter);
   app.use(`${prefix}/cart`, cartRouter);
+  app.use(`${prefix}/wishlist`, wishlistRouter);
   app.use(`${prefix}/audit`, auditRouter);
   app.use(`${prefix}/delivery`, deliveryRouter);
   app.use(`${prefix}/access`, accessRouter);

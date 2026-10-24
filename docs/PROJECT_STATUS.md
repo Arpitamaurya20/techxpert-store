@@ -74,6 +74,7 @@ What an auditor should check, where it lives.
 | Order status is one of pending, confirmed, processing, shipped, delivered, cancelled; anything else is refused | `server/src/utils/validate.ts` (`validateOrderStatusBody`), `server/src/routes/orders.ts` |
 | Order Again is the products this customer bought (cancelled orders left out), one row each, at today's price and stock. A product that can't be bought stays, with a reason. Unsigned and staff tokens get 401 | `server/src/utils/orderRules.ts` (`orderAgainItem`), `orderService.getOrderAgain`, `GET /orders/again` |
 | Reorder adds one of the customer's orders on top of their cart, at today's price and limits, and names every line it could not add. It does not place an order. Another customer's order is 404 | `cartRules.reorderTarget`, `cartService.reorder`, `POST /cart/reorder` |
+| Saved items follow the account (a guest list follows `x-session-id`). Today's price and stock. Merge on sign-in keeps the device list, then the guest list, then the account, capped at 100. A product that can't be bought stays, with a reason | `wishlist.ts`, `wishlistService.ts`, `GET/PUT /wishlist`, `POST /wishlist/merge`, `sql/saved_items.sql` |
 | Cancelling: cancelled is final (409 on any change); a delivered order can't be cancelled (409). Cancelling an order placed through this shop (`TX-ORD-`) puts each line's quantity back on the variant it took from, in the same transaction, resizes that variant's inventory rows and marks an out-of-stock product in stock; imported orders (`ORD-`) put nothing back. The history note says which | `server/src/utils/orderRules.ts`, `orderService.updateOrderStatus` / `putStockBack`, `web/src/services/orderStatus.ts` (`statusChoices`, `restocksOnCancel`), `web/src/components/OrdersManager.tsx` |
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
@@ -124,7 +125,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 118 unit tests, including `security`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 124 unit tests, including `security`, `wishlist`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -139,6 +140,7 @@ Run in this order on production (all applied to the local DB already). See [`ser
 5. `server/sql/portal_scope.sql`: before restarting the API on the A2 code. With more than one store, link every active pincode to a store first, or it stops.
 6. `server/sql/portal_staff.sql`: before restarting the API on the A3 code. Back up `portal_staff_roles` and `portal_staff_scope` first; it empties them and has no undo.
 7. `npm run staff:bootstrap` once, for the first super admin. Then deploy the API and portal together.
+8. `server/sql/saved_items.sql`: the customer wishlist. Safe to run again. The previous API ignores the table.
 
 Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 
@@ -160,6 +162,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 10 | Customer API holes found while writing the app guide: `GET /orders` without a sign-in listed every customer's orders; `POST /auth/login` gave a customer token with no code; code `123456` worked in production | `config/security.ts`, `authService.ts`, `routes/auth.ts`, `routes/orders.ts`; guide [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) | **Done** 23 Oct: 107/107 unit tests. Local: anonymous and staff-without-`all` get 401, a customer sees only their own orders. Production mode: `/auth/login` 403, `123456` refused, anonymous orders 401 |
 | 11 | Order Again for the app: one call for the products a customer bought, at today's price and stock | `orderRules.ts`, `orderService.getOrderAgain`, `GET /orders/again`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-1 | **Done** 24 Oct: 113/113 unit tests. Local: unsigned and staff get 401; a customer with 9 bought products got those 9, unique, today's price matching the catalogue (₹1,999); a product with stock but no price came back `available: false`; `limit=1` and the cap at 20 held |
 | 12 | Reorder: put one past order back into the cart at today's prices, and say which lines were skipped | `cartRules.ts` (`reorderTarget`), `cartService.reorder`, `POST /cart/reorder`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-11 | **Done** 24 Oct: 118/118 unit tests. Local: unsigned and staff get 401; a bad id is 400; someone else's order is 404. Order 1 added the 9W LED Bulb (3, today's price) and skipped the removed air conditioner. The cart was put back afterwards |
+| 13 | Saved items on the server, merged into the account on sign-in | `sql/saved_items.sql`, `wishlist.ts`, `wishlistService.ts`, `routes/wishlist.ts`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-12 | **Done** 24 Oct: 124/124 unit tests. Local: guest save, a removed product refused, merge order device then guest then account, an unpriced product stayed unavailable, guest list cleared, rows removed afterwards |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
