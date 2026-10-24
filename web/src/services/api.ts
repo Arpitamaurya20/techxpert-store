@@ -34,6 +34,27 @@ export type HelpDraft = {
   faqs: { question: string; answer: string }[];
 };
 
+export type HomeShortcut = {
+  categoryId: number;
+  label: string;
+  name: string;
+  imageUrl: string;
+  available: boolean;
+};
+export type HomeProject = {
+  id: number;
+  title: string;
+  subtitle: string;
+  imageUrl: string;
+  calculator: string;
+  categories: { categoryId: number; name: string; available: boolean }[];
+};
+export type HomeContent = { shortcuts: HomeShortcut[]; projects: HomeProject[] };
+export type HomeDraft = {
+  shortcuts: { categoryId: number; label: string }[];
+  projects: { title: string; subtitle: string; imageUrl: string; calculator: string; categoryIds: number[] }[];
+};
+
 type ApiEnvelope<T> = {
   success?: boolean;
   data?: T;
@@ -314,6 +335,9 @@ export const api = {
     }),
   resetSections: () => fetchApi<any[]>('/cms/sections/reset', { method: 'POST' }),
 
+  getHome: () => fetchApi<HomeContent>('/cms/home'),
+  saveHome: (body: HomeDraft) =>
+    fetchApi<HomeContent>('/cms/home', { method: 'PUT', body: JSON.stringify(body) }),
   getHelp: () => fetchApi<HelpContent>('/cms/help'),
   saveHelp: (body: HelpDraft) =>
     fetchApi<HelpContent>('/cms/help', { method: 'PUT', body: JSON.stringify(body) }),

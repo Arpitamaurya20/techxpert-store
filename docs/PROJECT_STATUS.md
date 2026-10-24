@@ -76,6 +76,7 @@ What an auditor should check, where it lives.
 | Reorder adds one of the customer's orders on top of their cart, at today's price and limits, and names every line it could not add. It does not place an order. Another customer's order is 404 | `cartRules.reorderTarget`, `cartService.reorder`, `POST /cart/reorder` |
 | Saved items follow the account (a guest list follows `x-session-id`). Today's price and stock. Merge on sign-in keeps the device list, then the guest list, then the account, capped at 100. A product that can't be bought stays, with a reason | `wishlist.ts`, `wishlistService.ts`, `GET/PUT /wishlist`, `POST /wishlist/merge`, `sql/saved_items.sql` |
 | Help page is the phone, WhatsApp, email, hours and questions the app will show. Empty until staff fill it in. Replacing it needs Help & support edit | `helpContent.ts`, `helpService.ts`, `GET/PUT /cms/help`, `HelpManager.tsx`, `sql/help_content.sql` |
+| Home shortcuts and projects are the category row and project tiles. Empty until staff pick categories that are on sale. Replacing the page needs Home screen sections edit. The app adds More; this list holds at most 7 | `homeMerch.ts`, `homeMerchService.ts`, `GET/PUT /cms/home`, `HomeMerchManager.tsx`, `sql/home_merch.sql` |
 | Cancelling: cancelled is final (409 on any change); a delivered order can't be cancelled (409). Cancelling an order placed through this shop (`TX-ORD-`) puts each line's quantity back on the variant it took from, in the same transaction, resizes that variant's inventory rows and marks an out-of-stock product in stock; imported orders (`ORD-`) put nothing back. The history note says which | `server/src/utils/orderRules.ts`, `orderService.updateOrderStatus` / `putStockBack`, `web/src/services/orderStatus.ts` (`statusChoices`, `restocksOnCancel`), `web/src/components/OrdersManager.tsx` |
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
@@ -126,7 +127,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 128 unit tests, including `security`, `wishlist`, `helpContent`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 132 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -143,6 +144,7 @@ Run in this order on production (all applied to the local DB already). See [`ser
 7. `npm run staff:bootstrap` once, for the first super admin. Then deploy the API and portal together.
 8. `server/sql/saved_items.sql`: the customer wishlist. Safe to run again. The previous API ignores the table.
 9. `server/sql/help_content.sql`: the help page (empty until staff fill it) and the `help` audit label. Safe to run again. Comes after the audit table exists.
+10. `server/sql/home_merch.sql`: the home shortcut row and project tiles. Starts empty. Safe to run again.
 
 Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 
@@ -166,6 +168,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 12 | Reorder: put one past order back into the cart at today's prices, and say which lines were skipped | `cartRules.ts` (`reorderTarget`), `cartService.reorder`, `POST /cart/reorder`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-11 | **Done** 24 Oct: 118/118 unit tests. Local: unsigned and staff get 401; a bad id is 400; someone else's order is 404. Order 1 added the 9W LED Bulb (3, today's price) and skipped the removed air conditioner. The cart was put back afterwards |
 | 13 | Saved items on the server, merged into the account on sign-in | `sql/saved_items.sql`, `wishlist.ts`, `wishlistService.ts`, `routes/wishlist.ts`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-12 | **Done** 24 Oct: 124/124 unit tests. Local: guest save, a removed product refused, merge order device then guest then account, an unpriced product stayed unavailable, guest list cleared, rows removed afterwards |
 | 14 | Help & support structure: phone, WhatsApp, email, hours and questions, empty until staff fill them | `sql/help_content.sql`, `helpService.ts`, `GET/PUT /cms/help`, `HelpManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-13 | **Done** 24 Oct: 128/128 unit tests. The page starts blank. A new Help & support module; super admin sees it, other roles see it once it is ticked on their role |
+| 15 | Home shortcuts and projects: staff pick real categories for the home row and the project tiles | `sql/home_merch.sql`, `homeMerchService.ts`, `GET/PUT /cms/home`, `HomeMerchManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-14 | **Done** 24 Oct: 132/132 unit tests. Both lists start empty. Same access as Home screen sections. The app still uses its own lists until it reads the new call |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
@@ -177,7 +180,7 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
 - **Phone sign-in is memory-only:** after an app restart the customer sees the guest cart until signing in again.
 - **Stock mismatch for multi-variant products:** the shop sells the first variant only.
 - **App home, for the app team:**
-  - The category shortcuts point at category ids (`cement-plaster`, `tiling-grouts`…) that don't exist in this catalogue, so that block finds nothing.
+  - The category shortcuts and project pages are still the app's own lists (`cement-plaster`, `tiling-grouts`…), which are not in this catalogue, so those blocks find nothing until the app reads `GET /cms/home`. The server page starts empty for staff to fill.
   - Banner buttons can't open outside links (they show all products).
 - **No SMS sender:** `send-otp` makes a code but nothing texts it to the customer. Locally the code is always `123456`; production needs an SMS provider before phone sign-in works.
 - **App sign-in must move to codes:** the app calls `POST /auth/login`, which production now refuses. It must use `send-otp` then `verify-otp` ([`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §8 UC-7).

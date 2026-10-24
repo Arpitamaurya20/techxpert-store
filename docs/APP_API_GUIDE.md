@@ -151,6 +151,7 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 | Call | Gives |
 |---|---|
 | `GET /cms/sections` | The home blocks the app should draw, in order, each with `enabled` |
+| `GET /cms/home` | The category shortcut row and the project tiles (use case 14). Empty until staff fill them |
 | `GET /cms/banners` | Only the banners live right now, in order |
 | `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
 | `GET /catalog/categories` | Category tiles |
@@ -539,6 +540,21 @@ GET /cms/help → 200
 
 When a question is published it has `id`, `question`, `answer` and `position` (1 is first). `phone` and `whatsapp` are digits the app can dial or open in WhatsApp, with an optional leading `+`. `phoneLabel` is the number as a person should read it.
 
+### UC-14 Home shortcuts and projects
+
+**Call, public:** `GET /cms/home`. The category row under the header, and the Shop by project tiles. Both lists are empty until staff fill them on the portal (Shortcuts & projects, same access as Home screen sections). The app can keep its own lists until it switches to this call. Match `categoryId` to `id` from `GET /catalog/categories` by comparing them as text, because the catalogue id arrives as a number.
+
+The app still draws **More** as the last shortcut. This call never includes it, and it holds at most 7 shortcuts.
+
+A shortcut's `label` is the short name staff typed. When it is `""`, show `name`. Skip a row with `available: false` (the category was taken off sale after it was chosen). `imageUrl` is the category's picture.
+
+A project opens its own page. `categories` is the list for that job, in the order staff set. Skip a category with `available: false`. `calculator` is `""`, `paint`, `tiles` or `cement`: the same estimators the app already has. `""` means no estimator button. `imageUrl` may be blank. A project's `id` can change the next time staff save the page, so open a project from the latest response.
+
+```json
+GET /cms/home → 200
+{ "success": true, "data": { "shortcuts": [], "projects": [] } }
+```
+
 ---
 
 ## 9. Calls the app should not use
@@ -557,7 +573,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Home:** the category shortcuts point at category IDs that don't exist in this catalogue. Banners can't open outside links yet (use case 1).
+- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting

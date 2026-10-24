@@ -11,6 +11,7 @@ import { BulkPricingManager } from './components/BulkPricingManager';
 import { BannerCMS } from './components/BannerCMS';
 import { SectionLayoutManager } from './components/SectionLayoutManager';
 import { HelpManager } from './components/HelpManager';
+import { HomeMerchManager } from './components/HomeMerchManager';
 import { ApiExplorer } from './components/ApiExplorer';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { DeliveryPincodeManager } from './components/DeliveryPincodeManager';
@@ -30,7 +31,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { HelpContent } from './services/api';
+import type { HelpContent, HomeContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -229,6 +230,8 @@ function PortalApp({
   const [sections, setSections] = useState<HomepageSection[]>([]);
   const [help, setHelp] = useState<HelpContent | null>(null);
   const [helpError, setHelpError] = useState<string | null>(null);
+  const [homeMerch, setHomeMerch] = useState<HomeContent | null>(null);
+  const [homeMerchError, setHomeMerchError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -292,6 +295,7 @@ function PortalApp({
       });
     const skip = Promise.resolve(undefined);
     let helpFailed: string | null = null;
+    let homeFailed: string | null = null;
     try {
       setLoading(true);
       const [
@@ -303,6 +307,7 @@ function PortalApp({
         bannersData,
         sectionsData,
         helpData,
+        homeData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -317,6 +322,13 @@ function PortalApp({
           ? api.getHelp().catch((err: Error) => {
               failed.push('the help page');
               helpFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'sections', 'view')
+          ? api.getHome().catch((err: Error) => {
+              failed.push('the home shortcuts');
+              homeFailed = err?.message || "The server didn't answer.";
               return undefined;
             })
           : skip,
@@ -355,6 +367,8 @@ function PortalApp({
       if (sectionsOk) setSections(sectionsData as HomepageSection[]);
       setHelpError(helpFailed);
       if (helpData) setHelp(helpData);
+      setHomeMerchError(homeFailed);
+      if (homeData) setHomeMerch(homeData);
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -680,6 +694,10 @@ function PortalApp({
       title: 'Home screen sections',
       subtitle: 'Which blocks the app home screen shows, and in what order. Changes appear without an app update',
     },
+    shortcuts: {
+      title: 'Shortcuts & projects',
+      subtitle: 'The category row and project tiles on the app home screen',
+    },
     help: {
       title: 'Help & support',
       subtitle: 'The phone number, WhatsApp number and questions the app shows on Help',
@@ -886,6 +904,19 @@ function PortalApp({
               canEdit={can(permissions, 'help', 'edit')}
               onSaved={setHelp}
               onAudit={(action, details) => addAuditLog(action, 'help', details)}
+            />
+          )}
+
+          {currentTab === 'shortcuts' && (
+            <HomeMerchManager
+              content={homeMerch}
+              categories={categories}
+              loading={loading}
+              loadError={homeMerchError}
+              onRetry={() => loadData(true)}
+              canEdit={can(permissions, 'sections', 'edit')}
+              onSaved={setHomeMerch}
+              onAudit={(action, details) => addAuditLog(action, 'section', details)}
             />
           )}
 

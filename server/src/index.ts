@@ -111,6 +111,7 @@ const healthHandler = async (_req: express.Request, res: express.Response) => {
       'GET  /orders',
       'GET  /cms/banners',
       'GET  /cms/sections',
+      'GET  /cms/home',
       'GET  /pricing/bulk-tiers',
       'GET  /cart',
       'GET  /delivery/pincodes/:pincode',

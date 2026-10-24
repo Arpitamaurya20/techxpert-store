@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { CmsService } from '../services/cmsService.js';
 import { HelpService } from '../services/helpService.js';
+import { HomeMerchService } from '../services/homeMerchService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { requireAdmin, requirePermission, optionalAuth, isActiveStaff } from '../middleware/auth.js';
 import { validateBannerBody } from '../utils/validate.js';
@@ -139,6 +140,24 @@ router.put(
   asyncHandler(async (req, res) => {
     const updated = await CmsService.updateSection(req.params.id, req.body);
     return sendSuccess(res, updated, 'Section updated');
+  })
+);
+
+// GET /cms/home - Category shortcuts and project tiles. Empty until staff fill them in.
+router.get(
+  '/home',
+  asyncHandler(async (_req, res) => {
+    return sendSuccess(res, await HomeMerchService.get());
+  })
+);
+
+// PUT /cms/home - Replace the shortcut row and project tiles (home screen sections edit)
+router.put(
+  '/home',
+  requireAdmin,
+  requirePermission('sections', 'edit'),
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await HomeMerchService.save(req.body), 'Home shortcuts saved');
   })
 );
 
