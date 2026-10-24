@@ -59,6 +59,7 @@ interface ProductForm {
   sku: string;
   brandName: string;
   description: string;
+  variantStocks: { id: number; name: string; stock: string }[];
 }
 
 type FormErrors = Partial<Record<keyof ProductForm | 'form', string>>;
@@ -72,6 +73,14 @@ const formFor = (product: Product | null): ProductForm => ({
   sku: product?.sku ?? '',
   brandName: product?.brandName ?? '',
   description: product?.description ?? '',
+  variantStocks:
+    (product?.variants?.length ?? 0) > 1
+      ? product!.variants!.map((variant) => ({
+          id: Number(variant.id),
+          name: variant.name || 'Option',
+          stock: String(variant.stockQuantity ?? 0),
+        }))
+      : [],
 });
 
 /** Mirrors the server: a new product needs a price; an edited one may have it removed. A price must be more than ₹0. */
@@ -85,15 +94,26 @@ function checkForm(form: ProductForm, editing: Product | null): FormErrors {
   } else if (!(Number(price) > 0)) {
     errors.price = 'Enter a price of more than ₹0.';
   }
-  const stock = form.stock.trim();
-  if (stock === '' || !Number.isInteger(Number(stock)) || Number(stock) < 0) {
-    errors.stock = 'Enter a whole number, 0 or more.';
+  if (form.variantStocks.length > 1) {
+    if (form.variantStocks.some((variant) => {
+      const stock = variant.stock.trim();
+      return stock === '' || !Number.isInteger(Number(stock)) || Number(stock) < 0;
+    })) {
+      errors.stock = 'Enter a whole number, 0 or more, for each option.';
+    }
+  } else {
+    const stock = form.stock.trim();
+    if (stock === '' || !Number.isInteger(Number(stock)) || Number(stock) < 0) {
+      errors.stock = 'Enter a whole number, 0 or more.';
+    }
   }
   if (!form.unit.trim()) errors.unit = 'Enter the selling unit, e.g. "50 kg bag".';
   return errors;
 }
 
 const stockBadge = (p: Product) => {
+  const options = Number(p.variantCount) || 0;
+  if (options > 1) return <Badge variant="neutral" size="sm">{options} options</Badge>;
   const qty = Number(p.stockQuantity ?? 0);
   if (p.stockStatus === 'out_of_stock' || qty <= 0) return <Badge variant="danger" size="sm">Out of stock</Badge>;
   if (p.stockStatus === 'low_stock') return <Badge variant="warning" size="sm">{qty.toLocaleString('en-IN')} left</Badge>;
@@ -186,8 +206,22 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
     setFormOpen(true);
   };
 
-  const openEdit = (product: Product) => {
-    setEditing(product);
+  const openEdit = async (product: Product) => {
+    let detail: Product = product;
+    try {
+      const loaded = await api.getProduct(String(product.id));
+      if (loaded) {
+        detail = {
+          ...product,
+          ...loaded,
+          id: String(loaded.id ?? product.id),
+          variants: Array.isArray(loaded.variants) ? loaded.variants : [],
+        };
+      }
+    } catch {
+      detail = product;
+    }
+    setEditing(detail);
     setFormOpen(true);
   };
 
@@ -395,11 +429,20 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
           onClose={() => setFormOpen(false)}
           onSave={async (form) => {
             if (editing) {
+              const many = form.variantStocks.length > 1;
               await onUpdateProduct({
                 ...editing,
                 name: form.name.trim(),
                 price: form.price.trim() === '' ? null : Number(form.price),
-                stockQuantity: Number(form.stock),
+                ...(many
+                  ? {
+                      variants: form.variantStocks.map((variant) => ({
+                        id: variant.id,
+                        name: variant.name,
+                        stockQuantity: Number(variant.stock),
+                      })),
+                    }
+                  : { stockQuantity: Number(form.stock) }),
                 unit: form.unit.trim(),
                 brandName: form.brandName.trim(),
                 description: form.description.trim(),
@@ -534,9 +577,11 @@ const ProductFormDialog: React.FC<{
           >
             <input inputMode="decimal" value={form.price} onChange={set('price')} placeholder="380" />
           </Field>
-          <Field id={`${formId}-stock`} label="Stock" error={errors.stock} style={{ flex: 1 }}>
-            <input inputMode="numeric" value={form.stock} onChange={set('stock')} placeholder="100" />
-          </Field>
+          {form.variantStocks.length > 1 ? null : (
+            <Field id={`${formId}-stock`} label="Stock" error={errors.stock} style={{ flex: 1 }}>
+              <input inputMode="numeric" value={form.stock} onChange={set('stock')} placeholder="100" />
+            </Field>
+          )}
           <Field id={`${formId}-unit`} label="Sold as" error={errors.unit} style={{ flex: 1.3 }}>
             <input value={form.unit} onChange={set('unit')} maxLength={60} placeholder="50 kg bag" />
           </Field>
@@ -557,6 +602,34 @@ const ProductFormDialog: React.FC<{
             <input value={form.brandName} onChange={set('brandName')} maxLength={100} placeholder="UltraTech" />
           </Field>
         </div>
+        {form.variantStocks.length > 1 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {form.variantStocks.map((variant, index) => (
+              <Field
+                key={variant.id}
+                id={`${formId}-option-${variant.id}`}
+                label={`${variant.name} stock`}
+                error={index === 0 ? errors.stock : null}
+                hint={index === 0 ? 'Each option has its own stock. The app sells the one the customer picks.' : undefined}
+              >
+                <input
+                  inputMode="numeric"
+                  value={variant.stock}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setForm((prev) => ({
+                      ...prev,
+                      variantStocks: prev.variantStocks.map((row) =>
+                        row.id === variant.id ? { ...row, stock: value } : row
+                      ),
+                    }));
+                    if (errors.stock || errors.form) setErrors((prev) => ({ ...prev, stock: undefined, form: undefined }));
+                  }}
+                />
+              </Field>
+            ))}
+          </div>
+        ) : null}
         <Field id={`${formId}-description`} label="Description">
           <textarea value={form.description} onChange={set('description')} maxLength={2000} />
         </Field>

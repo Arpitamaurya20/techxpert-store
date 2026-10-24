@@ -3,6 +3,7 @@ import { CartService, type CartAccess } from '../services/cartService.js';
 import { CartCheckoutService } from '../services/cartCheckoutService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
+import { chosenVariantId } from '../utils/variants.js';
 
 const router = Router();
 
@@ -45,8 +46,27 @@ router.put(
   asyncHandler(async (req, res) => {
     const productId = Number(req.params.productId);
     const quantity = Number(req.body?.quantity);
-    const cart = await CartService.setLineQuantity(accessFrom(req), productId, quantity);
+    const cart = await CartService.setLineQuantity(
+      accessFrom(req),
+      productId,
+      quantity,
+      chosenVariantId(req.body?.variantId)
+    );
     return sendSuccess(res, cart);
+  })
+);
+
+// POST /cart/reorder - Add one of the customer's orders back into their cart
+router.post(
+  '/reorder',
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user?.userId) return sendError(res, 401, 'Sign in to reorder an order.');
+    const orderId = Number(req.body?.orderId);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return sendError(res, 400, 'orderId must be an order number.');
+    }
+    return sendSuccess(res, await CartService.reorder(req.user.userId, orderId));
   })
 );
 

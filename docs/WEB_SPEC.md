@@ -137,6 +137,8 @@ Saving a product writes `product_pricing.SellingPrice` for every active price ro
 
 ### P8 note
 
+`GET /cms/home` is the category shortcut row and the Shop by project tiles. It starts empty. Staff with Home screen sections access edit it on Shortcuts & projects. Saving replaces the whole page, and every category must still be on sale. The phone adds its own More tile; the row holds at most 7.
+
 Anonymous `GET /cms/sections` returns the enabled phone blocks in desk order: category shortcuts, hero, trust strip, shop by project, order again, offer tiles, product rail, quick tools. Stored rows are mapped onto those blocks (`hero_banners` is the hero, `popular_categories` is shop by project, `best_sellers` is the product rail). A row the phone cannot draw, such as `product_deal_slider`, is left out of both lists. Staff see the same blocks with the hidden ones included. Missing blocks are inserted once; reset restores this order and turns them all on. `informational_strip` stays off the desk until the app has a block for it.
 
 ### P7 note

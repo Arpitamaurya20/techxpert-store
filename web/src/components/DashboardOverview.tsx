@@ -5,6 +5,7 @@ import {
   Users,
   Image as ImageIcon,
   Tag,
+  LayoutGrid,
   LayoutList,
   FolderTree,
   ArrowRight,
@@ -128,6 +129,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       title: 'Home screen sections',
       desc: loaded.sections ? `${sectionsEnabled} of ${sectionsCount} shown on the app home screen` : NOT_LOADED,
       icon: <LayoutList size={18} color="var(--violet)" />,
+    },
+    {
+      tab: 'shortcuts',
+      title: 'Shortcuts & projects',
+      desc: 'The category row and project tiles on the app home screen',
+      icon: <LayoutGrid size={18} color="var(--violet)" />,
     },
     {
       tab: 'pricing',

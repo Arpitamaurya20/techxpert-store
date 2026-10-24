@@ -16,6 +16,45 @@ export function setPasswordChangeHandler(handler: (() => void) | null) {
   onPasswordChangeRequired = handler;
 }
 
+export type HelpFaq = { id: number; question: string; answer: string; position: number };
+export type HelpContent = {
+  phone: string;
+  phoneLabel: string;
+  whatsapp: string;
+  email: string;
+  hours: string;
+  faqs: HelpFaq[];
+};
+export type HelpDraft = {
+  phone: string;
+  phoneLabel: string;
+  whatsapp: string;
+  email: string;
+  hours: string;
+  faqs: { question: string; answer: string }[];
+};
+
+export type HomeShortcut = {
+  categoryId: number;
+  label: string;
+  name: string;
+  imageUrl: string;
+  available: boolean;
+};
+export type HomeProject = {
+  id: number;
+  title: string;
+  subtitle: string;
+  imageUrl: string;
+  calculator: string;
+  categories: { categoryId: number; name: string; available: boolean }[];
+};
+export type HomeContent = { shortcuts: HomeShortcut[]; projects: HomeProject[] };
+export type HomeDraft = {
+  shortcuts: { categoryId: number; label: string }[];
+  projects: { title: string; subtitle: string; imageUrl: string; calculator: string; categoryIds: number[] }[];
+};
+
 type ApiEnvelope<T> = {
   success?: boolean;
   data?: T;
@@ -240,6 +279,7 @@ export const api = {
       },
     };
   },
+  getProduct: (id: string) => fetchApi<any>(`/catalog/products/${id}`),
   createProduct: (data: any) =>
     fetchApi<any>('/catalog/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: string, data: any) =>
@@ -295,6 +335,13 @@ export const api = {
       body: JSON.stringify({ items }),
     }),
   resetSections: () => fetchApi<any[]>('/cms/sections/reset', { method: 'POST' }),
+
+  getHome: () => fetchApi<HomeContent>('/cms/home'),
+  saveHome: (body: HomeDraft) =>
+    fetchApi<HomeContent>('/cms/home', { method: 'PUT', body: JSON.stringify(body) }),
+  getHelp: () => fetchApi<HelpContent>('/cms/help'),
+  saveHelp: (body: HelpDraft) =>
+    fetchApi<HelpContent>('/cms/help', { method: 'PUT', body: JSON.stringify(body) }),
 
   // Bulk Pricing
   getBulkTiers: () => fetchApi<any[]>('/pricing/bulk-tiers'),

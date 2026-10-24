@@ -1,6 +1,7 @@
 import { storePool } from '../db/mysql.js';
 import type { PoolConnection } from 'mysql2/promise';
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
+import { variantStockUpdates } from '../utils/variants.js';
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
@@ -24,8 +25,9 @@ export interface ProductFilterParams {
 }
 
 /**
- * The shop sells each product's first variant, so its stock is what the cart and checkout use.
- * A product without a variant cannot be sold and reports 0.
+ * Stock shown on a product card when the caller has not picked an option.
+ * That is the first variant. A product without a variant cannot be sold and reports 0.
+ * The product page lists every option; the cart sells the one it is given.
  */
 const SHOP_STOCK = `COALESCE((SELECT v.StockQuantity FROM product_variants v WHERE v.ProductID = p.ID ORDER BY v.ID ASC LIMIT 1), 0)`;
 const SHOP_STOCK_STATUS = `CASE
@@ -457,7 +459,8 @@ export class CatalogService {
           (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
           (SELECT MIN(pr.MRP) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
           COALESCE(mu.UnitName, 'unit') as unit,
-          ${SHOP_STOCK} as stockQuantity
+          ${SHOP_STOCK} as stockQuantity,
+          (SELECT COUNT(*) FROM product_variants v WHERE v.ProductID = p.ID) as variantCount
         FROM products p
         JOIN categories c ON c.ID = p.CategoryID
         LEFT JOIN sub_categories sc ON sc.ID = p.SubCategoryID
@@ -535,6 +538,33 @@ export class CatalogService {
           [prod.id]
         );
         prod.bulkTiers = tiers;
+        const [variants] = await storePool.query<any[]>(
+          `SELECT v.ID as id, v.VariantName as name, v.VariantCode as sku, v.StockQuantity as stockQuantity,
+                  v.IsActive as active,
+                  COALESCE(
+                    (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.VariantID = v.ID AND pr.IsActive = 1),
+                    (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = v.ProductID AND pr.IsActive = 1)
+                  ) as price
+           FROM product_variants v
+           WHERE v.ProductID = ?
+           ORDER BY v.ID ASC`,
+          [prod.id]
+        );
+        prod.variants = variants.map((row) => {
+          const stockQuantity = Math.max(0, Number(row.stockQuantity) || 0);
+          const price = row.price == null ? null : Number(row.price);
+          const active = Number(row.active) === 1;
+          const priced = price != null && Number.isFinite(price) && price > 0;
+          return {
+            id: Number(row.id),
+            name: row.name ? String(row.name) : 'Option',
+            sku: row.sku ? String(row.sku) : null,
+            stockQuantity,
+            stockStatus: active && stockQuantity > 0 ? 'in_stock' : 'out_of_stock',
+            price: priced ? price : null,
+            available: active && priced && stockQuantity > 0,
+          };
+        });
         return prod;
       }
       return null;
@@ -685,8 +715,9 @@ export class CatalogService {
     try {
       const numId = Number(id);
       if (!isNaN(numId)) {
+        const optionStocks = variantStockUpdates(data.variants);
         const stockStatus =
-          stockQuantity !== undefined
+          !optionStocks && stockQuantity !== undefined
             ? Number(stockQuantity) > 0
               ? 'in_stock'
               : 'out_of_stock'
@@ -725,13 +756,16 @@ export class CatalogService {
           ]);
         }
 
-        if (stockQuantity !== undefined) {
+        if (optionStocks) {
+          await CatalogService.writeChosenStocks(numId, optionStocks);
+        } else if (stockQuantity !== undefined) {
           await CatalogService.writeCatalogueStock(numId, Number(stockQuantity));
         }
       }
       const updated = await CatalogService.getProductById(id);
       if (updated) return updated;
     } catch (err) {
+      if (err && typeof err === 'object' && 'statusCode' in err) throw err;
       return mysqlOrFileStore('catalog.updateProduct', err, () =>
         store.updateProduct(String(id), {
           ...data,
@@ -778,12 +812,11 @@ export class CatalogService {
   }
 
   /**
-   * The typed stock is the first variant's stock: the variant the shop sells, whose count the cart and
-   * checkout use. Its inventory rows are resized so they add up to it. A product without a variant or
-   * without an inventory row gets one.
+   * A stock figure with no option named is the first variant's stock, which is what a cart call
+   * sells when it does not name an option. A product without a variant gets one. Existing inventory
+   * rows are resized to that figure; a variant with none keeps the number on the variant row.
    */
   private static async writeCatalogueStock(productId: number, quantity: number) {
-    const target = Math.max(0, Math.round(quantity));
     await CatalogService.withProductIdLock(async (conn) => {
       const [variants] = await conn.query<any[]>(
         `SELECT ID FROM product_variants WHERE ProductID = ? ORDER BY ID ASC LIMIT 1`,
@@ -800,31 +833,63 @@ export class CatalogService {
           [variantId, productId]
         );
       }
-
-      const [rows] = await conn.query<any[]>(
-        `SELECT ID as id, StockQuantity as quantity FROM inventory_stock WHERE VariantID = ? ORDER BY ID ASC`,
-        [variantId]
-      );
-      if (rows.length > 0) {
-        const next = allocateCatalogueStock(
-          rows.map((row) => ({ id: Number(row.id), quantity: Number(row.quantity) || 0 })),
-          target,
-        );
-        for (const row of next) {
-          await conn.query(`UPDATE inventory_stock SET StockQuantity = ? WHERE ID = ?`, [row.quantity, row.id]);
-        }
-      } else {
-        const [maxInv] = await conn.query<any[]>(
-          `SELECT COALESCE(MAX(ID), 0) + 1 as nextId FROM inventory_stock`
-        );
-        const invId = Number(maxInv[0]?.nextId) || variantId;
-        await conn.query(
-          `INSERT INTO inventory_stock (ID, VariantID, StockQuantity, WarehouseID) VALUES (?, ?, ?, 1)`,
-          [invId, variantId, target]
-        );
-      }
-      await conn.query(`UPDATE product_variants SET StockQuantity = ? WHERE ID = ?`, [target, variantId]);
+      await CatalogService.writeVariantStock(conn, variantId, quantity);
     });
+  }
+
+  /** Sets each named option's stock. Every id must already belong to this product. */
+  private static async writeChosenStocks(
+    productId: number,
+    updates: { id: number; stockQuantity: number }[]
+  ) {
+    await CatalogService.withProductIdLock(async (conn) => {
+      const [variants] = await conn.query<any[]>(
+        `SELECT ID as id FROM product_variants WHERE ProductID = ?`,
+        [productId]
+      );
+      const ids = new Set(variants.map((row) => Number(row.id)));
+      for (const update of updates) {
+        if (!ids.has(update.id)) {
+          throw Object.assign(new Error("That option isn't part of this product."), { statusCode: 400 });
+        }
+        await CatalogService.writeVariantStock(conn, update.id, update.stockQuantity);
+      }
+      await conn.query(
+        `UPDATE products
+         SET StockStatus = IF(
+           (SELECT COALESCE(SUM(StockQuantity), 0) FROM product_variants WHERE ProductID = ?) > 0,
+           'in_stock', 'out_of_stock')
+         WHERE ID = ?`,
+        [productId, productId]
+      );
+    });
+  }
+
+  /**
+   * The typed stock becomes this variant's stock. Inventory rows, when this variant already has
+   * them, are resized to the same total. A variant whose stock lives only on the variant row stays
+   * that way: a new inventory row needs a landmark this screen does not have, and the shop reads
+   * the variant column.
+   */
+  private static async writeVariantStock(conn: PoolConnection, variantId: number, quantity: number) {
+    const target = Math.max(0, Math.round(quantity));
+    const [rows] = await conn.query<any[]>(
+      `SELECT ID as id, StockQuantity as quantity FROM inventory_stock WHERE VariantID = ? ORDER BY ID ASC`,
+      [variantId]
+    );
+    if (rows.length > 0) {
+      const next = allocateCatalogueStock(
+        rows.map((row) => ({ id: Number(row.id), quantity: Number(row.quantity) || 0 })),
+        target,
+      );
+      for (const row of next) {
+        await conn.query(`UPDATE inventory_stock SET StockQuantity = ? WHERE ID = ?`, [row.quantity, row.id]);
+      }
+    }
+    await conn.query(
+      `UPDATE product_variants SET StockQuantity = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
+      [target, variantId]
+    );
   }
 
   private static async withProductIdLock<T>(fn: (conn: PoolConnection) => Promise<T>): Promise<T> {

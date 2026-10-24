@@ -109,7 +109,7 @@ export interface HomepageSection {
 export interface AuditLogEntry {
   id: string;
   action: string;
-  entity: 'banner' | 'section' | 'bulk_tier' | 'product' | 'publish' | 'order' | 'category' | 'delivery' | 'access' | 'store';
+  entity: 'banner' | 'section' | 'bulk_tier' | 'product' | 'publish' | 'order' | 'category' | 'delivery' | 'access' | 'store' | 'help';
   details: string;
   user: string;
   /** ISO-8601 timestamp for persistence; portal may format for display */

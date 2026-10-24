@@ -1,6 +1,6 @@
 # Techxpert Store — status and audit index
 
-As of **23 Oct 2026**. One page that says what was built, why, by which files, and what comes next. Detail lives in the linked docs; this file points to them.
+As of **24 Oct 2026**. One page that says what was built, why, by which files, and what comes next. Detail lives in the linked docs; this file points to them.
 
 **State of the repo:** pushed to GitHub as four commits on top of `1df128a` (`feef46e` server, `8092aa6` portal, `68923f1` phone app, `d698a52` docs), which are on both `main` and `develop`. From here all work is committed on **`develop`**; `main` moves only when asked. All database proof was run against the **local** MySQL (`homecare` + `techxpertstore` on localhost), not production.
 
@@ -72,11 +72,16 @@ What an auditor should check, where it lives.
 | Unit price = lowest active `product_pricing.SellingPrice`; none → product not orderable (no ₹450 fallback) | `server/src/utils/cartRules.ts` (`priceLine`), `server/src/services/cartService.ts` (`priceRows`), `server/src/services/catalogService.ts` |
 | Bulk tier applied on top of base price: of the tiers covering the quantity, the one giving the lowest unit price (percent off, or a fixed unit price); a tier that wouldn't lower the price is ignored. `GET /pricing/calculate` uses the product's own price, never one sent by the caller | `server/src/utils/bulkPricing.ts`, `server/src/services/pricingService.ts`, `cartRules.priceLine` |
 | Order status is one of pending, confirmed, processing, shipped, delivered, cancelled; anything else is refused | `server/src/utils/validate.ts` (`validateOrderStatusBody`), `server/src/routes/orders.ts` |
+| Order Again is the products this customer bought (cancelled orders left out), one row each, at today's price and stock. A product that can't be bought stays, with a reason. Unsigned and staff tokens get 401 | `server/src/utils/orderRules.ts` (`orderAgainItem`), `orderService.getOrderAgain`, `GET /orders/again` |
+| Reorder adds one of the customer's orders on top of their cart, at today's price and limits, and names every line it could not add. It does not place an order. Another customer's order is 404 | `cartRules.reorderTarget`, `cartService.reorder`, `POST /cart/reorder` |
+| Saved items follow the account (a guest list follows `x-session-id`). Today's price and stock. Merge on sign-in keeps the device list, then the guest list, then the account, capped at 100. A product that can't be bought stays, with a reason | `wishlist.ts`, `wishlistService.ts`, `GET/PUT /wishlist`, `POST /wishlist/merge`, `sql/saved_items.sql` |
+| Help page is the phone, WhatsApp, email, hours and questions the app will show. Empty until staff fill it in. Replacing it needs Help & support edit | `helpContent.ts`, `helpService.ts`, `GET/PUT /cms/help`, `HelpManager.tsx`, `sql/help_content.sql` |
+| Home shortcuts and projects are the category row and project tiles. Empty until staff pick categories that are on sale. Replacing the page needs Home screen sections edit. The app adds More; this list holds at most 7 | `homeMerch.ts`, `homeMerchService.ts`, `GET/PUT /cms/home`, `HomeMerchManager.tsx`, `sql/home_merch.sql` |
 | Cancelling: cancelled is final (409 on any change); a delivered order can't be cancelled (409). Cancelling an order placed through this shop (`TX-ORD-`) puts each line's quantity back on the variant it took from, in the same transaction, resizes that variant's inventory rows and marks an out-of-stock product in stock; imported orders (`ORD-`) put nothing back. The history note says which | `server/src/utils/orderRules.ts`, `orderService.updateOrderStatus` / `putStockBack`, `web/src/services/orderStatus.ts` (`statusChoices`, `restocksOnCancel`), `web/src/components/OrdersManager.tsx` |
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
 | Quantity limits and the refusal sentence | `cartRules.quantityRefusal` |
-| Stock the shop sells = first variant's `product_variants.StockQuantity` (read, cart, decrement, portal write) | `catalogService.ts` (`SHOP_STOCK`, `writeCatalogueStock`), `cartService.ts`, `orderService.writeOrder` |
+| A cart call with no `variantId` sells the first variant. A call that names one sells that option: its stock, its price when it has one, and checkout takes that stock back. The product page lists every option. The portal edits each option's stock | `variants.ts`, `catalogService.ts` (`variants`, `writeChosenStocks`), `cartService.setLineQuantity`, `orderService.getOrderAgain`, `CatalogOverview.tsx` |
 | Cart ownership (customer JWT or guest `x-session-id`) | `cartService.assertCartAccess`, `server/src/routes/cart.ts` |
 | Checkout: COD only, expected total must match to the paisa, pincode must be served, one order per cart (`orders.CartID` unique → replay) | `server/src/services/cartCheckoutService.ts`, `cartRules.sameMoney`, `server/sql/shop_s3_checkout.sql` |
 | Guest with a registered phone → guest order, account untouched | `server/src/utils/checkoutPricing.ts` (`guestOrderOwner`), `orderService.ownerForGuest` |
@@ -122,7 +127,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 107 unit tests, including `security`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 138 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `variants`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -137,6 +142,9 @@ Run in this order on production (all applied to the local DB already). See [`ser
 5. `server/sql/portal_scope.sql`: before restarting the API on the A2 code. With more than one store, link every active pincode to a store first, or it stops.
 6. `server/sql/portal_staff.sql`: before restarting the API on the A3 code. Back up `portal_staff_roles` and `portal_staff_scope` first; it empties them and has no undo.
 7. `npm run staff:bootstrap` once, for the first super admin. Then deploy the API and portal together.
+8. `server/sql/saved_items.sql`: the customer wishlist. Safe to run again. The previous API ignores the table.
+9. `server/sql/help_content.sql`: the help page (empty until staff fill it) and the `help` audit label. Safe to run again. Comes after the audit table exists.
+10. `server/sql/home_merch.sql`: the home shortcut row and project tiles. Starts empty. Safe to run again.
 
 Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 
@@ -156,6 +164,12 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 8 | Server gaps from the UI pass: order status, `/pricing/calculate` price, bulk tier picking, clearing a product's brand or price | `bulkPricing.ts`, `validate.ts`, `pricingService.ts`, `routes/orders.ts`, `routes/pricing.ts`, `catalogService.updateProduct`, `CatalogOverview.tsx` | **Done** 23 Oct: 99/99 unit tests, HTTP checks, browser check (remove-price confirm) |
 | 9 | Cancelling puts stock back. Decided 23 Oct: delivered orders can't be cancelled, cancelled is final, imported orders put nothing back | `orderRules.ts`, `orderService.ts`, `OrdersManager.tsx`, `orderStatus.ts`, `App.tsx` | **Done** 23 Oct: 104/104 unit tests. A test guest order took 1 + 2 units, and cancelling it put them back exactly (68 and 500 again); reopening, cancelling twice and cancelling delivered order 1 were refused without touching stock. Browser: cancelled order locked, delivered order has no Cancel, confirm wording for shop vs imported orders |
 | 10 | Customer API holes found while writing the app guide: `GET /orders` without a sign-in listed every customer's orders; `POST /auth/login` gave a customer token with no code; code `123456` worked in production | `config/security.ts`, `authService.ts`, `routes/auth.ts`, `routes/orders.ts`; guide [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) | **Done** 23 Oct: 107/107 unit tests. Local: anonymous and staff-without-`all` get 401, a customer sees only their own orders. Production mode: `/auth/login` 403, `123456` refused, anonymous orders 401 |
+| 11 | Order Again for the app: one call for the products a customer bought, at today's price and stock | `orderRules.ts`, `orderService.getOrderAgain`, `GET /orders/again`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-1 | **Done** 24 Oct: 113/113 unit tests. Local: unsigned and staff get 401; a customer with 9 bought products got those 9, unique, today's price matching the catalogue (₹1,999); a product with stock but no price came back `available: false`; `limit=1` and the cap at 20 held |
+| 12 | Reorder: put one past order back into the cart at today's prices, and say which lines were skipped | `cartRules.ts` (`reorderTarget`), `cartService.reorder`, `POST /cart/reorder`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-11 | **Done** 24 Oct: 118/118 unit tests. Local: unsigned and staff get 401; a bad id is 400; someone else's order is 404. Order 1 added the 9W LED Bulb (3, today's price) and skipped the removed air conditioner. The cart was put back afterwards |
+| 13 | Saved items on the server, merged into the account on sign-in | `sql/saved_items.sql`, `wishlist.ts`, `wishlistService.ts`, `routes/wishlist.ts`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-12 | **Done** 24 Oct: 124/124 unit tests. Local: guest save, a removed product refused, merge order device then guest then account, an unpriced product stayed unavailable, guest list cleared, rows removed afterwards |
+| 14 | Help & support structure: phone, WhatsApp, email, hours and questions, empty until staff fill them | `sql/help_content.sql`, `helpService.ts`, `GET/PUT /cms/help`, `HelpManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-13 | **Done** 24 Oct: 128/128 unit tests. The page starts blank. A new Help & support module; super admin sees it, other roles see it once it is ticked on their role |
+| 15 | Home shortcuts and projects: staff pick real categories for the home row and the project tiles | `sql/home_merch.sql`, `homeMerchService.ts`, `GET/PUT /cms/home`, `HomeMerchManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-14 | **Done** 24 Oct: 132/132 unit tests. Both lists start empty. Same access as Home screen sections. The app still uses its own lists until it reads the new call |
+| 16 | Sell the chosen variant: product detail lists options, the cart and reorder keep that option, the portal edits each option's stock. No `variantId` still sells the first | `variants.ts`, `catalogService.ts`, `cartService.ts`, `orderService.getOrderAgain`, `CatalogOverview.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-4 and UC-6 | **Done** 24 Oct: 138/138 unit tests. Guest cart: Brown (variant 4) at ₹1,999 with stock 60, then White (first option) at its own ₹199 with stock 68, both kept; a variant from another product was refused; the cart was emptied and stock was unchanged. Portal: the fan row says "3 options" and the bulb "2 options". Editing Brown 60→61 left White at 68 and Black at 50, then Brown was put back to 60 |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
@@ -165,9 +179,9 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
 
 - **Few orderable products:** 110,100 of 110,106 active products have no active price; four priced products (IDs 4, 6, 7, 8) have no variant. Shown honestly as unavailable; merchandisers must add price/variant.
 - **Phone sign-in is memory-only:** after an app restart the customer sees the guest cart until signing in again.
-- **Stock mismatch for multi-variant products:** the shop sells the first variant only.
+- **Choosing an option is for the app:** the server sells the variant a cart call names, and otherwise still the first one. The phone does not send a variant yet, so a customer cannot pick Brown or Cool White until the app does.
 - **App home, for the app team:**
-  - The category shortcuts point at category ids (`cement-plaster`, `tiling-grouts`…) that don't exist in this catalogue, so that block finds nothing.
+  - The category shortcuts and project pages are still the app's own lists (`cement-plaster`, `tiling-grouts`…), which are not in this catalogue, so those blocks find nothing until the app reads `GET /cms/home`. The server page starts empty for staff to fill.
   - Banner buttons can't open outside links (they show all products).
 - **No SMS sender:** `send-otp` makes a code but nothing texts it to the customer. Locally the code is always `123456`; production needs an SMS provider before phone sign-in works.
 - **App sign-in must move to codes:** the app calls `POST /auth/login`, which production now refuses. It must use `send-otp` then `verify-otp` ([`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §8 UC-7).

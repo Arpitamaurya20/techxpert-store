@@ -45,6 +45,36 @@ export function quantityRefusal(name: string, quantity: number, limits: CartLimi
   return null;
 }
 
+export type ReorderTarget = { setTo: number; note: string | null } | { reason: string };
+
+/**
+ * Where one ordered product should land in the cart. Adds the ordered quantity on top of
+ * what is already there, and stops at the most that can be bought today. A note explains
+ * a smaller result. A reason means the line was not changed.
+ */
+export function reorderTarget(
+  name: string,
+  ordered: number,
+  already: number,
+  limits: CartLimits,
+  price: unknown
+): ReorderTarget {
+  const orderedQty = Math.floor(Number(ordered));
+  if (!Number.isInteger(orderedQty) || orderedQty < 1) {
+    return { reason: `"${name}" has no quantity to add.` };
+  }
+  const blocked = quantityRefusal(name, limits.min, limits, price);
+  if (blocked) return { reason: blocked };
+
+  const cap = Math.min(limits.max ?? limits.stock, limits.stock);
+  if (already >= cap) return { reason: `You already have the most of "${name}" you can order.` };
+
+  const wanted = already + orderedQty;
+  const setTo = Math.min(Math.max(wanted, limits.min), cap);
+  const note = setTo === wanted ? null : quantityRefusal(name, wanted, limits, price);
+  return { setTo, note };
+}
+
 /** Why a line already in the cart cannot be checked out as it is. */
 export function lineProblem(quantity: number, limits: CartLimits, price: unknown): LineProblem {
   if (!hasPrice(price)) return 'price_unavailable';

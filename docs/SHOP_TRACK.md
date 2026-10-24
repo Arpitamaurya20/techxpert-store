@@ -77,7 +77,7 @@ Verified 23 Oct 2026 against the local store database: an order for product 1 se
 ### S1 as built (23 Oct 2026)
 
 - Rules: `server/src/utils/cartRules.ts`. Service: `CartService.view`, `setLineQuantity`, `mergeGuestCart`, `emptyCart`. `DELETE /cart` without `cartId` empties the caller's cart; the phone calls it after an order is placed.
-- Stock for a line is the first variant's `product_variants.StockQuantity`, the same row checkout decrements. Price is the lowest active `SellingPrice`; no ₹450 fallback in the cart.
+- Stock for a line is that option's `product_variants.StockQuantity`, the same row checkout decrements. A cart call with no `variantId` still uses the first variant. Price is that option's selling price, or the product's lowest active price when the option has none. No ₹450 fallback.
 - Phone: `services/cartApi.ts`, `state/cartSession.ts` (guest key in AsyncStorage as `techxpert.cartSession`), `state/cartStore.ts`, `components/store/CartSync.tsx` (mounted in the root layout). The Cart screen shows the server's subtotal, bulk savings, delivery, GST and total, marks lines with a problem, and disables checkout until they are fixed or a change is still saving.
 - The sign-in session is still memory-only on the phone, so after an app restart a customer sees the device's guest cart until they sign in again; their account cart is merged back then.
 
@@ -86,7 +86,7 @@ Verified against the local store database and over HTTP on a spare port: a guest
 **Known gaps for S3**
 
 - The product page still shows ₹450 and 150 in stock when a product has no price or no inventory row (`catalogService` fallbacks). The cart refuses those with a clear sentence, but the product page should stop promising them.
-- Catalogue stock (sum of `inventory_stock`) and cart/checkout stock (first variant) can differ for products with several variants.
+- A product card's stock is still the first variant. The product page lists every option, and the cart sells the one it is given.
 
 ## S2 — pincode serviceability
 
@@ -187,7 +187,7 @@ Response 201: `{ id, orderNumber, placedAt, status, paymentStatus, paymentMethod
 ### Product page honesty (`catalogService`)
 
 - **Price:** no ₹450 fallback. A product without an active price is sent without `price`, so the phone shows "Price unavailable", blocks Add to cart, and sorts it after priced items (existing phone behaviour).
-- **Stock:** reported as the first variant's `product_variants.StockQuantity`, the number the cart and checkout use. This replaces the sum of `inventory_stock` with a 150 fallback.
+- **Stock:** a product card reports the first variant's `product_variants.StockQuantity`. The product page lists every option. A cart call with no `variantId` sells the first; a call that names one sells that option. This replaces the sum of `inventory_stock` with a 150 fallback.
   - A product with no variant reports 0 and out of stock.
   - Expected change: the 48" Ceiling Fan shows 68 instead of 150.
 - **Cart message:** for a product with no variant (`setLineQuantity`), it changes from "no longer in the catalogue" to "\"<name>\" isn't available to order right now."
@@ -233,8 +233,8 @@ Response 201: `{ id, orderNumber, placedAt, status, paymentStatus, paymentMethod
 **Catalogue (`catalogService`)**
 
 - No ₹450 fallback; `price` is null without an active price.
-- Stock and stock status come from the first variant.
-- The portal's stock edit (`writeCatalogueStock`) now writes the first variant's stock and its inventory rows. Before, it spread stock across all variants, which could leave the variant the shop sells at 0.
+- A product card's stock and stock status come from the first variant. The product page lists every option.
+- The portal's single stock box (`writeCatalogueStock`) writes the first variant, for a product with one option. A product with several options has a stock box for each (`writeChosenStocks`). Existing inventory rows for that variant are resized to the same total. A variant with no inventory row keeps its stock on `product_variants` only. Before, one number was spread across all variants, which could leave the variant the shop sells at 0.
 - A product update refuses a price of ₹0 or less, so saving an unpriced product in the portal can't store a ₹0 price.
 
 **Portal:** shows "No price" in Catalogue and in the bulk calculator instead of ₹0.00 or ₹450. Order lines show the stored unit price and line total instead of a ₹450 fallback. `Product.price` is `number | null`.

@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -302,6 +302,67 @@ CREATE TABLE techxpertstore.cart_items (
   CreatedDate DATE NOT NULL,
   CreatedTime TIME NOT NULL,
   INDEX idx_cart_items_cart (CartID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Saved items (wishlist). See server/sql/saved_items.sql.
+CREATE TABLE techxpertstore.saved_items (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  UserID INT NULL, -- Logical reference to homecare.users.user_id. Null for a guest list.
+  SessionID VARCHAR(128) NULL, -- Guest list. Null for an account list.
+  ProductID INT NOT NULL,
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL,
+  OwnerKey VARCHAR(160) AS (
+    CASE WHEN UserID IS NOT NULL THEN CONCAT('u:', UserID) ELSE CONCAT('s:', SessionID) END
+  ) STORED,
+  UNIQUE KEY uq_saved_owner_product (OwnerKey, ProductID),
+  INDEX idx_saved_user (UserID),
+  INDEX idx_saved_session (SessionID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Help page. One contact row, questions in order. See server/sql/help_content.sql. Starts empty.
+CREATE TABLE techxpertstore.help_contact (
+  ID TINYINT NOT NULL PRIMARY KEY,
+  Phone VARCHAR(20) NOT NULL DEFAULT '',
+  PhoneLabel VARCHAR(40) NOT NULL DEFAULT '',
+  Whatsapp VARCHAR(20) NOT NULL DEFAULT '',
+  Email VARCHAR(120) NOT NULL DEFAULT '',
+  Hours VARCHAR(80) NOT NULL DEFAULT '',
+  UpdatedDate DATE NULL,
+  UpdatedTime TIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.help_faqs (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Question VARCHAR(300) NOT NULL,
+  Answer VARCHAR(2000) NOT NULL,
+  Position INT NOT NULL,
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Home category row and project tiles. See server/sql/home_merch.sql. Starts empty.
+CREATE TABLE techxpertstore.home_shortcuts (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CategoryID INT NOT NULL,
+  Label VARCHAR(24) NOT NULL DEFAULT '',
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.home_projects (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Title VARCHAR(60) NOT NULL,
+  Subtitle VARCHAR(80) NOT NULL DEFAULT '',
+  ImageURL VARCHAR(1000) NOT NULL DEFAULT '',
+  Calculator VARCHAR(16) NOT NULL DEFAULT '',
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.home_project_categories (
+  ProjectID INT NOT NULL,
+  CategoryID INT NOT NULL,
+  Position INT NOT NULL,
+  PRIMARY KEY (ProjectID, CategoryID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 

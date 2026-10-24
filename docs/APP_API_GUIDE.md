@@ -146,14 +146,16 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 
 ### UC-1 Home screen
 
-**Screen:** Home. **Calls, all public:**
+**Screen:** Home. The first four calls are public. Order Again needs a sign-in.
 
 | Call | Gives |
 |---|---|
 | `GET /cms/sections` | The home blocks the app should draw, in order, each with `enabled` |
+| `GET /cms/home` | The category shortcut row and the project tiles (use case 14). Empty until staff fill them |
 | `GET /cms/banners` | Only the banners live right now, in order |
 | `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
 | `GET /catalog/categories` | Category tiles |
+| `GET /orders/again` | Signed in. Products this customer bought, at today's price and stock |
 
 ```json
 GET /cms/sections → 200
@@ -170,6 +172,25 @@ GET /cms/banners → 200
     "ctaType": "category", "ctaTarget": "5", "status": "published", "startsAt": null, "endsAt": null,
     "position": 1, "termsText": null, "locationScope": "All serviceable zones", "updatedAt": "2026-10-16" } ] }
 ```
+
+**Order Again** without a sign-in is `401` "Sign in to see your orders." It returns one row per product from this customer's orders, newest first. Cancelled orders are left out. `limit` defaults to 10 and stops at 20.
+
+`price` and `stockQuantity` are today's, for the option the customer last bought (`variantId`, `variantName`). A product that can't be bought stays in the list with `available: false` and `unavailableReason`, so the app can label it. To buy one that is available, set the cart quantity with `PUT /cart/items/:productId` and that `variantId` (use case 6), using `lastQuantity` as the starting quantity.
+
+```json
+GET /orders/again → 200
+{ "success": true, "data": [
+  { "productId": 3, "variantId": 3, "variantName": "White", "name": "48\" Ceiling Fan", "sku": "FAN001",
+    "imageUrl": "store/assets/catalog/…", "categoryId": 3, "unit": "unit",
+    "price": 199, "stockQuantity": 68, "stockStatus": "in_stock", "minOrderQuantity": 1,
+    "lastQuantity": 1, "lastOrderedAt": "2026-06-17T13:03:37Z",
+    "available": true, "unavailableReason": null },
+  { "productId": 8155, "name": "ABB 16A Socket 2 Pin", "sku": "TXE-ELEC-SOK-008037",
+    "price": null, "stockQuantity": 81, "stockStatus": "in_stock", "available": false,
+    "unavailableReason": "This product isn't available to order right now." } ] }
+```
+
+`variantId` is the option they last bought, and `stockQuantity` is that option's stock today. `variantName` is its name, such as "White". An option that was switched off comes back unavailable with "This option isn't available to order right now." The same three product reasons are used otherwise: "This product is no longer sold.", "This product isn't available to order right now.", and "This product is out of stock."
 
 **App rules:**
 - Draw only the section types you know, in the order given, and skip `enabled: false`.
@@ -230,13 +251,16 @@ GET /catalog/products?search=bulb&limit=2 → 200
 ### UC-4 Product detail and the price for a quantity
 
 **Calls, all public:**
-- `GET /catalog/products/:id`. This is the same product, plus `gallery` and its active `bulkTiers`.
+- `GET /catalog/products/:id`. This is the same product, plus `gallery`, its active `bulkTiers`, and `variants`. Each variant is one option: `id`, `name`, `sku`, `stockQuantity`, `stockStatus`, `price`, `available`. The first option is the one a cart call uses when it does not send `variantId`. `price` on the product is still the lowest price stored against the product. An option with no price of its own uses that. On the 48" ceiling fan, White (id 3) has its own price of ₹199, so a cart that leaves `variantId` out sells White at ₹199. Brown and Black use the product price of ₹1,999. `available` is false when the option is switched off, unpriced, or out of stock.
 - `GET /pricing/calculate?productId=&quantity=` gives the exact price for a quantity, worked out from the product's own price.
 
 ```json
 GET /catalog/products/5 → 200
 { "success": true, "data": { "id": 5, "name": "9W LED Bulb", "price": "149.00", "originalPrice": "199.00",
   "minOrderQuantity": 1, "maxOrderQuantity": 50, "stockQuantity": 500, "unit": "unit", "gallery": "",
+  "variants": [
+    { "id": 6, "name": "Warm White", "sku": null, "stockQuantity": 500, "stockStatus": "in_stock", "price": 149, "available": true },
+    { "id": 7, "name": "Cool White", "sku": null, "stockQuantity": 400, "stockStatus": "in_stock", "price": 149, "available": true } ],
   "bulkTiers": [ { "id": 4, "minQty": 25, "maxQty": 99, "discountType": "percentage", "discountValue": "10.00",
                    "terms": "Contractor box pack rate." } ] } }
 
@@ -279,9 +303,10 @@ Checkout checks the pincode again, so this is for showing the customer early.
 The cart lives on the server for guests and signed-in customers alike. Its totals are what checkout charges.
 
 1. **Get the cart.** `GET /cart` with no token and no `x-session-id` creates a guest cart and returns its `sessionId`. Save it on the device. Every cart call after that sends `x-session-id: <sessionId>`.
-2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`.
+2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`. Add `"variantId": 7` to sell that option. Leave `variantId` out and the server uses the product's first option, so an app that does not choose yet keeps working.
    - This sets the exact quantity; it doesn't add to it.
-   - `0` removes the line.
+   - `0` with no `variantId` removes every option of that product. `0` with a `variantId` removes only that option.
+   - A line includes `variantId` and `variantName`. `limits.stock` is that option's stock.
    - Every answer is the whole priced cart.
 3. **Empty the cart.** `DELETE /cart`.
 
@@ -289,7 +314,7 @@ The cart lives on the server for guests and signed-in customers alike. Its total
 PUT /cart/items/5  { "quantity": 30 }  → 200
 { "success": true, "data": {
   "id": 115, "sessionId": "86ba5845…",
-  "lines": [ { "productId": "5", "name": "9W LED Bulb", "brandName": "BrightLED", "categoryId": "4",
+  "lines": [ { "productId": "5", "variantId": 6, "variantName": "Warm White", "name": "9W LED Bulb", "brandName": "BrightLED", "categoryId": "4",
     "imageUrl": "store/assets/catalog/…", "unit": "unit", "quantity": 30, "basePrice": 149, "unitPrice": 134.1,
     "appliedTier": { "id": 4, "minQty": 25, "maxQty": 99, "discountValue": 10, "discountType": "percentage",
                      "terms": "Contractor box pack rate." },
@@ -307,7 +332,10 @@ PUT /cart/items/5  { "quantity": 30 }  → 200
 | 409 | `"…" must be ordered in quantities of at least 5.` |
 | 409 | `"…" is not available to order right now.` (no price) or `"…" is out of stock.` |
 | 409 | `This product is no longer in the catalogue.` |
-| 400 | `Quantity must be a whole number of at least 1.` |
+| 400 | `Quantity must be a whole number of 0 or more.` |
+| 400 | `variantId must be a variant number.` |
+| 400 | `That option isn't part of this product.` |
+| 409 | `This option isn't available to order right now.` |
 
 **A line's `problem`:** a line already in the cart can go bad after a price or stock change.
 - `problem` is then `price_unavailable`, `out_of_stock` or `over_limit`, and the line is left out of `totals`.
@@ -350,7 +378,7 @@ POST /auth/verify-otp → 200
 `POST /cart/merge`, signed in, with `{ "sessionId": "<the saved guest sessionId>" }`. The answer is the account's priced cart.
 
 **Rules:**
-- Where both carts have the product, the larger quantity is kept, limited to the maximum and the stock. Quantities aren't added together.
+- Where both carts have the same option, the larger quantity is kept, limited to the maximum and that option's stock. Different options of one product stay as separate lines. Quantities aren't added together.
 - The guest cart is then closed, so forget the saved `sessionId`.
 - From now on, cart calls send the Bearer token and no `x-session-id`.
 
@@ -444,7 +472,95 @@ Older imported orders can show other payment methods. A history `date` is a full
 - A delivered order can't be cancelled.
 - Customers can't cancel from the app yet; there is no endpoint for it.
 
-**Order again:** set each item's quantity in the cart with `PUT /cart/items/:productId` (use case 6). The cart applies today's prices and limits.
+**Order again:** `GET /orders/again` (use case 1). It is not the same as reading `GET /orders` and using the old line prices.
+
+**Reorder one order into the cart:** `POST /cart/reorder` with `{ "orderId": 1 }`. Signed in only; without a sign-in it's `401` "Sign in to reorder an order." It adds that order's quantities on top of the cart, for the option that was bought, at today's price and that option's stock, and does not place a new order. Calling it again adds them again.
+
+- `added` is what landed in the cart. `quantity` is the line's new total. `note` is set when less than the ordered amount could be added (stock, a maximum, or a minimum).
+- `skipped` is what was left unchanged, each with a `reason`.
+- Someone else's order, or an unknown one, is `404` "Order not found." A bad `orderId` is `400`.
+- `cart` is the priced cart from use case 6.
+
+```json
+POST /cart/reorder  { "orderId": 1 } → 200
+{ "success": true, "data": {
+  "added": [ { "productId": 5, "variantId": 6, "name": "9W LED Bulb (Warm White)", "quantity": 3, "note": null } ],
+  "skipped": [ { "productId": 1, "name": "1.5 Ton Split AC", "reason": "This product is no longer in the catalogue." } ] } }
+```
+
+The same object also includes `cart`, the priced cart from use case 6. In this example the bulb's 3 were the ordered quantity on an empty cart, and the air conditioner is no longer sold so it was not added.
+
+### UC-12 Saved items
+
+The list follows the account, so it is still there after a reinstall or on another phone. A guest list is kept against the same `x-session-id` as the cart. Saving a product that is already saved moves it to the front. Newest first. At most 100 products.
+
+| Call | Notes |
+|---|---|
+| `GET /wishlist` | The caller's saved products, at today's price and stock. A guest with no session gets a new `sessionId` and an empty list; send that id from then on |
+| `PUT /wishlist/:productId` | Body `{ "saved": true }` or `{ "saved": false }`. `saved` must be a boolean |
+| `POST /wishlist/merge` | Signed in. Body `{ "sessionId", "productIds" }`. Folds the guest session and the ids saved on the device into the account, then clears the guest session |
+
+```json
+PUT /wishlist/5  { "saved": true } → 200
+{ "success": true, "data": {
+  "sessionId": "…",
+  "items": [ { "productId": 5, "name": "9W LED Bulb", "price": 149, "available": true, "unavailableReason": null } ] } }
+```
+
+Each item also includes `sku`, `imageUrl`, `categoryId`, `brandName`, `unit`, `stockQuantity`, `stockStatus`, `minOrderQuantity` and `variantId`, the same facts as a product in the catalogue.
+
+A signed-in response has no `sessionId`. A product that can no longer be bought stays in the list with `available: false` and `unavailableReason`, the same three sentences as Order Again.
+
+**Refusals:**
+
+| Status | `error` |
+|---|---|
+| 400 | `saved must be true or false.` |
+| 400 | `productId must be a product number.` |
+| 400 | `productIds must be a list of product numbers.` |
+| 401 | `Sign in to keep your saved items.` on merge, when there is no customer sign-in |
+| 409 | `This product is no longer in the catalogue.` when saving a product that is not on sale |
+| 409 | `You can save up to 100 products. Remove one to save another.` |
+
+**After sign-in**, send the device's saved ids too, newest first. They are kept ahead of the guest session and the account, duplicates are dropped, and anything past 100 is the oldest and is left out.
+
+```json
+POST /wishlist/merge  { "sessionId": "…", "productIds": [8155, 5] } → 200
+{ "success": true, "data": { "items": [
+  { "productId": 8155, "name": "ABB 16A Socket 2 Pin", "price": null, "available": false,
+    "unavailableReason": "This product isn't available to order right now." },
+  { "productId": 5, "price": 149, "available": true, "unavailableReason": null },
+  { "productId": 3, "price": 1999, "available": true, "unavailableReason": null } ] } }
+```
+
+The second example is shortened to the fields that decide what the screen shows. The socket has stock but no price, so it stays saved and is not for sale.
+
+### UC-13 Help and support
+
+**Call, public:** `GET /cms/help`. The phone number, WhatsApp number, email, working hours and questions. All of them are blank until staff fill them in on the portal (Help & support). The app can keep its current copy until it switches to this call.
+
+```json
+GET /cms/help → 200
+{ "success": true, "data": {
+  "phone": "", "phoneLabel": "", "whatsapp": "", "email": "", "hours": "", "faqs": [] } }
+```
+
+When a question is published it has `id`, `question`, `answer` and `position` (1 is first). `phone` and `whatsapp` are digits the app can dial or open in WhatsApp, with an optional leading `+`. `phoneLabel` is the number as a person should read it.
+
+### UC-14 Home shortcuts and projects
+
+**Call, public:** `GET /cms/home`. The category row under the header, and the Shop by project tiles. Both lists are empty until staff fill them on the portal (Shortcuts & projects, same access as Home screen sections). The app can keep its own lists until it switches to this call. Match `categoryId` to `id` from `GET /catalog/categories` by comparing them as text, because the catalogue id arrives as a number.
+
+The app still draws **More** as the last shortcut. This call never includes it, and it holds at most 7 shortcuts.
+
+A shortcut's `label` is the short name staff typed. When it is `""`, show `name`. Skip a row with `available: false` (the category was taken off sale after it was chosen). `imageUrl` is the category's picture.
+
+A project opens its own page. `categories` is the list for that job, in the order staff set. Skip a category with `available: false`. `calculator` is `""`, `paint`, `tiles` or `cement`: the same estimators the app already has. `""` means no estimator button. `imageUrl` may be blank. A project's `id` can change the next time staff save the page, so open a project from the latest response.
+
+```json
+GET /cms/home → 200
+{ "success": true, "data": { "shortcuts": [], "projects": [] } }
+```
 
 ---
 
@@ -464,7 +580,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Home:** the category shortcuts point at category IDs that don't exist in this catalogue. Banners can't open outside links yet (use case 1).
+- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting
