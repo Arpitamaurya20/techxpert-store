@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   LayoutList,
   Building2,
+  ScrollText,
   FolderTree,
   ArrowRight,
 } from 'lucide-react';
@@ -142,6 +143,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       title: 'About the company',
       desc: 'The mission, facts and values on About us',
       icon: <Building2 size={18} color="var(--accent)" />,
+    },
+    {
+      tab: 'policies',
+      title: 'Policies',
+      desc: 'Privacy, terms, cancellation and shipping',
+      icon: <ScrollText size={18} color="var(--accent)" />,
     },
     {
       tab: 'pricing',

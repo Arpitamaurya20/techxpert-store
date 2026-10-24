@@ -32,6 +32,7 @@ export const ApiExplorer: React.FC = () => {
     { method: 'GET', path: '/cms/trust', desc: 'Home trust-strip claims, empty until staff fill them' },
     { method: 'GET', path: '/cms/help', desc: 'Help page: phone, WhatsApp, email, hours and questions' },
     { method: 'GET', path: '/cms/about', desc: 'About page: mission, facts and values, empty until staff fill them' },
+    { method: 'GET', path: '/cms/policies', desc: 'Privacy, terms, cancellation and shipping, empty until staff paste them' },
     { method: 'GET', path: '/pricing/bulk-tiers', desc: 'Bulk price rules' },
     { method: 'GET', path: '/audit/logs?limit=20', desc: 'Latest 20 audit trail entries' },
   ];

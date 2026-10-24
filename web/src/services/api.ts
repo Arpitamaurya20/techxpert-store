@@ -33,6 +33,22 @@ export type AboutContent = {
   facts: AboutFact[];
   values: AboutValue[];
 };
+export type PolicyBlock = string | string[];
+export type PolicyDocument = {
+  id: string;
+  title: string;
+  lastUpdated: string;
+  sourceUrl: string;
+  intro: string[];
+  sections: { heading: string; blocks: PolicyBlock[] }[];
+};
+export type PoliciesContent = { policies: PolicyDocument[] };
+export type PolicyDraft = {
+  lastUpdated: string;
+  sourceUrl: string;
+  intro: string[];
+  sections: { heading: string; blocks: PolicyBlock[] }[];
+};
 export type AboutDraft = {
   missionTitle: string;
   missionBody: string;
@@ -363,6 +379,9 @@ export const api = {
   getTrustClaims: () => fetchApi<TrustContent>('/cms/trust'),
   saveTrustClaims: (claims: TrustDraft[]) =>
     fetchApi<TrustContent>('/cms/trust', { method: 'PUT', body: JSON.stringify({ claims }) }),
+  getPolicies: () => fetchApi<PoliciesContent>('/cms/policies'),
+  savePolicy: (id: string, body: PolicyDraft) =>
+    fetchApi<PoliciesContent>(`/cms/policies/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   getAbout: () => fetchApi<AboutContent>('/cms/about'),
   saveAbout: (body: AboutDraft) =>
     fetchApi<AboutContent>('/cms/about', { method: 'PUT', body: JSON.stringify(body) }),

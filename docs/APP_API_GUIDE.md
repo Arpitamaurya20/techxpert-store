@@ -613,6 +613,29 @@ A value has `icon`, `title`, `body` and `position`. Six is the most. A title is 
 
 The mission heading is 80 characters, the paragraph 600. Saving replaces the whole page. An empty body clears it. A fact row needs both a figure and a name; a value row needs a title, a description and one of those symbols.
 
+### UC-18 Policies
+
+**Call, public:** `GET /cms/policies`. Privacy, terms, cancellation and shipping, in that order. Each page is empty until staff paste the published text on the portal (Policies). The app can keep its own privacy and terms until it switches to this call. When `intro` and `sections` are both empty, show the same "being prepared" notice the app already uses, and do not invent text. Draw "Last updated" only when `lastUpdated` has words. Draw "View on website" only when `sourceUrl` has a link.
+
+```json
+GET /cms/policies → 200
+{
+  "success": true,
+  "data": {
+    "policies": [
+      { "id": "privacy", "title": "Privacy policy", "lastUpdated": "", "sourceUrl": "", "intro": [], "sections": [] },
+      { "id": "terms", "title": "Terms & Conditions", "lastUpdated": "", "sourceUrl": "", "intro": [], "sections": [] },
+      { "id": "cancellation", "title": "Cancellation & Refunds", "lastUpdated": "", "sourceUrl": "", "intro": [], "sections": [] },
+      { "id": "shipping", "title": "Shipping & Delivery", "lastUpdated": "", "sourceUrl": "", "intro": [], "sections": [] }
+    ]
+  }
+}
+```
+
+`id` is `privacy`, `terms`, `cancellation` or `shipping`. `title` is fixed. A section has `heading` and `blocks`. A block is a paragraph (a string) or a list of points (an array of strings), which is the same shape the policy screen already draws. Six opening paragraphs, 24 sections, 16 blocks in a section, 20 points in a list. A paragraph is 800 characters, a point 400, a heading 120.
+
+Saving one policy replaces that policy only. `intro` and `sections` must both be sent, so an empty body cannot clear a page by accident. Sending both as empty lists does clear that page. The other three stay as they were.
+
 ---
 
 ## 9. Calls the app should not use
@@ -631,7 +654,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). About us still uses the app's own mission, facts and values until it reads `GET /cms/about` (use case 17). Banners can't open outside links yet (use case 1).
+- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). About us still uses the app's own mission, facts and values until it reads `GET /cms/about` (use case 17). Privacy and terms are still the app's own copies, and cancellation and shipping are still blank, until it reads `GET /cms/policies` (use case 18). Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting

@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   LayoutList,
   Building2,
+  ScrollText,
   LifeBuoy,
   FolderTree,
   MapPin,
@@ -34,6 +35,7 @@ export type TabId =
   | 'shortcuts'
   | 'help'
   | 'about'
+  | 'policies'
   | 'api'
   | 'audit'
   | 'access';
@@ -97,6 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'shortcuts', label: 'Shortcuts & projects', icon: <LayoutGrid size={18} /> },
         { id: 'help', label: 'Help & support', icon: <LifeBuoy size={18} /> },
         { id: 'about', label: 'About the company', icon: <Building2 size={18} /> },
+        { id: 'policies', label: 'Policies', icon: <ScrollText size={18} /> },
       ],
     },
     {

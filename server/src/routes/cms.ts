@@ -5,6 +5,7 @@ import { HomeMerchService } from '../services/homeMerchService.js';
 import { SearchSuggestionService } from '../services/searchSuggestionService.js';
 import { TrustClaimService } from '../services/trustClaimService.js';
 import { AboutService } from '../services/aboutService.js';
+import { PolicyService } from '../services/policyService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { requireAdmin, requirePermission, optionalAuth, isActiveStaff } from '../middleware/auth.js';
 import { validateBannerBody } from '../utils/validate.js';
@@ -233,6 +234,24 @@ router.put(
   requirePermission('about', 'edit'),
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await AboutService.save(req.body), 'About page saved');
+  })
+);
+
+// GET /cms/policies - Privacy, terms, cancellation and shipping. Empty until staff paste them.
+router.get(
+  '/policies',
+  asyncHandler(async (_req, res) => {
+    return sendSuccess(res, await PolicyService.list());
+  })
+);
+
+// PUT /cms/policies/:id - Replace one policy (policies edit). Empty lists clear that policy only.
+router.put(
+  '/policies/:id',
+  requireAdmin,
+  requirePermission('policies', 'edit'),
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await PolicyService.save(req.params.id, req.body), 'Policy saved');
   })
 );
 

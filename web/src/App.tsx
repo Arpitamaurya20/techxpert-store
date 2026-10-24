@@ -13,6 +13,7 @@ import { SectionLayoutManager } from './components/SectionLayoutManager';
 import { TrustStripManager } from './components/TrustStripManager';
 import { HelpManager } from './components/HelpManager';
 import { AboutManager } from './components/AboutManager';
+import { PoliciesManager } from './components/PoliciesManager';
 import { HomeMerchManager } from './components/HomeMerchManager';
 import { SearchIdeasManager } from './components/SearchIdeasManager';
 import { ApiExplorer } from './components/ApiExplorer';
@@ -34,7 +35,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { AboutContent, HelpContent, HomeContent, SearchIdeas, TrustContent } from './services/api';
+import type { AboutContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, TrustContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -241,6 +242,8 @@ function PortalApp({
   const [trustError, setTrustError] = useState<string | null>(null);
   const [about, setAbout] = useState<AboutContent | null>(null);
   const [aboutError, setAboutError] = useState<string | null>(null);
+  const [policies, setPolicies] = useState<PoliciesContent | null>(null);
+  const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -308,6 +311,7 @@ function PortalApp({
     let searchFailed: string | null = null;
     let trustFailed: string | null = null;
     let aboutFailed: string | null = null;
+    let policiesFailed: string | null = null;
     try {
       setLoading(true);
       const [
@@ -323,6 +327,7 @@ function PortalApp({
         searchData,
         trustData,
         aboutData,
+        policiesData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -365,6 +370,13 @@ function PortalApp({
           ? api.getAbout().catch((err: Error) => {
               failed.push('the about page');
               aboutFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'policies', 'view')
+          ? api.getPolicies().catch((err: Error) => {
+              failed.push('the policies');
+              policiesFailed = err?.message || "The server didn't answer.";
               return undefined;
             })
           : skip,
@@ -411,6 +423,8 @@ function PortalApp({
       if (trustData) setTrustClaims(trustData);
       setAboutError(aboutFailed);
       if (aboutData) setAbout(aboutData);
+      setPoliciesError(policiesFailed);
+      if (policiesData) setPolicies(policiesData);
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -752,6 +766,10 @@ function PortalApp({
       title: 'About the company',
       subtitle: 'The mission, facts and values the app shows on About us',
     },
+    policies: {
+      title: 'Policies',
+      subtitle: 'Privacy, terms, cancellation and shipping. Paste the published words; leave a page empty until they exist',
+    },
     api: {
       title: 'Developer tools',
       subtitle: 'For developers: test server endpoints and connect the phone app (super admin only)',
@@ -966,6 +984,18 @@ function PortalApp({
               canEdit={can(permissions, 'about', 'edit')}
               onSaved={setAbout}
               onAudit={(action, details) => addAuditLog(action, 'about', details)}
+            />
+          )}
+
+          {currentTab === 'policies' && (
+            <PoliciesManager
+              content={policies}
+              loading={loading}
+              loadError={policiesError}
+              onRetry={() => loadData(true)}
+              canEdit={can(permissions, 'policies', 'edit')}
+              onSaved={setPolicies}
+              onAudit={(action, details) => addAuditLog(action, 'policy', details)}
             />
           )}
 
