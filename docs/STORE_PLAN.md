@@ -22,9 +22,9 @@ Homeowners and contractors can both buy through the app, with clear prices and v
 
 1. **Self-serve in the app.** A small order is confirmed straight away. An order above a switched-on threshold is placed as `pending` and holds its stock. **Built.** The thresholds start off.
 2. **"Talk to us".** The customer sends a request (name, phone, cart, pincode) to a staff queue. **Built.** Nothing is ordered and no stock is held. Help is still the contact page, which starts empty.
-3. **Staff-created.** Staff place the order on the customer's account. **Not built.**
+3. **Staff-created.** Staff place the order on the customer's account. **Built.** It is confirmed at once, because a person is placing it, and it takes stock. A quantity the shelf cannot cover is refused.
 
-All three must use the same server rules for stock, the pincode's store, GST and price. Each order carries a source tag: `app`, `request`, or `staff`. **The tag is not built.**
+All three use the same rules for stock, the pincode's store, GST and price. Each order carries a source tag: `app`, `request`, or `staff`. **Built.** App checkout is `app`. An order placed from a Talk to us request is `request` and that request is closed. Any other order staff place is `staff`. Orders already in the table are tagged `app`.
 
 ## Principles
 
@@ -46,7 +46,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 - Homepage, help, About, policies and deals are empty until staff fill them.
 - Staff roles, stores, scope and an audit trail.
 
-195 unit tests pass, including shop settings, the large-order rule and Talk to us. The old `inventory_stock` warehouse table is not the number the shop sells.
+198 unit tests pass, including shop settings, the large-order rule, Talk to us and staff-created orders. The old `inventory_stock` warehouse table is not the number the shop sells.
 
 ## Phase 0 — close what is already built
 
@@ -77,7 +77,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 10. **Full-quantity check.** Already the checkout refusal. The app must show that sentence so the customer can order the available amount or contact staff.
 11. **Large-order rule.** Above a staff-set value or a staff-set quantity, the order is `pending`. Cash on delivery is not treated as already confirmed. Staff confirm it. **Built.** The stock is taken when the order is placed and put back if staff cancel it. A switched-on cash limit refuses cash above that amount. Thresholds that are off leave the order confirmed.
 12. **"Talk to us"** and a staff queue for orders that do not fit the shelf. **Built.** `POST /shop/requests` prices the cart with the same rules and records the pincode's store. A quantity past the stock or the shelf limit is kept, with a note. Pack size, a missing price and an area we don't deliver to are still refused. Staff close it from the portal. It does not become an order.
-13. **Staff-created orders**, with the source tag and an audit line.
+13. **Staff-created orders**, with the source tag and an audit line. **Built.** Staff place it from Orders, or from a Talk to us request. The price, pack size, stock and pincode are the same as the app. A large-order threshold does not hold it, and the cash limit does not refuse it, because staff are confirming it. The audit line names the order and the tag.
 
 **Tax**
 

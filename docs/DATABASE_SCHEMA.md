@@ -242,6 +242,7 @@ CREATE TABLE techxpertstore.orders (
   OrderStatus ENUM('pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled') NOT NULL DEFAULT 'pending',
   PaymentStatus ENUM('pending', 'paid', 'failed', 'refunded') NOT NULL DEFAULT 'pending',
   PaymentMethod VARCHAR(50) NULL,
+  OrderSource ENUM('app', 'request', 'staff') NOT NULL DEFAULT 'app',
   CreatedDate DATE NOT NULL,
   CreatedTime TIME NOT NULL,
   UpdatedDate DATE NULL,

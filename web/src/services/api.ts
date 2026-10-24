@@ -386,6 +386,11 @@ export const api = {
 
   // Orders
   getOrders: () => fetchApi<any[]>('/orders?all=true'),
+  placeStaffOrder: (body: unknown) =>
+    fetchApi<{ id: string | number; orderNumber: string; source?: string | null }>('/orders/staff', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   updateOrderStatus: (id: string, status: string) =>
     fetchApi<any>(`/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
 

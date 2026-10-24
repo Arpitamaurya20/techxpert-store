@@ -3,9 +3,12 @@ import { ShoppingBag, Clock, CheckCircle2, IndianRupee, Phone, Mail, MapPin, Eye
 import { DataTable, StatGrid, Badge, Button, LoadState, Modal, NotGiven, PageIntro, useConfirm } from './ui';
 import type { Column, StatItem } from './ui';
 import { formatWhen, inr, isMoney } from '../services/format';
+import { PlaceOrderDialog } from './PlaceOrderDialog';
+import { emptyPlaceOrder, type PlaceOrderSeed, type PlacedOrder } from './placeOrderForm';
 import {
   ORDER_STATUSES,
   isOpenOrder,
+  orderSourceLabel,
   orderStatusLabel,
   orderStatusVariant,
   paymentMethodLabel,
@@ -46,6 +49,7 @@ export interface Order {
   customerEmail?: string;
   storeId?: number | null;
   storeName?: string | null;
+  source?: string | null;
 }
 
 interface OrdersManagerProps {
@@ -58,6 +62,8 @@ interface OrdersManagerProps {
   loaded: boolean;
   onRetry: () => void;
   canEdit?: boolean;
+  onPlace?: (body: unknown) => Promise<PlacedOrder>;
+  onPlaced?: (order: PlacedOrder) => void;
 }
 
 const ALL = 'all';
@@ -72,11 +78,14 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
   loaded,
   onRetry,
   canEdit = true,
+  onPlace,
+  onPlaced,
 }) => {
   const { confirm, dialog } = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>(ALL);
+  const [placeSeed, setPlaceSeed] = useState<PlaceOrderSeed | null>(null);
 
   const selectedOrder = selectedId ? orders.find((o) => String(o.id) === selectedId) ?? null : null;
   const openCount = orders.filter((o) => isOpenOrder(o.status)).length;
@@ -188,7 +197,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       render: (o) => (
         <div>
           <div style={styles.strong}>{o.orderNumber}</div>
-          <div style={styles.small}>{formatWhen(o.placedAt) ?? <NotGiven label="Time not recorded" />}</div>
+          <div style={styles.small}>{orderSourceLabel(o.source)} · {formatWhen(o.placedAt) ?? 'Time not recorded'}</div>
         </div>
       ),
     },
@@ -271,7 +280,15 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <StatGrid items={stats} />
 
-      <PageIntro>
+      <PageIntro
+        actions={
+          canEdit && onPlace ? (
+            <Button type="button" onClick={() => setPlaceSeed(emptyPlaceOrder())}>
+              Place an order
+            </Button>
+          ) : undefined
+        }
+      >
         Newest first. Change the status as the order moves; the customer sees the new status in the app.
         {canEdit ? '' : ' Your role can see orders but not change their status.'}
       </PageIntro>
@@ -324,6 +341,17 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
         />
       ) : null}
       {dialog}
+      {placeSeed && onPlace && onPlaced ? (
+        <PlaceOrderDialog
+          seed={placeSeed}
+          onClose={() => setPlaceSeed(null)}
+          place={onPlace}
+          onPlaced={(order) => {
+            setPlaceSeed(null);
+            onPlaced(order);
+          }}
+        />
+      ) : null}
     </div>
   );
 };
@@ -373,6 +401,10 @@ const OrderDetail: React.FC<{ order: Order; onClose: () => void; statusControl: 
                   : 'This order is waiting for confirmation. Set it to Confirmed when it should go ahead.'}
               </p>
             ) : null}
+          </div>
+          <div style={styles.fact}>
+            <span style={styles.factLabel}>From</span>
+            <span style={styles.factValue}>{orderSourceLabel(order.source)}</span>
           </div>
           <div style={styles.fact}>
             <span style={styles.factLabel}>Payment</span>

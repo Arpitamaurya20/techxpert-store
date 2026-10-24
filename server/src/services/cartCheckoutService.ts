@@ -112,6 +112,7 @@ export class CartCheckoutService {
         taxRate,
         orderStatus: placement.status,
         historyNote: placement.reason ?? notes,
+        source: 'app',
       });
 
       await conn.query(`DELETE FROM cart_items WHERE CartID = ?`, [cartId]);

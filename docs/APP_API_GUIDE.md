@@ -451,6 +451,7 @@ POST /cart/checkout
 
 **Effects:**
 - An order takes its stock at once. It starts as `confirmed`, unless it is at or above a switched-on large-order value or a switched-on quantity on one line. Then `status` is `pending`, `awaitingStaff` is true, and `message` says staff still have to confirm it. The goods stay held. Staff confirm it in the portal, or cancel it to put the stock back. `GET /shop/rules` shows the thresholds; null means that rule is off.
+- `source` is `app` for an order the customer placed, `request` when staff placed it from Talk to us, and `staff` when staff placed it themselves. Show the status. The tag is for staff.
 - **Guests:** if `guestPhone` is a 10-digit number with no account, a new customer is created for it. If the number already has an account, the order stays a guest order and the account isn't touched.
 
 ### UC-11 My orders

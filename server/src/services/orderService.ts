@@ -13,6 +13,7 @@ import { allocateCatalogueStock } from '../utils/stockAllocation.js';
 import { VARIANT_SELLING_PRICE } from '../utils/variants.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
 import { StoreStockService } from './storeStockService.js';
+import { orderSource, type OrderSource } from '../utils/staffOrder.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
 
@@ -85,6 +86,7 @@ export class OrderService {
           o.OrderStatus as status,
           o.PaymentStatus as paymentStatus,
           o.PaymentMethod as paymentMethod,
+          o.OrderSource as source,
           CAST(o.GrandTotal AS DOUBLE) as total,
           CAST(o.SubTotal AS DOUBLE) as subtotal,
           CAST(o.TaxTotal AS DOUBLE) as taxTotal,
@@ -195,6 +197,7 @@ export class OrderService {
          o.OrderStatus as status,
          o.PaymentStatus as paymentStatus,
          o.PaymentMethod as paymentMethod,
+         o.OrderSource as source,
          CAST(o.GrandTotal AS DOUBLE) as total,
          CAST(o.SubTotal AS DOUBLE) as subtotal,
          CAST(o.TaxTotal AS DOUBLE) as taxTotal,
@@ -316,6 +319,7 @@ export class OrderService {
            o.OrderStatus as status,
            o.PaymentStatus as paymentStatus,
            o.PaymentMethod as paymentMethod,
+          o.OrderSource as source,
            CAST(o.GrandTotal AS DOUBLE) as total,
            CAST(o.SubTotal AS DOUBLE) as subtotal,
            CAST(o.TaxTotal AS DOUBLE) as taxTotal,
@@ -467,9 +471,16 @@ export class OrderService {
   }
 
   /**
-   * The customer who owns a guest's order. An unregistered 10-digit phone gets a new unverified
-   * customer; a phone that already has an account stays a guest order and the account is not touched.
+   * The customer a staff order is attached to. An existing phone keeps that account.
+   * A new 10-digit phone gets an unverified customer, the same as guest checkout.
    */
+  static async customerForStaff(phone: string, name: string): Promise<number | undefined> {
+    const clean = AuthService.cleanPhone(phone);
+    const [existing] = await userPool.query<any[]>(`SELECT user_id FROM users WHERE phone = ? LIMIT 1`, [clean]);
+    if (existing.length) return Number(existing[0].user_id);
+    return OrderService.ownerForGuest({ name, phone: clean });
+  }
+
   static async ownerForGuest(guest: { name?: string; phone?: string; email?: string }): Promise<number | undefined> {
     const phone = AuthService.cleanPhone(guest.phone);
     try {
@@ -517,17 +528,22 @@ export class OrderService {
       orderStatus?: 'pending' | 'confirmed';
       /** First history line. The customer's note stays on the order either way. */
       historyNote?: string;
+      /** Who placed it. Omitted means the app. */
+      source?: OrderSource;
+      /** Staff member when they placed it. Otherwise the customer, or 1. */
+      createdBy?: number;
     }
   ): Promise<number> {
     const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
     const orderStatus = order.orderStatus ?? 'confirmed';
+    const source = orderSource(order.source);
     const paymentStatus = 'pending';
     const { totals } = order;
 
     const [orderRes] = await conn.query<any>(
       `INSERT INTO orders
-       (OrderNumber, UserID, CartID, StoreID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
+       (OrderNumber, UserID, CartID, StoreID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, OrderSource, CreatedDate, CreatedTime, CreatedBy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
       [
         orderNumber,
         order.userId || null,
@@ -545,7 +561,8 @@ export class OrderService {
         orderStatus,
         paymentStatus,
         order.paymentMethod,
-        order.userId || 1,
+        source,
+        order.createdBy ?? order.userId ?? 1,
       ]
     );
     const orderId = Number(orderRes.insertId);
@@ -609,6 +626,7 @@ export class OrderService {
       `SELECT o.ID as id, o.OrderNumber as orderNumber,
               UNIX_TIMESTAMP(TIMESTAMP(o.CreatedDate, COALESCE(o.CreatedTime, '00:00:00'))) as placedEpoch,
               o.OrderStatus as status, o.PaymentStatus as paymentStatus, o.PaymentMethod as paymentMethod,
+              o.OrderSource as source,
               o.GuestName as customerName, o.ShippingAddress as deliveryAddress,
               CAST(o.SubTotal AS DOUBLE) as subtotal, CAST(o.DiscountTotal AS DOUBLE) as bulkSavings,
               CAST(o.ShippingCharges AS DOUBLE) as delivery, CAST(o.TaxTotal AS DOUBLE) as tax,
@@ -635,6 +653,7 @@ export class OrderService {
       status: o.status,
       paymentStatus: o.paymentStatus,
       paymentMethod: o.paymentMethod,
+      source: orderSource(o.source),
       customerName: o.customerName,
       deliveryAddress: o.deliveryAddress,
       lines: items.map((it) => ({ ...it, productId: String(it.productId) })),
@@ -740,6 +759,7 @@ export class OrderService {
         taxRate,
         orderStatus: placement.status,
         historyNote: placement.reason ?? notes,
+        source: 'app',
       });
       await conn.commit();
       return this.receipt(orderId);

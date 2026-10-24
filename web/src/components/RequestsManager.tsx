@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import type { TalkRequest } from '../services/api';
 import { formatWhen, inr } from '../services/format';
+import { PlaceOrderDialog } from './PlaceOrderDialog';
+import type { PlaceOrderSeed, PlacedOrder } from './placeOrderForm';
 import { Button, LoadState, PageIntro } from './ui';
 
 export const RequestsManager: React.FC<{
@@ -12,10 +14,13 @@ export const RequestsManager: React.FC<{
   onUpdated: (request: TalkRequest) => void;
   onAudit: (action: string, details: string) => void;
   saveStatus: (id: string, status: 'new' | 'closed') => Promise<TalkRequest>;
-}> = ({ requests, loading, loadError, onRetry, canEdit, onUpdated, onAudit, saveStatus }) => {
+  onPlace?: (body: unknown) => Promise<PlacedOrder>;
+  onPlaced?: (order: PlacedOrder) => void;
+}> = ({ requests, loading, loadError, onRetry, canEdit, onUpdated, onAudit, saveStatus, onPlace, onPlaced }) => {
   const [filter, setFilter] = useState<'new' | 'closed' | 'all'>('new');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [placeSeed, setPlaceSeed] = useState<PlaceOrderSeed | null>(null);
   const shown = requests.filter((request) => filter === 'all' || request.status === filter);
   const waiting = requests.filter((request) => request.status === 'new').length;
 
@@ -79,6 +84,12 @@ export const RequestsManager: React.FC<{
                   {formatWhen(request.placedAt) ? ` · ${formatWhen(request.placedAt)}` : ''}
                 </div>
               </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {onPlace ? (
+                  <Button type="button" size="sm" onClick={() => setPlaceSeed(seedFrom(request))}>
+                    Place order
+                  </Button>
+                ) : null}
               {canEdit ? (
                 <Button
                   type="button"
@@ -90,6 +101,7 @@ export const RequestsManager: React.FC<{
                   {request.status === 'new' ? 'Close' : 'Reopen'}
                 </Button>
               ) : null}
+              </div>
             </header>
             {request.note ? <p style={styles.note}>{request.note}</p> : null}
             <ul style={styles.lines}>
@@ -108,9 +120,36 @@ export const RequestsManager: React.FC<{
           </article>
         ))}
       </div>
+      {placeSeed && onPlace && onPlaced ? (
+        <PlaceOrderDialog
+          seed={placeSeed}
+          onClose={() => setPlaceSeed(null)}
+          place={onPlace}
+          onPlaced={(order) => {
+            setPlaceSeed(null);
+            onPlaced(order);
+          }}
+        />
+      ) : null}
     </LoadState>
   );
 };
+
+function seedFrom(request: TalkRequest): PlaceOrderSeed {
+  return {
+    name: request.name,
+    phone: request.phone,
+    pincode: request.pincode,
+    address: '',
+    note: request.note ?? '',
+    requestId: request.id,
+    lines: request.lines.map((line) => ({
+      productId: line.productId,
+      variantId: String(line.variantId),
+      quantity: String(line.quantity),
+    })),
+  };
+}
 
 const styles: Record<string, React.CSSProperties> = {
   card: {

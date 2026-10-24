@@ -8,10 +8,12 @@ import {
   requirePermission,
   resolveAdmin,
   permissionRefusal,
+  accessActor,
 } from '../middleware/auth.js';
 import { can } from '../utils/permissions.js';
 import { validateOrderStatusBody } from '../utils/validate.js';
 import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
+import { StaffOrderService } from '../services/staffOrderService.js';
 
 const router = Router();
 
@@ -102,6 +104,21 @@ router.get(
     }
 
     return sendSuccess(res, order);
+  })
+);
+
+// POST /orders/staff - Staff place an order. Same price and stock rules; tagged staff, or request when it came from Talk to us.
+router.post(
+  '/staff',
+  requireAdmin,
+  requirePermission('orders', 'edit'),
+  asyncHandler(async (req, res) => {
+    const actor = accessActor(req);
+    const order = await StaffOrderService.place(req.body ?? {}, actor.access.scope, {
+      staffId: actor.staffId,
+      name: actor.name,
+    });
+    return sendSuccess(res, order, 'Order placed', 201);
   })
 );
 

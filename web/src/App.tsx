@@ -950,6 +950,11 @@ function PortalApp({
               loaded={loaded.orders}
               onRetry={() => loadData(true)}
               canEdit={can(permissions, 'orders', 'edit')}
+              onPlace={api.placeStaffOrder}
+              onPlaced={(order) => {
+                addAuditLog('Placed an order', 'order', `${order.orderNumber} (${order.source ?? 'staff'})`);
+                loadData(true);
+              }}
             />
           )}
 
@@ -1048,6 +1053,11 @@ function PortalApp({
               onUpdated={(saved) => setTalkRequests((prev) => prev.map((request) => (request.id === saved.id ? saved : request)))}
               onAudit={(action, details) => addAuditLog(action, 'request', details)}
               saveStatus={api.setTalkRequestStatus}
+              onPlace={can(permissions, 'orders', 'edit') ? api.placeStaffOrder : undefined}
+              onPlaced={(order) => {
+                addAuditLog('Placed an order', 'order', `${order.orderNumber} (${order.source ?? 'request'})`);
+                loadData(true);
+              }}
             />
           )}
 
