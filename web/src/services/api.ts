@@ -25,6 +25,20 @@ export type HelpContent = {
   hours: string;
   faqs: HelpFaq[];
 };
+export type AboutFact = { value: string; label: string; position: number };
+export type AboutValue = { icon: string; title: string; body: string; position: number };
+export type AboutContent = {
+  missionTitle: string;
+  missionBody: string;
+  facts: AboutFact[];
+  values: AboutValue[];
+};
+export type AboutDraft = {
+  missionTitle: string;
+  missionBody: string;
+  facts: { value: string; label: string }[];
+  values: { icon: string; title: string; body: string }[];
+};
 export type HelpDraft = {
   phone: string;
   phoneLabel: string;
@@ -349,6 +363,9 @@ export const api = {
   getTrustClaims: () => fetchApi<TrustContent>('/cms/trust'),
   saveTrustClaims: (claims: TrustDraft[]) =>
     fetchApi<TrustContent>('/cms/trust', { method: 'PUT', body: JSON.stringify({ claims }) }),
+  getAbout: () => fetchApi<AboutContent>('/cms/about'),
+  saveAbout: (body: AboutDraft) =>
+    fetchApi<AboutContent>('/cms/about', { method: 'PUT', body: JSON.stringify(body) }),
   getHelp: () => fetchApi<HelpContent>('/cms/help'),
   saveHelp: (body: HelpDraft) =>
     fetchApi<HelpContent>('/cms/help', { method: 'PUT', body: JSON.stringify(body) }),

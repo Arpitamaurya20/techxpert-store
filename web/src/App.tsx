@@ -12,6 +12,7 @@ import { BannerCMS } from './components/BannerCMS';
 import { SectionLayoutManager } from './components/SectionLayoutManager';
 import { TrustStripManager } from './components/TrustStripManager';
 import { HelpManager } from './components/HelpManager';
+import { AboutManager } from './components/AboutManager';
 import { HomeMerchManager } from './components/HomeMerchManager';
 import { SearchIdeasManager } from './components/SearchIdeasManager';
 import { ApiExplorer } from './components/ApiExplorer';
@@ -33,7 +34,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { HelpContent, HomeContent, SearchIdeas, TrustContent } from './services/api';
+import type { AboutContent, HelpContent, HomeContent, SearchIdeas, TrustContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -238,6 +239,8 @@ function PortalApp({
   const [searchIdeasError, setSearchIdeasError] = useState<string | null>(null);
   const [trustClaims, setTrustClaims] = useState<TrustContent | null>(null);
   const [trustError, setTrustError] = useState<string | null>(null);
+  const [about, setAbout] = useState<AboutContent | null>(null);
+  const [aboutError, setAboutError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -304,6 +307,7 @@ function PortalApp({
     let homeFailed: string | null = null;
     let searchFailed: string | null = null;
     let trustFailed: string | null = null;
+    let aboutFailed: string | null = null;
     try {
       setLoading(true);
       const [
@@ -318,6 +322,7 @@ function PortalApp({
         homeData,
         searchData,
         trustData,
+        aboutData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -353,6 +358,13 @@ function PortalApp({
           ? api.getTrustClaims().catch((err: Error) => {
               failed.push('the trust strip');
               trustFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'about', 'view')
+          ? api.getAbout().catch((err: Error) => {
+              failed.push('the about page');
+              aboutFailed = err?.message || "The server didn't answer.";
               return undefined;
             })
           : skip,
@@ -397,6 +409,8 @@ function PortalApp({
       if (searchData) setSearchIdeas(searchData);
       setTrustError(trustFailed);
       if (trustData) setTrustClaims(trustData);
+      setAboutError(aboutFailed);
+      if (aboutData) setAbout(aboutData);
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -734,6 +748,10 @@ function PortalApp({
       title: 'Help & support',
       subtitle: 'The phone number, WhatsApp number and questions the app shows on Help',
     },
+    about: {
+      title: 'About the company',
+      subtitle: 'The mission, facts and values the app shows on About us',
+    },
     api: {
       title: 'Developer tools',
       subtitle: 'For developers: test server endpoints and connect the phone app (super admin only)',
@@ -936,6 +954,18 @@ function PortalApp({
               canEdit={can(permissions, 'help', 'edit')}
               onSaved={setHelp}
               onAudit={(action, details) => addAuditLog(action, 'help', details)}
+            />
+          )}
+
+          {currentTab === 'about' && (
+            <AboutManager
+              content={about}
+              loading={loading}
+              loadError={aboutError}
+              onRetry={() => loadData(true)}
+              canEdit={can(permissions, 'about', 'edit')}
+              onSaved={setAbout}
+              onAudit={(action, details) => addAuditLog(action, 'about', details)}
             />
           )}
 

@@ -595,6 +595,24 @@ A published claim has `label`, `icon`, `action` and `position` (1 is first). `ic
 
 Saving replaces the whole list. Leaving `claims` out of the save is refused, so an empty body cannot clear the strip by accident. An empty list does clear it.
 
+### UC-17 About the company
+
+**Call, public:** `GET /cms/about`. The mission, facts and values on About us. The page is empty until staff fill it on the portal (About the company). The app can keep its own mission, facts and values until it switches to this call. Draw a heading only when `missionTitle` has words, a paragraph only when `missionBody` has words, and nothing for an empty list. The company name, certification and website stay the app's own copy.
+
+```json
+GET /cms/about → 200
+{
+  "success": true,
+  "data": { "missionTitle": "", "missionBody": "", "facts": [], "values": [] }
+}
+```
+
+A fact has `value`, `label` and `position` (1 is first). Four facts fill the row. A figure is 16 characters, a name 32. The same name cannot appear twice.
+
+A value has `icon`, `title`, `body` and `position`. Six is the most. A title is 40 characters, a description 240. `icon` is `ribbon-outline`, `bulb-outline`, `heart-outline`, `shield-checkmark-outline`, `people-outline` or `leaf-outline`. The same title cannot appear twice.
+
+The mission heading is 80 characters, the paragraph 600. Saving replaces the whole page. An empty body clears it. A fact row needs both a figure and a name; a value row needs a title, a description and one of those symbols.
+
 ---
 
 ## 9. Calls the app should not use
@@ -613,7 +631,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). Banners can't open outside links yet (use case 1).
+- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). About us still uses the app's own mission, facts and values until it reads `GET /cms/about` (use case 17). Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting

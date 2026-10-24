@@ -79,6 +79,7 @@ What an auditor should check, where it lives.
 | Home shortcuts and projects are the category row and project tiles. Empty until staff pick categories that are on sale. Replacing the page needs Home screen sections edit. The app adds More; this list holds at most 7 | `homeMerch.ts`, `homeMerchService.ts`, `GET/PUT /cms/home`, `HomeMerchManager.tsx`, `sql/home_merch.sql` |
 | Search ideas are the chips under the home search box. Empty until staff type them. Replacing the list needs Home screen sections edit. Eight ideas, 40 characters each. A save that leaves the list out is refused; an empty list clears it | `searchSuggestions.ts`, `searchSuggestionService.ts`, `GET/PUT /cms/search-suggestions`, `SearchIdeasManager.tsx`, `sql/search_suggestions.sql` |
 | Trust strip claims are the four tiles under the banners. Empty until staff write them. Replacing them needs Home screen sections edit. A claim is words, one of four symbols, and a tap that opens delivery, about, help, or a phone call. A save that leaves the list out is refused; an empty list clears it | `trustClaims.ts`, `trustClaimService.ts`, `GET/PUT /cms/trust`, `TrustStripManager.tsx`, `sql/trust_claims.sql` |
+| About the company is the mission, facts and values on About us. Empty until staff write them. Replacing the page needs About the company edit. Four facts and six values. An empty body clears the page | `aboutPage.ts`, `aboutService.ts`, `GET/PUT /cms/about`, `AboutManager.tsx`, `sql/about_page.sql` |
 | Cancelling: cancelled is final (409 on any change); a delivered order can't be cancelled (409). Cancelling an order placed through this shop (`TX-ORD-`) puts each line's quantity back on the variant it took from, in the same transaction, resizes that variant's inventory rows and marks an out-of-stock product in stock; imported orders (`ORD-`) put nothing back. The history note says which | `server/src/utils/orderRules.ts`, `orderService.updateOrderStatus` / `putStockBack`, `web/src/services/orderStatus.ts` (`statusChoices`, `restocksOnCancel`), `web/src/components/OrdersManager.tsx` |
 | Product edit: left-out fields stay; `price: null` takes it off sale (price rows switched off, kept on record); empty brand clears it | `validate.ts` (`validateProductUpdateBody`), `catalogService.updateProduct`, `web/src/components/CatalogOverview.tsx` |
 | GST 18%; delivery ₹99 below ₹2,000 subtotal, free from ₹2,000 | `cartRules.ts` (`TAX_RATE`, `DELIVERY_CHARGE`, `FREE_DELIVERY_FROM`) |
@@ -130,7 +131,7 @@ What an auditor should check, where it lives.
 
 ### Tests
 
-`cd server && npm test` — 150 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `searchSuggestions`, `trustClaims`, `variants`, `productPage`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
+`cd server && npm test` — 154 unit tests, including `security`, `wishlist`, `helpContent`, `homeMerch`, `searchSuggestions`, `trustClaims`, `aboutPage`, `variants`, `productPage`, `cartRules`, `bulkPricing`, `orderRules`, `validate`, `checkoutPricing`, `permissions`, `scope`, `pincode`, `bannerEligibility`, `bannerMedia`, `stockAllocation`, `deskAccess` (`server/src/utils/*.test.ts`). `npm run proof:desk` (`server/src/scripts/deskProof.ts`) checks a staging API from the outside.
 
 ---
 
@@ -151,6 +152,7 @@ Run in this order on production (all applied to the local DB already). See [`ser
 11. `server/sql/product_page.sql`: highlights and specifications on the product page. Starts empty. Safe to run again. The previous API ignores the tables.
 12. `server/sql/search_suggestions.sql`: the home search ideas. Starts empty. Safe to run again. The previous API ignores the table.
 13. `server/sql/trust_claims.sql`: the home trust-strip claims. Starts empty. Safe to run again. The previous API ignores the table.
+14. `server/sql/about_page.sql`: the About page (mission, facts, values) and the `about` audit label. Starts empty. Safe to run again. Comes after the audit table exists. The previous API ignores the tables.
 
 Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 
@@ -179,6 +181,7 @@ Schema reference: [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md).
 | 17 | Product page highlights and specifications, empty until staff fill them | `sql/product_page.sql`, `productPage.ts`, `catalogService.ts`, `CatalogOverview.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-4 | **Done** 24 Oct: 142/142 unit tests. A product with nothing filled returns empty lists. Saving Remote control and Sweep / 48 inch on the ceiling fan kept stock at 68, 60 and 50; a later save that did not mention the lists left them; clearing them put the page back to empty. Portal: Add highlight and Add specification, then Remove, on the product screen |
 | 18 | Home search ideas, empty until staff fill them | `sql/search_suggestions.sql`, `searchSuggestions.ts`, `searchSuggestionService.ts`, `SearchIdeasManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-15 | **Done** 24 Oct: 146/146 unit tests. The list starts empty. Saving LED bulbs left the shortcut row and project tiles empty; a save that left the list out was refused and the idea stayed; a repeated idea was refused; clearing the list put it back to empty. Unsigned saves are 401. Portal: Add idea, Save, then Remove, on Shortcuts & projects |
 | 19 | Trust strip claims, empty until staff fill them | `sql/trust_claims.sql`, `trustClaims.ts`, `trustClaimService.ts`, `TrustStripManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-16 | **Done** 24 Oct: 150/150 unit tests. The list starts empty. Saving Fast Delivery, a delivery van, opening the delivery location, left the eight home blocks shown; a save that left the list out was refused and the claim stayed; a repeated claim and an unknown symbol were refused; clearing the list put it back to empty. Unsigned saves are 401. Portal: Add claim, Save, then Remove, on Home screen sections |
+| 20 | About the company, empty until staff fill it | `sql/about_page.sql`, `aboutPage.ts`, `aboutService.ts`, `AboutManager.tsx`, [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) UC-17 | **Done** 24 Oct: 154/154 unit tests. The page starts empty. Saving a mission, the fact 2017 Founded and the value Excellence left the eight home blocks shown; a half-filled fact and an unknown symbol were refused and the page stayed; clearing the page put it back to empty. Unsigned saves are 401. Portal: Add fact, Add value, Save, then Remove, on About the company. Dashboard still Orders 5, Customers 7, Products 1,10,106 |
 
 Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notifications.
 
@@ -194,6 +197,7 @@ Later, not scheduled: per-store stock, payment, returns/refunds, invoices, notif
   - The category shortcuts and project pages are still the app's own lists (`cement-plaster`, `tiling-grouts`…), which are not in this catalogue, so those blocks find nothing until the app reads `GET /cms/home`. The server page starts empty for staff to fill.
   - The search chips are still the app's own list until it reads `GET /cms/search-suggestions`. The server list starts empty for staff to fill.
   - The trust strip is still the app's own four claims until it reads `GET /cms/trust`. The server list starts empty for staff to fill.
+  - About us is still the app's own mission, facts and values until it reads `GET /cms/about`. The server page starts empty for staff to fill.
   - Banner buttons can't open outside links (they show all products).
 - **No SMS sender:** `send-otp` makes a code but nothing texts it to the customer. Locally the code is always `123456`; production needs an SMS provider before phone sign-in works.
 - **App sign-in must move to codes:** the app calls `POST /auth/login`, which production now refuses. It must use `send-otp` then `verify-otp` ([`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §8 UC-7).

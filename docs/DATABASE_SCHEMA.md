@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -398,6 +398,28 @@ CREATE TABLE techxpertstore.trust_claims (
   Action VARCHAR(16) NOT NULL,
   Position INT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- About us: mission, facts and values. See server/sql/about_page.sql. Starts empty.
+CREATE TABLE techxpertstore.about_page (
+  ID TINYINT NOT NULL PRIMARY KEY,
+  MissionTitle VARCHAR(80) NOT NULL DEFAULT '',
+  MissionBody VARCHAR(600) NOT NULL DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.about_facts (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  FactValue VARCHAR(16) NOT NULL,
+  FactLabel VARCHAR(32) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.about_values (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Icon VARCHAR(40) NOT NULL,
+  Title VARCHAR(40) NOT NULL,
+  Body VARCHAR(240) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 ---
@@ -441,7 +463,7 @@ CREATE TABLE techxpertstore.cms_homepage_sections (
 CREATE TABLE techxpertstore.portal_audit_logs (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   action VARCHAR(255) NOT NULL,
-  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store') NOT NULL,
+  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store', 'help', 'about') NOT NULL,
   details TEXT NULL,
   actor VARCHAR(255) NOT NULL DEFAULT 'Store Admin',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

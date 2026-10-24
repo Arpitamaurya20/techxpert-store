@@ -4,6 +4,7 @@ import { HelpService } from '../services/helpService.js';
 import { HomeMerchService } from '../services/homeMerchService.js';
 import { SearchSuggestionService } from '../services/searchSuggestionService.js';
 import { TrustClaimService } from '../services/trustClaimService.js';
+import { AboutService } from '../services/aboutService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { requireAdmin, requirePermission, optionalAuth, isActiveStaff } from '../middleware/auth.js';
 import { validateBannerBody } from '../utils/validate.js';
@@ -214,6 +215,24 @@ router.put(
   requirePermission('help', 'edit'),
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await HelpService.save(req.body), 'Help page saved');
+  })
+);
+
+// GET /cms/about - Mission, facts and values. Empty until staff fill them in.
+router.get(
+  '/about',
+  asyncHandler(async (_req, res) => {
+    return sendSuccess(res, await AboutService.get());
+  })
+);
+
+// PUT /cms/about - Replace the about page (about edit)
+router.put(
+  '/about',
+  requireAdmin,
+  requirePermission('about', 'edit'),
+  asyncHandler(async (req, res) => {
+    return sendSuccess(res, await AboutService.save(req.body), 'About page saved');
   })
 );
 

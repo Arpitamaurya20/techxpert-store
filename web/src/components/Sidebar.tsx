@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   LayoutList,
+  Building2,
   LifeBuoy,
   FolderTree,
   MapPin,
@@ -32,6 +33,7 @@ export type TabId =
   | 'sections'
   | 'shortcuts'
   | 'help'
+  | 'about'
   | 'api'
   | 'audit'
   | 'access';
@@ -94,6 +96,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'sections', label: 'Home screen sections', icon: <LayoutList size={18} /> },
         { id: 'shortcuts', label: 'Shortcuts & projects', icon: <LayoutGrid size={18} /> },
         { id: 'help', label: 'Help & support', icon: <LifeBuoy size={18} /> },
+        { id: 'about', label: 'About the company', icon: <Building2 size={18} /> },
       ],
     },
     {
