@@ -578,7 +578,7 @@ The totals in a real answer are the priced cart. Show `message`. Do not take the
 
 ### UC-13 Help and support
 
-**Call, public:** `GET /cms/help`. The phone number, WhatsApp number, email, working hours and questions. All of them are blank until staff fill them in on the portal (Help & support). The app can keep its current copy until it switches to this call.
+**Call, public:** `GET /cms/help`. The phone number, WhatsApp number, email, working hours and questions. All of them are blank until staff fill them in on the portal (Help & support). The app reads this call. A blank number or an empty question list draws nothing. The app's own copy is used only when the server address is not set.
 
 ```json
 GET /cms/help → 200
@@ -590,7 +590,7 @@ When a question is published it has `id`, `question`, `answer` and `position` (1
 
 ### UC-14 Home shortcuts and projects
 
-**Call, public:** `GET /cms/home`. The category row under the header, and the Shop by project tiles. Both lists are empty until staff fill them on the portal (Shortcuts & projects, same access as Home screen sections). The app can keep its own lists until it switches to this call. Match `categoryId` to `id` from `GET /catalog/categories` by comparing them as text, because the catalogue id arrives as a number.
+**Call, public:** `GET /cms/home`. The category row under the header, and the Shop by project tiles. Both lists are empty until staff fill them on the portal (Shortcuts & projects, same access as Home screen sections). The app reads this call. An empty list draws nothing. The app's own lists are used only when the server address is not set. Match `categoryId` to `id` from `GET /catalog/categories` by comparing them as text, because the catalogue id arrives as a number.
 
 The app still draws **More** as the last shortcut. This call never includes it, and it holds at most 7 shortcuts.
 
@@ -605,7 +605,7 @@ GET /cms/home → 200
 
 ### UC-15 Search ideas
 
-**Call, public:** `GET /cms/search-suggestions`. The chips under the home search box, in the order staff set. The list is empty until staff fill it on the portal (Shortcuts & projects, same access as Home screen sections). The app can keep its own list (Cement, Wall putty, and the rest) until it switches to this call. Draw nothing extra when the list is empty. Eight ideas, each 40 characters. The same idea cannot appear twice.
+**Call, public:** `GET /cms/search-suggestions`. The chips under the home search box, in the order staff set. The list is empty until staff fill it on the portal (Shortcuts & projects, same access as Home screen sections). The app reads this call. Draw nothing extra when the list is empty. The app's own list is used only when the server address is not set. Eight ideas, each 40 characters. The same idea cannot appear twice.
 
 ```json
 GET /cms/search-suggestions → 200
@@ -616,7 +616,7 @@ A published idea is one string, such as `"LED bulbs"`. Saving replaces the whole
 
 ### UC-16 Trust strip
 
-**Call, public:** `GET /cms/trust`. The claims under the banners, in the order staff set. The list is empty until staff fill it on the portal (Home screen sections, same access as the layout). The app can keep its own four claims until it switches to this call. Draw nothing when the list is empty. Four claims, each 32 characters. The same words cannot appear twice.
+**Call, public:** `GET /cms/trust`. The claims under the banners, in the order staff set. The list is empty until staff fill it on the portal (Home screen sections, same access as the layout). The app reads this call. Draw nothing when the list is empty. The app's own four claims are used only when the server address is not set. Four claims, each 32 characters. The same words cannot appear twice.
 
 ```json
 GET /cms/trust → 200
@@ -634,7 +634,7 @@ Saving replaces the whole list. Leaving `claims` out of the save is refused, so 
 
 ### UC-17 About the company
 
-**Call, public:** `GET /cms/about`. The mission, facts and values on About us. The page is empty until staff fill it on the portal (About the company). The app can keep its own mission, facts and values until it switches to this call. Draw a heading only when `missionTitle` has words, a paragraph only when `missionBody` has words, and nothing for an empty list. The company name, certification and website stay the app's own copy.
+**Call, public:** `GET /cms/about`. The mission, facts and values on About us. The page is empty until staff fill it on the portal (About the company). The app reads this call. Draw a heading only when `missionTitle` has words, a paragraph only when `missionBody` has words, and nothing for an empty list. The app's own mission, facts and values are used only when the server address is not set. The company name, certification and website stay the app's own copy.
 
 ```json
 GET /cms/about → 200
@@ -652,7 +652,7 @@ The mission heading is 80 characters, the paragraph 600. Saving replaces the who
 
 ### UC-18 Policies
 
-**Call, public:** `GET /cms/policies`. Privacy, terms, cancellation and shipping, in that order. Each page is empty until staff paste the published text on the portal (Policies). The app can keep its own privacy and terms until it switches to this call. When `intro` and `sections` are both empty, show the same "being prepared" notice the app already uses, and do not invent text. Draw "Last updated" only when `lastUpdated` has words. Draw "View on website" only when `sourceUrl` has a link.
+**Call, public:** `GET /cms/policies`. Privacy, terms, cancellation and shipping, in that order. Each page is empty until staff paste the published text on the portal (Policies). The app reads this call. When `intro` and `sections` are both empty, show the same "being prepared" notice, and do not invent text. The app's own privacy and terms are used only when the server address is not set. Draw "Last updated" only when `lastUpdated` has words. Draw "View on website" only when `sourceUrl` has a link.
 
 ```json
 GET /cms/policies → 200
@@ -675,7 +675,7 @@ Saving one policy replaces that policy only. `intro` and `sections` must both be
 
 ### UC-19 Deals tiles
 
-**Call, public:** `GET /cms/deals`. The two tiles under Deals for You, in the order staff set. The list is empty until staff pick categories on the portal (Shortcuts & projects, same access as the home layout). The app can keep its own two tiles until it switches to this call. Draw nothing when the list is empty. Skip a tile with `available: false`.
+**Call, public:** `GET /cms/deals`. The two tiles under Deals for You, in the order staff set. The list is empty until staff pick categories on the portal (Shortcuts & projects, same access as the home layout). The app reads this call. Draw nothing when the list is empty. The app's own two tiles are used only when the server address is not set. Skip a tile with `available: false`.
 
 ```json
 GET /cms/deals → 200
@@ -706,7 +706,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Images:** product and category images are relative paths that no server hosts (section 5).
 - **Pack size on the cart screen:** product detail already reads `quantityStep`. The cart screen still keeps the step it stored when the line was added, which is 1 until it reads `limits.step`.
 - **Store stock:** the product page and the cart show the company figure. Checkout already applies a store quantity when staff have set one for the pincode's store. The phone does not need a new field for that.
-- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). The search chips are still the app's own list until it reads `GET /cms/search-suggestions` (use case 15). The trust strip is still the app's own four claims until it reads `GET /cms/trust` (use case 16). About us still uses the app's own mission, facts and values until it reads `GET /cms/about` (use case 17). Privacy and terms are still the app's own copies, and cancellation and shipping are still blank, until it reads `GET /cms/policies` (use case 18). The deals tiles are still the app's own two cards until it reads `GET /cms/deals` (use case 19). Banners can't open outside links yet (use case 1).
+- **Home:** the app reads the published lists (use cases 13 to 19). They are empty until staff fill them, and an empty list draws nothing. Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting

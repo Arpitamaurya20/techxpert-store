@@ -3,10 +3,16 @@ import { useRouter, type Href } from 'expo-router';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { SupportContactRows } from '@/components/store/SupportContactRows';
 import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
+import { StateView } from '@/components/ui/StateView';
 import { BRAND, SUPPORT } from '@/constants/brand';
 import { MAX_CONTENT_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing, typography } from '@/constants/theme';
+import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
+import { getErrorMessage } from '@/services/apiClient';
+import { isApiConfigured } from '@/services/apiConfig';
+import { getHelpContent } from '@/services/cmsApi';
 
 type FaqAction = { label: string; href?: Href; url?: string };
 type Faq = { question: string; answer: string; action?: FaqAction };
@@ -52,6 +58,37 @@ export default function FaqScreen() {
   useStatusBarStyle('dark');
   const router = useRouter();
   const [open, setOpen] = useState<number | null>(0);
+  const help = useAsyncData('cms-help', getHelpContent);
+  const published = help.data?.source === 'live' ? help.data.data.faqs : undefined;
+
+  if (isApiConfigured && help.status === 'loading' && !help.data) {
+    return <StateView variant="loading" message="Loading questions" />;
+  }
+  if (help.status === 'error') {
+    return (
+      <StateView
+        variant="error"
+        title="Couldn't load questions"
+        message={getErrorMessage(help.error)}
+        actionLabel="Try Again"
+        onAction={help.reload}
+      />
+    );
+  }
+
+  if (published && published.length === 0) {
+    return (
+      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+        <HeaderBackFallback fallback="/help" accessibilityLabel="Back to Help" />
+        <StateView variant="empty" compact icon="help-circle-outline" title="Questions will be published here" />
+        <SupportContactRows />
+      </ScrollView>
+    );
+  }
+
+  const questions = published
+    ? published.map((faq) => ({ question: faq.question, answer: faq.answer, action: undefined }))
+    : FAQS;
 
   const runAction = (action: FaqAction) => {
     if (action.url) {
@@ -64,7 +101,7 @@ export default function FaqScreen() {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <HeaderBackFallback fallback="/help" accessibilityLabel="Back to Help" />
-      {FAQS.map((faq, index) => {
+      {questions.map((faq, index) => {
         const expanded = open === index;
         const { action } = faq;
         return (

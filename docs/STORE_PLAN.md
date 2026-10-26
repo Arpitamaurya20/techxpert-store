@@ -94,7 +94,7 @@ Unit tests include shop settings, the large-order rule, Talk to us, staff-create
 - Order confirmation by SMS or WhatsApp. **Built.** Staff choose Off, a text message, or WhatsApp on Shop settings. It starts off. When an order is confirmed, the customer is told the order number and the total. A pending order waits until staff confirm it. The phone number is not stored. A missing template is written on the order, and the order still stands. This uses the same text service as Homecare, with its own order template, not the sign-in code.
 - A reason on every stock edit: received, counted, or damaged, written to the audit trail. **Built.** A save that changes a company quantity or a store quantity needs one of those three. The same quantities need no reason, and nothing is written until the reason is there. Checkout and cancel are not stock edits.
 - A delivery promise ("arrives in X days") and a short "Report a problem" that creates a staff task. **Built.** Arrives in starts off. Staff set a whole number of days, from 1 to 30. A new order keeps that number. Changing the setting later does not change an order already placed. The customer reports a short problem on their own order. Staff see it under New and on the order, and close it. The order status, the price and the stock stay as they were.
-- The app reads the remaining server lists: home, search ideas, trust strip, About, policies, deals, help.
+- The app reads the remaining server lists: home, search ideas, trust strip, About, policies, deals, help. **Built.** An empty list draws nothing. The app's own copy is used only when the server address is not set.
 
 ## Phase 3 — later, only when named, in this order
 
