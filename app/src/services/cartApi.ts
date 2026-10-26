@@ -36,7 +36,9 @@ export type ServerCartLine = {
   lineTotal: number;
   min: number;
   max?: number;
+  step: number;
   stock: number;
+  variantId?: string;
   problem?: CartLineProblem;
 };
 
@@ -88,7 +90,9 @@ function normalizeLine(raw: unknown): ServerCartLine | null {
     lineTotal: asNumber(record.lineTotal) ?? 0,
     min: Math.max(1, Math.floor(asNumber(limits?.min) ?? 1)),
     max: asNumber(limits?.max),
+    step: Math.max(1, Math.floor(asNumber(limits?.step) ?? 1)),
     stock: Math.max(0, Math.floor(asNumber(limits?.stock) ?? 0)),
+    variantId: asId(record.variantId),
     problem,
   };
 }
@@ -145,10 +149,14 @@ async function ensureGuestSession() {
   if (!getAuthToken() && !(await loadCartSessionId())) await fetchCart();
 }
 
-export async function putCartLine(productId: string, quantity: number): Promise<ServerCart> {
+export async function putCartLine(productId: string, quantity: number, variantId?: string): Promise<ServerCart> {
   await ensureGuestSession();
   return normalizeCart(
-    await apiPut(`/cart/items/${encodeURIComponent(productId)}`, { quantity }, { headers: await cartHeaders() })
+    await apiPut(
+      `/cart/items/${encodeURIComponent(productId)}`,
+      { quantity, ...(variantId ? { variantId: Number(variantId) } : {}) },
+      { headers: await cartHeaders() }
+    )
   );
 }
 

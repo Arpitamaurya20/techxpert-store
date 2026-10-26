@@ -224,7 +224,7 @@ A brand's `id` is its name. Pass it as `brandId` when listing products.
 
 ### UC-3 Search and product lists
 
-**Call, public:** `GET /catalog/products`. All filters are optional and can be combined:
+**Call, public:** `GET /catalog/products`. A customer sees products that have an active selling price. A staff token sees the unpriced ones too, so the portal can still price them. All filters are optional and can be combined:
 
 | Query | Meaning |
 |---|---|
@@ -345,7 +345,7 @@ PUT /cart/items/5  { "quantity": 30 }  → 200
 **A line's `problem`:** a line already in the cart can go bad after a price or stock change.
 - `problem` is then `price_unavailable`, `out_of_stock` or `over_limit`, and the line is left out of `totals`.
 - `canCheckout` is false until the customer fixes or removes it.
-- Show `limits` so they can.
+- Show `limits`, including `limits.step` and `limits.min`. Send `variantId` back on the next quantity change for that line. Leaving it out still sells the first option.
 
 ### UC-7 Sign in with a one-time code
 
@@ -369,13 +369,16 @@ POST /auth/verify-otp → 200
 **Notes:**
 - A code lasts 10 minutes.
 - Verifying a new phone number creates the customer.
-- `devOtp` only exists locally.
+- `devOtp` only exists locally. Locally the code is not texted.
+- In production the same call uses the sign-in text template (`PRP_SMS_TEMPLATE_NAME`, Homecare's OTP template), never the order template. When that text is not configured the answer is `503` "The sign-in code could not be sent. Ask for a new one."
+- Verifying creates the customer when the phone is new, and marks that phone verified. An existing phone keeps its name unless the stored name is still a placeholder. An email already on another account is `409` "That email is already on another account." with `"code": "EMAIL_TAKEN"`.
 - The local-only shortcut `POST /auth/login` with `{ "identifier": "9876543210" }` returns the same `{ token, user }` for an existing customer, with no code.
+- `deliveryLocation` is null when the customer has no saved address. Do not invent one.
 
 **Profile:** `GET /auth/me` (signed in) returns:
 
 ```json
-{ "id", "name", "email", "mobile", "createdAt", "deliveryLocation": { "pincode", "city" } }
+{ "id", "name", "email", "mobile", "createdAt", "deliveryLocation": { "pincode", "city" } | null }
 ```
 
 ### UC-8 Move the guest cart into the account after sign-in
@@ -417,7 +420,8 @@ The cart still shows the company stock, because a pincode is not known yet. Chec
 | `addressId` | signed in | A saved address ID (use case 9) |
 | `shippingAddress` + `pincode` | guests, or no saved address | The full address text and its 6-digit pincode |
 | `guestName`, `guestPhone`, `guestEmail` | guests | Stored on the order |
-| `paymentMethod` | no | Only `"COD"`, which is the default |
+| `paymentMethod` | no | Only `"COD"`, which is the default. PayU comes later, on this order |
+| `channel` | no | `store_app` (the default) or `homecare_app`. Staff orders are neither |
 | `notes` | no | Free text |
 
 ```json

@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { userPool } from '../db/mysql.js';
 import { store } from '../db/store.js';
 import { DEV_OTP, getJwtSecret, isDevCustomerLoginAllowed } from '../config/security.js';
+import { sendSignInCode } from '../utils/otpSms.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
 const JWT_SECRET = getJwtSecret();
@@ -52,10 +53,7 @@ export class AuthService {
             name: user.full_name || 'Valued Customer',
             email: user.email || '',
             mobile: user.phone,
-            deliveryLocation: {
-              pincode: defaultAddr?.pincode || '201309',
-              city: defaultAddr?.city || 'Noida',
-            },
+            deliveryLocation: AuthService.deliveryLocation(defaultAddr),
             role: 'customer',
           },
         };
@@ -104,11 +102,86 @@ export class AuthService {
       console.warn('[AuthService] otp_attempts insert warning', e);
     }
 
+    if (!devLogin) {
+      const sent = await sendSignInCode(cleanPhone, otp, process.env);
+      if (!sent.sent) {
+        throw Object.assign(new Error(sent.detail), { statusCode: 503 });
+      }
+    }
+
     return {
       phone: cleanPhone,
-      message: `OTP sent successfully to +91 ${cleanPhone}`,
+      message: devLogin ? `OTP sent successfully to +91 ${cleanPhone}` : 'The sign-in code was sent.',
       devOtp: devLogin ? otp : undefined,
     };
+  }
+
+  /** A saved address. No address is null, never a made-up city. */
+  static deliveryLocation(addr: { pincode?: string; city?: string } | undefined) {
+    const pincode = String(addr?.pincode || '').trim();
+    const city = String(addr?.city || '').trim();
+    if (!/^\d{6}$/.test(pincode) || !city) return null;
+    return { pincode, city };
+  }
+
+  /** The person for this phone. A new phone is unverified until `verify` is set. An existing phone is not replaced. */
+  static async attachByPhone(contact: {
+    phone?: string;
+    name?: string;
+    email?: string;
+    verify: boolean;
+  }): Promise<{ userId: number; created: boolean } | null> {
+    const phone = AuthService.cleanPhone(contact.phone);
+    if (!/^[1-9]\d{9}$/.test(phone)) return null;
+
+    const claim = async (userId: number, created: boolean) => {
+      try {
+        await AuthService.persistCustomerContact(userId, contact);
+      } catch (err) {
+        const duplicate = AuthService.duplicateCustomer(err);
+        if (duplicate) throw duplicate;
+        throw err;
+      }
+      if (contact.verify) {
+        await userPool.query(`UPDATE users SET is_verified = 1 WHERE user_id = ?`, [userId]);
+      }
+      return { userId, created };
+    };
+
+    const [existing] = await userPool.query<any[]>(`SELECT user_id FROM users WHERE phone = ? LIMIT 1`, [phone]);
+    if (existing.length) return claim(Number(existing[0].user_id), false);
+
+    const incomingName = String(contact.name || '').trim();
+    const storedName = incomingName && !AuthService.isPlaceholderName(incomingName) ? incomingName.slice(0, 200) : null;
+    const incomingEmail = String(contact.email || '').trim();
+    const storedEmail = incomingEmail.includes('@') ? incomingEmail.slice(0, 200) : null;
+    try {
+      const [insertRes] = await userPool.query<any>(
+        `INSERT INTO users (phone, full_name, email, is_active, is_verified) VALUES (?, ?, ?, 1, ?)`,
+        [phone, storedName, storedEmail, contact.verify ? 1 : 0]
+      );
+      return { userId: Number(insertRes.insertId), created: true };
+    } catch (err) {
+      const duplicate = AuthService.duplicateCustomer(err);
+      if (duplicate && (duplicate as { code?: string }).code === 'PHONE_TAKEN') {
+        const [again] = await userPool.query<any[]>(`SELECT user_id FROM users WHERE phone = ? LIMIT 1`, [phone]);
+        if (again.length) return claim(Number(again[0].user_id), false);
+      }
+      if (duplicate) throw duplicate;
+      throw err;
+    }
+  }
+
+  static duplicateCustomer(err: unknown): Error | null {
+    const row = err as { code?: string; errno?: number; message?: string };
+    if (row?.code !== 'ER_DUP_ENTRY' && row?.errno !== 1062) return null;
+    if (String(row.message || '').toLowerCase().includes('email')) {
+      return Object.assign(new Error('That email is already on another account.'), {
+        statusCode: 409,
+        code: 'EMAIL_TAKEN',
+      });
+    }
+    return Object.assign(new Error('That phone already has an account.'), { statusCode: 409, code: 'PHONE_TAKEN' });
   }
 
   /** Names that mean "we don't know yet" — safe to overwrite with a real name. */
@@ -204,37 +277,22 @@ export class AuthService {
       throw Object.assign(new Error('That code is wrong or has expired. Ask for a new one.'), { statusCode: 401 });
     }
 
-    let [users] = await userPool.query<any[]>(
-      `SELECT user_id, phone, email, full_name, is_active FROM users WHERE phone = ? LIMIT 1`,
-      [cleanPhone]
-    );
-
-    let user = users[0];
-    const givenName = String(profile?.name || '').trim();
-    const givenEmail = String(profile?.email || '').trim();
-    const storedName =
-      givenName && !AuthService.isPlaceholderName(givenName) ? givenName.slice(0, 200) : null;
-
-    if (!user) {
-      const [insertRes] = await userPool.query<any>(
-        `INSERT INTO users (phone, full_name, email, is_active, is_verified) VALUES (?, ?, ?, 1, 1)`,
-        [cleanPhone, storedName, givenEmail.includes('@') ? givenEmail.slice(0, 200) : null]
-      );
-      user = {
-        user_id: insertRes.insertId,
-        phone: cleanPhone,
-        email: givenEmail.includes('@') ? givenEmail : null,
-        full_name: storedName,
-      };
-    } else {
-      await AuthService.persistCustomerContact(user.user_id, {
-        name: givenName,
-        phone: cleanPhone,
-        email: givenEmail,
-      });
-      if (storedName && AuthService.isPlaceholderName(user.full_name)) user.full_name = storedName;
-      if (givenEmail.includes('@') && !user.email) user.email = givenEmail;
+    const attached = await AuthService.attachByPhone({
+      phone: cleanPhone,
+      name: profile?.name,
+      email: profile?.email,
+      verify: true,
+    });
+    if (!attached) {
+      throw Object.assign(new Error('Enter a 10-digit mobile number.'), { statusCode: 400 });
     }
+
+    const [users] = await userPool.query<any[]>(
+      `SELECT user_id, phone, email, full_name, is_active FROM users WHERE user_id = ? LIMIT 1`,
+      [attached.userId]
+    );
+    const user = users[0];
+    if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
 
     const [addrRows] = await userPool.query<any[]>(
       `SELECT city, pincode FROM user_addresses WHERE user_id = ? AND is_deleted = 0 ORDER BY is_default DESC LIMIT 1`,
@@ -255,10 +313,7 @@ export class AuthService {
         name: user.full_name || 'Valued Customer',
         email: user.email || '',
         mobile: user.phone,
-        deliveryLocation: {
-          pincode: addr?.pincode || '201309',
-          city: addr?.city || 'Noida',
-        },
+        deliveryLocation: AuthService.deliveryLocation(addr),
       },
     };
   }
@@ -286,9 +341,7 @@ export class AuthService {
       email: u.email,
       mobile: u.phone,
       createdAt: u.created_at,
-      deliveryLocation: addrRows[0]
-        ? { pincode: addrRows[0].pincode, city: addrRows[0].city }
-        : { pincode: '201309', city: 'Noida' },
+      deliveryLocation: AuthService.deliveryLocation(addrRows[0]),
     };
   }
 

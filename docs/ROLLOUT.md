@@ -44,6 +44,7 @@ Run from `server/`, against the MySQL host that has both `homecare` and `techxpe
 | 1.19 | `sql/staff_alerts.sql` | `SHOW TABLES FROM techxpertstore LIKE 'staff_alerts'` returns a row | Safe to run again. Starts empty. A missing table does not stop an order or a request |
 | 1.20 | `sql/order_messages.sql` | `SHOW TABLES FROM techxpertstore LIKE 'order_messages'` returns a row | Safe to run again. Confirmation starts off. A missing table does not stop an order |
 | 1.21 | `sql/delivery_promise.sql` | `SHOW TABLES FROM techxpertstore LIKE 'order_problems'` returns a row | Safe to run again. Run after 1.19. Arrives in starts off. A missing table does not stop an order |
+| 1.22 | `sql/order_channel.sql` | `SHOW TABLES FROM techxpertstore LIKE 'order_channel'` returns a row | Safe to run again. A missing table does not stop an order. Null means staff, or an order from before this |
 
 `sql/portal_audit_logs_alter_category.sql` can be skipped: 1.3 and 1.4 make the same change. `sql/portal_staff.sql` is **not** run here, because it renames a column that the live API reads. It runs in step 3.2, right before the restart.
 

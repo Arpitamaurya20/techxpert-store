@@ -5,6 +5,7 @@ import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 import { AuthService } from './authService.js';
 import { CartService, type CheckoutLine } from './cartService.js';
 import { guestOrderOwner, isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPricing.js';
+import { readOrderChannel, type OrderChannel } from '../utils/orderChannel.js';
 import { quantityRefusal, TAX_RATE, type CartTotals } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
 import type { OrderStatus } from '../utils/validate.js';
@@ -137,6 +138,7 @@ export class OrderService {
       }
       if (params.isPortal) await OrderNoticeService.attach(orders);
       await OrderService.attachPromise(orders);
+      await OrderService.attachChannel(orders);
       await OrderProblemService.attach(orders);
 
       return {
@@ -247,6 +249,7 @@ export class OrderService {
     }
     if (params.isPortal) await OrderNoticeService.attach(orders);
     await OrderService.attachPromise(orders);
+    await OrderService.attachChannel(orders);
     await OrderProblemService.attach(orders);
     return {
       orders,
@@ -380,6 +383,7 @@ export class OrderService {
         order.history = history;
         await OrderNoticeService.attach([order]);
         await OrderService.attachPromise([order]);
+        await OrderService.attachChannel([order]);
         await OrderProblemService.attach([order]);
 
         return order;
@@ -489,10 +493,8 @@ export class OrderService {
    * A new 10-digit phone gets an unverified customer, the same as guest checkout.
    */
   static async customerForStaff(phone: string, name: string): Promise<number | undefined> {
-    const clean = AuthService.cleanPhone(phone);
-    const [existing] = await userPool.query<any[]>(`SELECT user_id FROM users WHERE phone = ? LIMIT 1`, [clean]);
-    if (existing.length) return Number(existing[0].user_id);
-    return OrderService.ownerForGuest({ name, phone: clean });
+    const attached = await AuthService.attachByPhone({ phone, name, verify: false });
+    return attached?.userId;
   }
 
   static async ownerForGuest(guest: { name?: string; phone?: string; email?: string }): Promise<number | undefined> {
@@ -505,14 +507,14 @@ export class OrderService {
       const existingId = existing.length ? Number(existing[0].user_id) : null;
       if (guestOrderOwner(phone, existingId) === 'guest') return undefined;
 
-      const name = String(guest.name || '').trim();
-      const storedName = name && !AuthService.isPlaceholderName(name) ? name.slice(0, 200) : null;
-      const email = String(guest.email || '').trim();
-      const [insertRes] = await userPool.query<any>(
-        `INSERT INTO users (phone, full_name, email, is_active, is_verified) VALUES (?, ?, ?, 1, 0)`,
-        [phone, storedName, email.includes('@') ? email.slice(0, 200) : null]
-      );
-      return Number(insertRes.insertId);
+      const attached = await AuthService.attachByPhone({
+        phone,
+        name: guest.name,
+        email: guest.email,
+        verify: false,
+      });
+      if (!attached?.created) return undefined;
+      return attached.userId;
     } catch (err) {
       console.warn('[OrderService] guest customer record failed; placing a guest order', err);
       return undefined;
@@ -548,6 +550,8 @@ export class OrderService {
       createdBy?: number;
       /** Days promised when the order was placed. Null means no promise. */
       arrivesInDays?: number | null;
+      /** Customer app that placed it. Staff orders leave this out. */
+      channel?: OrderChannel | null;
     }
   ): Promise<number> {
     const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
@@ -583,6 +587,7 @@ export class OrderService {
     );
     const orderId = Number(orderRes.insertId);
     await OrderService.rememberPromise(conn, orderId, order.arrivesInDays ?? null);
+    await OrderService.rememberChannel(conn, orderId, order.channel ?? null);
 
     for (const line of order.lines) {
       await conn.query(
@@ -652,6 +657,45 @@ export class OrderService {
     }
   }
 
+  /** Which app placed the order. A missing table does not stop the order. */
+  private static async rememberChannel(
+    conn: PoolConnection,
+    orderId: number,
+    channel: OrderChannel | null
+  ): Promise<void> {
+    if (channel == null) return;
+    try {
+      await conn.query(
+        `INSERT INTO order_channel (OrderID, Channel) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE Channel = VALUES(Channel)`,
+        [orderId, channel]
+      );
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ER_NO_SUCH_TABLE') return;
+      throw err;
+    }
+  }
+
+  static async attachChannel(orders: { id: unknown; channel?: OrderChannel | null }[]): Promise<void> {
+    const ids = orders.map((order) => Number(order.id)).filter((id) => Number.isInteger(id) && id > 0);
+    for (const order of orders) order.channel = null;
+    if (!ids.length) return;
+    try {
+      const [rows] = await storePool.query<any[]>(
+        `SELECT OrderID as orderId, Channel as channel FROM order_channel WHERE OrderID IN (?)`,
+        [ids]
+      );
+      const byId = new Map(rows.map((row) => [Number(row.orderId), row.channel]));
+      for (const order of orders) {
+        const channel = byId.get(Number(order.id));
+        order.channel = channel === 'store_app' || channel === 'homecare_app' ? channel : null;
+      }
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ER_NO_SUCH_TABLE') return;
+      throw err;
+    }
+  }
+
   /** The promise made when the order was placed. Later shop settings do not change it. */
   static async attachPromise(orders: { id: unknown; arrivesInDays?: number | null }[]): Promise<void> {
     const ids = orders.map((order) => Number(order.id)).filter((id) => Number.isInteger(id) && id > 0);
@@ -703,6 +747,7 @@ export class OrderService {
     );
     const promised = { id: o.id, arrivesInDays: null as number | null };
     await OrderService.attachPromise([promised]);
+    await OrderService.attachChannel([promised]);
     return {
       id: String(o.id),
       orderNumber: String(o.orderNumber),
@@ -747,6 +792,7 @@ export class OrderService {
     guestPhone?: string;
     guestEmail?: string;
     pincode?: string;
+    channel?: unknown;
   }) {
     const paymentMethod = String(payload.paymentMethod || 'COD').toUpperCase();
     if (paymentMethod !== 'COD') throw orderRefusal(400, 'Only cash on delivery is available.');
@@ -820,6 +866,7 @@ export class OrderService {
         historyNote: placement.reason ?? notes,
         source: 'app',
         arrivesInDays: deliveryPromise(settings.deliveryDays),
+        channel: readOrderChannel(payload.channel, 'store_app'),
       });
       await StaffAlertService.recordOrder(conn, orderId);
       await conn.commit();

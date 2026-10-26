@@ -28,6 +28,8 @@ export interface ProductFilterParams {
   inStock?: boolean;
   page?: number;
   limit?: number;
+  /** Customer listings hide products with no active selling price. The portal does not. */
+  pricedOnly?: boolean;
 }
 
 /**
@@ -436,6 +438,13 @@ export class CatalogService {
       if (params.featured !== undefined) {
         whereClause += ` AND p.IsFeatured = ?`;
         queryParams.push(params.featured ? 1 : 0);
+      }
+
+      if (params.pricedOnly) {
+        whereClause += ` AND EXISTS (
+          SELECT 1 FROM product_pricing pr
+          WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+        )`;
       }
 
       // Count query for pagination meta

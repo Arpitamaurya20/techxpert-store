@@ -98,7 +98,7 @@ Unit tests include shop settings, the large-order rule, Talk to us, staff-create
 
 ## Phase 3 — later, only when named, in this order
 
-1. Online payment and credit terms.
+1. Online payment and credit terms. The gateway is PayU, the same one home service already opens, and it is last. The sign-in text, one phone attach, the app tag on an order, priced listings, and the cart pack step are already in place. Cash on delivery remains until this is named.
 2. Returns and refunds. Cancelling a shop order already puts stock back.
 3. Full inventory movements and a low-stock mark.
 4. Customer push notifications.

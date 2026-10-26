@@ -7,6 +7,7 @@ import { quantityRefusal, sameMoney } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
 import { StoreStockService } from './storeStockService.js';
 import { deliveryPromise } from '../utils/deliveryPromise.js';
+import { readOrderChannel } from '../utils/orderChannel.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
 import { StaffAlertService } from './staffAlertService.js';
@@ -23,6 +24,7 @@ export type CartCheckoutRequest = {
   guestName?: unknown;
   guestPhone?: unknown;
   guestEmail?: unknown;
+  channel?: unknown;
 };
 
 type Placed = { order: Awaited<ReturnType<typeof OrderService.receipt>>; replay: boolean };
@@ -118,6 +120,7 @@ export class CartCheckoutService {
         historyNote: placement.reason ?? notes,
         source: 'app',
         arrivesInDays: deliveryPromise(settings.deliveryDays),
+        channel: readOrderChannel(body.channel, 'store_app'),
       });
       await StaffAlertService.recordOrder(conn, orderId);
 
