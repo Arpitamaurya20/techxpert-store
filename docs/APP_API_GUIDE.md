@@ -566,7 +566,7 @@ POST /shop/requests
   "totals": { "subtotal": 0, "tax": 0, "delivery": 0, "grandTotal": 0 } } }
 ```
 
-The totals in a real answer are the priced cart. Show `message`. Do not take the customer to an order screen.
+The totals in a real answer are the priced cart. Show `message`. Do not take the customer to an order screen. Staff see a portal alert for the request. The app does not read that list.
 
 | Status | `error` |
 |---|---|

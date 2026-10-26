@@ -8,6 +8,7 @@ import { deliveryPincode } from '../utils/pincode.js';
 import { StoreStockService } from './storeStockService.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
+import { StaffAlertService } from './staffAlertService.js';
 
 export type CartCheckoutRequest = {
   cartId?: unknown;
@@ -114,6 +115,7 @@ export class CartCheckoutService {
         historyNote: placement.reason ?? notes,
         source: 'app',
       });
+      await StaffAlertService.recordOrder(conn, orderId);
 
       await conn.query(`DELETE FROM cart_items WHERE CartID = ?`, [cartId]);
       await conn.query(

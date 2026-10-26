@@ -16,6 +16,7 @@ import { StoreStockService } from './storeStockService.js';
 import { orderSource, type OrderSource } from '../utils/staffOrder.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
+import { StaffAlertService } from './staffAlertService.js';
 
 export interface OrderFilterParams {
   userId?: number;
@@ -761,6 +762,7 @@ export class OrderService {
         historyNote: placement.reason ?? notes,
         source: 'app',
       });
+      await StaffAlertService.recordOrder(conn, orderId);
       await conn.commit();
       return this.receipt(orderId);
     } catch (err) {

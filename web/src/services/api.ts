@@ -126,6 +126,14 @@ export type TalkRequest = {
   lines: TalkLine[];
   message: string | null;
 };
+export type StaffAlert = {
+  id: number;
+  kind: 'order' | 'request';
+  subjectId: number;
+  headline: string;
+  detail: string;
+  arrivedAt: string;
+};
 export type ShopRule = { enabled: boolean; amount: number | null };
 export type ShopSettings = {
   largeOrderValue: ShopRule;
@@ -459,6 +467,9 @@ export const api = {
   saveAbout: (body: AboutDraft) =>
     fetchApi<AboutContent>('/cms/about', { method: 'PUT', body: JSON.stringify(body) }),
   getTalkRequests: () => fetchApi<TalkRequest[]>('/shop/requests'),
+  getAlerts: () => fetchApi<StaffAlert[]>('/shop/alerts'),
+  seeAlert: (id: number) =>
+    fetchApi<{ id: number; seen: true }>(`/shop/alerts/${id}`, { method: 'PUT', body: JSON.stringify({ seen: true }) }),
   setTalkRequestStatus: (id: string, status: 'new' | 'closed') =>
     fetchApi<TalkRequest>(`/shop/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) }),
   getShopSettings: () => fetchApi<ShopSettings>('/shop/settings'),

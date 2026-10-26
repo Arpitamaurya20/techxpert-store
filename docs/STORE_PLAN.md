@@ -46,7 +46,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 - Homepage, help, About, policies and deals are empty until staff fill them.
 - Staff roles, stores, scope and an audit trail.
 
-205 unit tests pass, including shop settings, the large-order rule, Talk to us, staff-created orders and agreed prices. The old `inventory_stock` warehouse table is not the number the shop sells.
+208 unit tests pass, including shop settings, the large-order rule, Talk to us, staff-created orders, agreed prices and staff alerts. The old `inventory_stock` warehouse table is not the number the shop sells.
 
 ## Phase 0 — close what is already built
 
@@ -90,7 +90,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 ## Phase 2 — soon after launch
 
 - Staff may change the delivery charge, or agree a price, only on a pending or staff-created order, with its own permission and an audit line. **Built.** The permission is Agreed price. It applies while the order is pending, or while an order staff placed is still confirmed. Tax is worked out again. Stock is unchanged. Once the order is being prepared, the price stays.
-- Alerts when a new order or a new request arrives.
+- Alerts when a new order or a new request arrives. **Built.** A customer order and a Talk to us request show under New in the portal, and on the dashboard, until someone marks it seen. The list is checked again every 30 seconds. An order staff place themselves does not. The alert names the order or the request and the money. It does not include a phone number or a customer name.
 - Order confirmation by SMS or WhatsApp.
 - A reason on every stock edit: received, counted, or damaged, written to the audit trail.
 - A delivery promise ("arrives in X days") and a short "Report a problem" that creates a staff task.

@@ -7,6 +7,7 @@ import { StoreStockService } from './storeStockService.js';
 import { isOrderRefusal, orderRefusal } from '../utils/checkoutPricing.js';
 import { lineLimits } from '../utils/cartRules.js';
 import { readTalkRequest, readTalkStatus, talkNote, talkRefusal } from '../utils/talkRequest.js';
+import { StaffAlertService } from './staffAlertService.js';
 
 const NOT_READY = 'Talk requests are not ready. Run the talk requests SQL, then try again.';
 
@@ -118,6 +119,7 @@ export class TalkRequestService {
           ]
         );
       }
+      await StaffAlertService.recordRequest(conn, requestId, storeId, lines.length, totals.grandTotal);
       await conn.commit();
       const saved = await TalkRequestService.one(requestId, conn);
       return { ...saved, message: HELD };

@@ -38,7 +38,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { AboutContent, DealsContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, ShopSettings, TalkRequest, TrustContent } from './services/api';
+import type { AboutContent, DealsContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, ShopSettings, StaffAlert, TalkRequest, TrustContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -253,6 +253,8 @@ function PortalApp({
   const [shopSettingsError, setShopSettingsError] = useState<string | null>(null);
   const [talkRequests, setTalkRequests] = useState<TalkRequest[]>([]);
   const [talkError, setTalkError] = useState<string | null>(null);
+  const [alerts, setAlerts] = useState<StaffAlert[]>([]);
+  const knownAlerts = useRef<Set<string> | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -343,6 +345,7 @@ function PortalApp({
         policiesData,
         settingsData,
         requestsData,
+        alertsData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -416,6 +419,13 @@ function PortalApp({
               return undefined;
             })
           : skip,
+        can(permissions, 'orders', 'view') || can(permissions, 'requests', 'view')
+          ? api.getAlerts().catch((err: Error) => {
+              failed.push('alerts');
+              console.warn(err?.message || "The server didn't answer.");
+              return undefined;
+            })
+          : skip,
         can(permissions, 'audit', 'view') ? soft(api.getAuditLogs(AUDIT_LIMIT), 'audit trail', 'audit') : skip,
         api
           .getHealth()
@@ -467,6 +477,10 @@ function PortalApp({
       if (settingsData) setShopSettings(settingsData);
       setTalkError(requestsFailed);
       if (requestsData) setTalkRequests(requestsData);
+      if (alertsData) {
+        setAlerts(alertsData);
+        knownAlerts.current = new Set(alertsData.map((alert) => String(alert.id)));
+      }
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -501,9 +515,24 @@ function PortalApp({
           if (healthy && serverOnline === false) toast.success('Connected to the server again.');
           if (healthy !== serverOnline) setServerOnline(healthy);
         });
+      if (!can(permissions, 'orders', 'view') && !can(permissions, 'requests', 'view')) return;
+      api
+        .getAlerts()
+        .then((rows) => {
+          const ids = new Set(rows.map((alert) => String(alert.id)));
+          const known = knownAlerts.current;
+          if (known) {
+            const fresh = rows.filter((alert) => !known.has(String(alert.id)));
+            if (fresh.some((alert) => alert.kind === 'order')) toast.info('A new order arrived.');
+            else if (fresh.length) toast.info('A new request arrived.');
+          }
+          knownAlerts.current = ids;
+          setAlerts(rows);
+        })
+        .catch(() => undefined);
     }, 30_000);
     return () => clearInterval(timer);
-  }, [serverOnline, setServerOnline, toast]);
+  }, [serverOnline, setServerOnline, toast, permissions]);
 
   // Product Actions
   /** Rejects on refusal; the edit form shows the reason next to the fields. */
@@ -895,6 +924,17 @@ function PortalApp({
           }}
           loading={loading}
           serverOnline={serverOnline}
+          alerts={alerts}
+          onSeen={(id) => {
+            api
+              .seeAlert(id)
+              .then(() => {
+                setAlerts((current) => current.filter((alert) => alert.id !== id));
+                knownAlerts.current?.delete(String(id));
+              })
+              .catch((err: Error) => toast.error(err?.message || "That alert couldn't be marked seen."));
+          }}
+          onOpenAlert={(kind) => setActiveTab(kind === 'order' ? 'orders' : 'requests')}
         />
 
         <main style={styles.contentArea}>
@@ -912,6 +952,16 @@ function PortalApp({
               sectionsEnabled={sections.filter((s) => s.enabled).length}
               onNavigate={setActiveTab}
               canView={(tab) => tabs.includes(tab)}
+              alerts={alerts}
+              onSeen={(id) => {
+                api
+                  .seeAlert(id)
+                  .then(() => {
+                    setAlerts((current) => current.filter((alert) => alert.id !== id));
+                    knownAlerts.current?.delete(String(id));
+                  })
+                  .catch((err: Error) => toast.error(err?.message || "That alert couldn't be marked seen."));
+              }}
             />
           )}
 

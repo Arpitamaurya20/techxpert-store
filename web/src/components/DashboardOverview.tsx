@@ -17,6 +17,8 @@ import type { StatItem } from './ui';
 import type { TabId } from './Sidebar';
 import type { Banner, BulkPriceTier, Product } from '../types';
 import { isOpenOrder } from '../services/orderStatus';
+import { ArrivedList } from './ArrivedList';
+import type { StaffAlert } from '../services/api';
 import { isBannerLive } from '../services/bannerLive';
 
 /** Which pieces have loaded at least once; until then their figures read "—", never 0. */
@@ -46,6 +48,8 @@ interface DashboardOverviewProps {
   onNavigate: (tab: TabId) => void;
   /** Tiles and shortcuts only appear for modules the signed-in role can view. */
   canView: (tab: TabId) => boolean;
+  alerts?: StaffAlert[];
+  onSeen?: (id: number) => void;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) =>
@@ -64,6 +68,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   loaded,
   onNavigate,
   canView,
+  alerts = [],
+  onSeen,
 }) => {
   const liveBanners = banners.filter((b) => isBannerLive(b)).length;
   const openOrders = orders.filter((o) => isOpenOrder(o.status)).length;
@@ -172,6 +178,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </p>
         </div>
       </div>
+
+      {alerts.length > 0 && onSeen ? (
+        <section aria-label="Just arrived">
+          <div style={styles.sectionLabel}>Just arrived</div>
+          <ArrivedList
+            alerts={alerts}
+            onSeen={onSeen}
+            onOpen={(kind) => onNavigate(kind === 'order' ? 'orders' : 'requests')}
+          />
+        </section>
+      ) : null}
 
       {visibleStats.length > 0 ? <StatGrid items={visibleStats} /> : null}
 
