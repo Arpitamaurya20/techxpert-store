@@ -3,8 +3,11 @@ import type { PoolConnection } from 'mysql2/promise';
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
 import { allocationOver } from '../utils/storeStock.js';
 import { StoreStockService } from './storeStockService.js';
+import { AuditService } from './auditService.js';
+import { changedStock, stockChangeDetails, stockChangeRefusal, type StockFigure, type StockReason } from '../utils/stockReason.js';
 import { productPageUpdates } from '../utils/productPage.js';
 import { variantStockUpdates } from '../utils/variants.js';
+import { badRequest } from '../utils/validate.js';
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
@@ -717,14 +720,18 @@ export class CatalogService {
   }
 
   /** `data` comes from `validateProductUpdateBody`: `price: null` removes the price, `brandName: null` clears it. */
-  static async updateProduct(id: string | number, data: any) {
+  static async updateProduct(id: string | number, data: any, actorName = 'Staff') {
     const { name, price, stockQuantity, description, brandName, unit, quantityStep } = data;
     const hasNewPrice = typeof price === 'number';
 
     try {
       const numId = Number(id);
+      let stockEdit: { name: string; changes: StockFigure[] } = { name: '', changes: [] };
       if (!isNaN(numId)) {
         const optionStocks = variantStockUpdates(data.variants);
+        stockEdit = await CatalogService.stockChange(numId, data, optionStocks);
+        const stockRefusal = stockChangeRefusal(stockEdit.changes, data.stockReason ?? null);
+        if (stockRefusal) throw Object.assign(new Error(stockRefusal), { statusCode: 400 });
         const page = productPageUpdates(data);
         const stockStatus =
           !optionStocks && stockQuantity !== undefined
@@ -783,6 +790,15 @@ export class CatalogService {
         }
       }
       const updated = await CatalogService.getProductById(id);
+      const reason = data.stockReason as StockReason | null | undefined;
+      if (updated && stockEdit.changes.length && reason) {
+        await AuditService.create({
+          action: 'Changed stock',
+          entity: 'product',
+          details: stockChangeDetails(stockEdit.name || updated.name, reason, stockEdit.changes),
+          user: actorName,
+        }).catch((err) => console.warn('[Catalog] stock audit failed', err));
+      }
       if (updated) return updated;
     } catch (err) {
       if (err && typeof err === 'object' && 'statusCode' in err) throw err;
@@ -1019,6 +1035,95 @@ export class CatalogService {
     } finally {
       conn.release();
     }
+  }
+
+  /**
+   * Quantities this save would change. A reason is required only when this list is not empty,
+   * and the check runs before any row is written.
+   */
+  private static async stockChange(
+    productId: number,
+    data: any,
+    optionStocks: { id: number; stockQuantity: number }[] | undefined
+  ): Promise<{ name: string; changes: StockFigure[] }> {
+    const [products] = await storePool.query<any[]>(
+      `SELECT ProductName as name FROM products WHERE ID = ? LIMIT 1`,
+      [productId]
+    );
+    if (!products.length) return { name: '', changes: [] };
+    const [variants] = await storePool.query<any[]>(
+      `SELECT ID as id, VariantName as name, StockQuantity as stock
+       FROM product_variants WHERE ProductID = ? ORDER BY ID ASC`,
+      [productId]
+    );
+    const byId = new Map(variants.map((row) => [Number(row.id), row]));
+    const figures: StockFigure[] = [];
+    if (optionStocks) {
+      for (const update of optionStocks) {
+        const current = byId.get(update.id);
+        if (!current) continue;
+        figures.push({
+          label: String(current.name || 'Option'),
+          before: Number(current.stock) || 0,
+          after: update.stockQuantity,
+        });
+      }
+    } else if (data.stockQuantity !== undefined) {
+      const first = variants[0];
+      const after = Number(data.stockQuantity);
+      figures.push(
+        first
+          ? { label: String(first.name || 'Stock'), before: Number(first.stock) || 0, after }
+          : { label: 'Stock', before: 0, after }
+      );
+    }
+    if (data.storeStock !== undefined) {
+      figures.push(...(await CatalogService.storeStockFigures(data.storeStock, byId)));
+    }
+    return { name: String(products[0].name || 'Product'), changes: changedStock(figures) };
+  }
+
+  private static async storeStockFigures(
+    value: unknown,
+    variants: Map<number, { name?: string }>
+  ): Promise<StockFigure[]> {
+    if (!Array.isArray(value)) badRequest('storeStock must be a list.');
+    const rows = value.map((row) => {
+      const variantId = Number(row?.variantId);
+      const storeId = Number(row?.storeId);
+      if (!Number.isInteger(variantId) || variantId <= 0) badRequest("That option isn't part of this product.");
+      if (!Number.isInteger(storeId) || storeId <= 0) badRequest('Pick a store that is open.');
+      if (row?.quantity == null || row?.quantity === '') return { variantId, storeId, quantity: null as number | null };
+      const quantity = Number(row.quantity);
+      if (!Number.isInteger(quantity) || quantity < 0) {
+        badRequest('Stock at a store is a whole number, or empty to use the company stock.');
+      }
+      return { variantId, storeId, quantity };
+    });
+    if (!rows.length) return [];
+    const variantIds = [...new Set(rows.map((row) => row.variantId))];
+    const storeIds = [...new Set(rows.map((row) => row.storeId))];
+    const [held] = await storePool.query<any[]>(
+      `SELECT VariantID as variantId, StoreID as storeId, StockQuantity as quantity
+       FROM store_variant_stock WHERE VariantID IN (${variantIds.map(() => '?').join(',')})`,
+      variantIds
+    );
+    const current = new Map(held.map((row) => [`${row.variantId}:${row.storeId}`, Number(row.quantity) || 0]));
+    const [stores] = await storePool.query<any[]>(
+      `SELECT ID as id, StoreName as name FROM stores WHERE ID IN (${storeIds.map(() => '?').join(',')})`,
+      storeIds
+    );
+    const storeNames = new Map(stores.map((row) => [Number(row.id), String(row.name || 'Store')]));
+    return rows.map((row) => {
+      const variantName = String(variants.get(row.variantId)?.name || 'Option');
+      const storeName = storeNames.get(row.storeId) || 'Store';
+      const key = `${row.variantId}:${row.storeId}`;
+      return {
+        label: `${variantName} at ${storeName}`,
+        before: current.has(key) ? current.get(key)! : null,
+        after: row.quantity,
+      };
+    });
   }
 
   static async deleteProduct(id: string | number) {

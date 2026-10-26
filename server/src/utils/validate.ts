@@ -1,3 +1,5 @@
+import { readStockReason } from './stockReason.js';
+
 /** Lightweight request-body guards for merchandising writes (L4). */
 
 export function badRequest(message: string): never {
@@ -100,6 +102,7 @@ export function validateProductUpdateBody(body: any) {
   if (body?.unit !== undefined) optionalString(body.unit, 'unit', { max: 100 });
   if (body?.description !== undefined) optionalString(body.description, 'description', { max: 5000 });
   if (body?.quantityStep !== undefined) next.quantityStep = quantityStepValue(body.quantityStep);
+  if (body?.stockReason !== undefined) next.stockReason = readStockReason(body.stockReason);
   return next;
 }
 

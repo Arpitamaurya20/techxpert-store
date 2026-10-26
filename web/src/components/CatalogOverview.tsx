@@ -71,6 +71,7 @@ interface ProductForm {
   description: string;
   variantStocks: { id: number; name: string; stock: string }[];
   storeStock: { variantId: number; variantName: string; storeId: number; storeName: string; quantity: string }[];
+  stockReason: '' | 'received' | 'counted' | 'damaged';
   highlights: { key: string; text: string }[];
   specifications: { key: string; label: string; value: string }[];
 }
@@ -95,6 +96,7 @@ const formFor = (product: Product | null): ProductForm => ({
           stock: String(variant.stockQuantity ?? 0),
         }))
       : [],
+  stockReason: '',
   storeStock: (product?.storeStock ?? []).map((row) => ({
     variantId: row.variantId,
     variantName: row.variantName,
@@ -141,6 +143,26 @@ function storeQuantityError(form: ProductForm): string | null {
   return null;
 }
 
+function stockChanged(form: ProductForm, editing: Product): boolean {
+  if (form.variantStocks.length > 1) {
+    for (const row of form.variantStocks) {
+      const current = editing.variants?.find((variant) => Number(variant.id) === row.id);
+      if (Number(row.stock) !== Number(current?.stockQuantity ?? 0)) return true;
+    }
+  } else if (Number(form.stock) !== Number(editing.stockQuantity ?? 0)) {
+    return true;
+  }
+  for (const row of form.storeStock) {
+    const current = editing.storeStock?.find(
+      (item) => item.variantId === row.variantId && item.storeId === row.storeId
+    );
+    const before = current?.quantity ?? null;
+    const after = row.quantity.trim() === '' ? null : Number(row.quantity);
+    if (before !== after) return true;
+  }
+  return false;
+}
+
 /** Mirrors the server: a new product needs a price; an edited one may have it removed. A price must be more than ₹0. */
 function checkForm(form: ProductForm, editing: Product | null): FormErrors {
   const errors: FormErrors = {};
@@ -167,6 +189,9 @@ function checkForm(form: ProductForm, editing: Product | null): FormErrors {
   }
   const storeStockError = storeQuantityError(form);
   if (storeStockError) errors.stock = errors.stock || storeStockError;
+  if (editing && !errors.stock && stockChanged(form, editing) && !form.stockReason) {
+    errors.stockReason = 'Say why the stock changed: received, counted, or damaged.';
+  }
   if (!form.unit.trim()) errors.unit = 'Enter the selling unit, e.g. "50 kg bag".';
   const pack = Number(form.quantityStep.trim());
   if (form.quantityStep.trim() === '' || !Number.isInteger(pack) || pack < 1 || pack > 9999) {
@@ -553,6 +578,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                       })),
                     }
                   : {}),
+                ...(form.stockReason && stockChanged(form, editing) ? { stockReason: form.stockReason } : {}),
               });
             } else {
               await onCreateProduct({
@@ -779,6 +805,30 @@ const ProductFormDialog: React.FC<{
               </div>
             ))}
           </div>
+        ) : null}
+        {editing ? (
+          <Field
+            id={`${formId}-stock-reason`}
+            label="Why the stock changed"
+            error={errors.stockReason}
+            hint="Received, counted, or damaged. Leave this empty when the quantities stay the same."
+          >
+            <select
+              className="tx-input"
+              value={form.stockReason}
+              onChange={(event) => {
+                const value = event.target.value;
+                const stockReason = value === 'received' || value === 'counted' || value === 'damaged' ? value : '';
+                setForm((prev) => ({ ...prev, stockReason }));
+                if (errors.stockReason) setErrors((prev) => ({ ...prev, stockReason: undefined }));
+              }}
+            >
+              <option value="">No change</option>
+              <option value="received">Received</option>
+              <option value="counted">Counted</option>
+              <option value="damaged">Damaged</option>
+            </select>
+          </Field>
         ) : null}
         <Field id={`${formId}-description`} label="Description">
           <textarea value={form.description} onChange={set('description')} maxLength={2000} />

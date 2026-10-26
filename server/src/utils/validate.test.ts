@@ -55,4 +55,11 @@ describe('validateProductUpdateBody', () => {
     refusal(() => validateProductUpdateBody({ quantityStep: 0 }), /quantityStep/);
     refusal(() => validateProductUpdateBody({ quantityStep: 1.5 }), /whole number/);
   });
+
+  it('reads a stock reason and refuses one that is not received, counted, or damaged', () => {
+    assert.equal(validateProductUpdateBody({ stockReason: 'counted' }).stockReason, 'counted');
+    assert.equal(validateProductUpdateBody({ name: 'Cable' }).stockReason, undefined);
+    assert.equal(validateProductUpdateBody({ stockReason: '' }).stockReason, null);
+    refusal(() => validateProductUpdateBody({ stockReason: 'stolen' }), /received, counted, or damaged/);
+  });
 });

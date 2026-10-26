@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { CatalogService } from '../services/catalogService.js';
 import { StoreStockService } from '../services/storeStockService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
-import { requireAdmin, requirePermission } from '../middleware/auth.js';
+import { accessActor, requireAdmin, requirePermission } from '../middleware/auth.js';
 import { validateProductCreateBody, validateProductUpdateBody } from '../utils/validate.js';
 
 const router = Router();
@@ -159,7 +159,7 @@ router.put(
   requirePermission('products', 'edit'),
   asyncHandler(async (req, res) => {
     const body = validateProductUpdateBody(req.body);
-    const updated = await CatalogService.updateProduct(req.params.id, body);
+    const updated = await CatalogService.updateProduct(req.params.id, body, accessActor(req).name);
     if (!updated) return sendError(res, 404, 'Product not found');
     return sendSuccess(res, updated, 'Product updated successfully');
   })

@@ -81,6 +81,8 @@ export interface Product {
   highlights?: string[];
   /** Name-and-value rows on the product page. Empty until staff fill them. */
   specifications?: { label: string; value: string }[];
+  /** Sent only when this save changes a stock quantity. */
+  stockReason?: 'received' | 'counted' | 'damaged';
   /**
    * Staff only. Empty quantity means that store sells the company stock.
    * A number is only what that store can sell.

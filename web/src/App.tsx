@@ -554,6 +554,14 @@ function PortalApp({
         updated.variants?.length
           ? updated.variants.map((variant) => `${variant.name} ${variant.stockQuantity}`).join(', ')
           : next.stockQuantity
+      }${
+        updated.stockReason === 'received'
+          ? ', received'
+          : updated.stockReason === 'counted'
+            ? ', counted'
+            : updated.stockReason === 'damaged'
+              ? ', damaged'
+              : ''
       }, ${updated.highlights?.length ?? 0} highlights, ${updated.specifications?.length ?? 0} specifications`
     );
     toast.success(`"${next.name}" saved.`);
