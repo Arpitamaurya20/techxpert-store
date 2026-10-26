@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import type { ShopRule, ShopSettings } from '../services/api';
+import type { OrderNotice, ShopRule, ShopSettings } from '../services/api';
 import { Button, Field, LoadState, PageIntro } from './ui';
 
-type RuleKey = keyof ShopSettings;
+type RuleKey = Exclude<keyof ShopSettings, 'orderNotice'>;
 
 const ROWS: { key: RuleKey; label: string; hint: string; suffix?: string; whole?: boolean }[] = [
   {
@@ -39,18 +39,21 @@ const ROWS: { key: RuleKey; label: string; hint: string; suffix?: string; whole?
   },
 ];
 
-type Draft = Record<RuleKey, { enabled: boolean; amount: string }>;
+type Draft = Record<RuleKey, { enabled: boolean; amount: string }> & { orderNotice: OrderNotice };
 
 const draftFor = (settings: ShopSettings): Draft =>
-  Object.fromEntries(
-    ROWS.map((row) => [
-      row.key,
-      {
-        enabled: settings[row.key].enabled,
-        amount: settings[row.key].amount == null ? '' : String(settings[row.key].amount),
-      },
-    ])
-  ) as Draft;
+  ({
+    ...Object.fromEntries(
+      ROWS.map((row) => [
+        row.key,
+        {
+          enabled: settings[row.key].enabled,
+          amount: settings[row.key].amount == null ? '' : String(settings[row.key].amount),
+        },
+      ])
+    ),
+    orderNotice: settings.orderNotice === 'sms' || settings.orderNotice === 'whatsapp' ? settings.orderNotice : 'off',
+  }) as Draft;
 
 function ruleError(row: (typeof ROWS)[number], rule: Draft[RuleKey]): string | null {
   if (!rule.enabled && rule.amount.trim() === '') return null;
@@ -96,19 +99,22 @@ export const SettingsManager: React.FC<{
         return;
       }
     }
-    const body = Object.fromEntries(
-      ROWS.map((row) => {
-        const rule = draft[row.key];
-        const amount = rule.amount.trim() === '' ? null : Number(rule.amount);
-        return [row.key, { enabled: rule.enabled, amount } satisfies ShopRule];
-      })
-    ) as ShopSettings;
+    const body = {
+      ...Object.fromEntries(
+        ROWS.map((row) => {
+          const rule = draft[row.key];
+          const amount = rule.amount.trim() === '' ? null : Number(rule.amount);
+          return [row.key, { enabled: rule.enabled, amount } satisfies ShopRule];
+        })
+      ),
+      orderNotice: draft.orderNotice,
+    } as ShopSettings;
     try {
       setSaving(true);
       setError(null);
       const saved = await save(body);
       onSaved(saved);
-      onAudit('Saved shop settings', 'Delivery, GST and the large-order thresholds');
+      onAudit('Saved shop settings', 'Delivery, GST, the large-order thresholds and order confirmation');
     } catch (err: any) {
       setError(err?.message || 'The server refused the save.');
     } finally {
@@ -160,6 +166,26 @@ export const SettingsManager: React.FC<{
               </label>
             </div>
           ))}
+          <Field
+            id="shop-order-notice"
+            label="Tell the customer"
+            hint="When an order is confirmed, the customer is told the order number and the total. A pending order waits until staff confirm it. Off sends nothing. This uses the same text service as Homecare, with its own order template."
+          >
+            <select
+              className="tx-input"
+              value={draft.orderNotice}
+              disabled={!canEdit}
+              onChange={(event) => {
+                const orderNotice = event.target.value === 'sms' || event.target.value === 'whatsapp' ? event.target.value : 'off';
+                setDraft((prev) => (prev ? { ...prev, orderNotice } : prev));
+                setError(null);
+              }}
+            >
+              <option value="off">Off</option>
+              <option value="sms">Text message</option>
+              <option value="whatsapp">WhatsApp</option>
+            </select>
+          </Field>
           {error ? <p style={{ color: 'var(--danger)', margin: 0 }}>{error}</p> : null}
           {canEdit ? (
             <div>

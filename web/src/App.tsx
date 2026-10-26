@@ -603,7 +603,13 @@ function PortalApp({
     const label = orderStatusLabel(status).toLowerCase();
     try {
       const result = await api.updateOrderStatus(orderId, status);
-      setOrders((prev) => prev.map((o) => (String(o.id) === orderId ? { ...o, status } : o)));
+      setOrders((prev) =>
+        prev.map((o) =>
+          String(o.id) === orderId
+            ? { ...o, status, ...(result?.confirmation ? { confirmation: result.confirmation } : {}) }
+            : o
+        )
+      );
       const units = (result?.stockReturned ?? []).reduce((sum: number, line: any) => sum + Number(line.quantity || 0), 0);
       const stockNote = status === 'cancelled' ? (units ? `; ${units} ${units === 1 ? 'unit' : 'units'} put back in stock` : '; no stock put back') : '';
       addAuditLog('Changed order status', 'order', `Marked order ${number} as ${label}${stockNote}`);
@@ -1010,6 +1016,12 @@ function PortalApp({
               onPlaced={(order) => {
                 addAuditLog('Placed an order', 'order', `${order.orderNumber} (${order.source ?? 'staff'})`);
                 loadData(true);
+              }}
+              onSendConfirmation={async (id) => {
+                const confirmation = await api.sendOrderConfirmation(id);
+                setOrders((prev) => prev.map((o) => (String(o.id) === String(id) ? { ...o, confirmation } : o)));
+                if (confirmation.status === 'sent') toast.success('The customer was told.');
+                return confirmation;
               }}
             />
           )}

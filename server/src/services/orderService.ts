@@ -17,6 +17,8 @@ import { orderSource, type OrderSource } from '../utils/staffOrder.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
 import { StaffAlertService } from './staffAlertService.js';
+import { OrderNoticeService } from './orderNoticeService.js';
+import { orderAccepted } from '../utils/orderNotice.js';
 
 export interface OrderFilterParams {
   userId?: number;
@@ -131,6 +133,7 @@ export class OrderService {
         order.items = items;
         order.customerName = givenName(order.customerName);
       }
+      if (params.isPortal) await OrderNoticeService.attach(orders);
 
       return {
         orders,
@@ -238,6 +241,7 @@ export class OrderService {
       order.items = items;
       order.customerName = givenName(order.customerName);
     }
+    if (params.isPortal) await OrderNoticeService.attach(orders);
     return {
       orders,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -368,6 +372,7 @@ export class OrderService {
           [order.id]
         );
         order.history = history;
+        await OrderNoticeService.attach([order]);
 
         return order;
       }
@@ -764,6 +769,7 @@ export class OrderService {
       });
       await StaffAlertService.recordOrder(conn, orderId);
       await conn.commit();
+      await OrderNoticeService.tell(orderId);
       return this.receipt(orderId);
     } catch (err) {
       await conn.rollback().catch(() => undefined);
@@ -796,7 +802,8 @@ export class OrderService {
       );
       if (!orders.length) throw Object.assign(new Error('Order not found'), { statusCode: 404 });
       const order = orders[0];
-      const refusal = statusChangeRefusal(String(order.OrderStatus), status);
+      const previous = String(order.OrderStatus);
+      const refusal = statusChangeRefusal(previous, status);
       if (refusal) throw Object.assign(new Error(refusal), { statusCode: 409 });
 
       await conn.query(
@@ -820,7 +827,9 @@ export class OrderService {
         [order.ID, status, note || defaultNote, actorId]
       );
       await conn.commit();
-      return { success: true, status, stockReturned };
+      const confirmation =
+        !orderAccepted(previous) && orderAccepted(status) ? await OrderNoticeService.tell(Number(order.ID)) : null;
+      return { success: true, status, stockReturned, confirmation };
     } catch (err: any) {
       await conn?.rollback().catch(() => undefined);
       if (err?.statusCode) throw err;

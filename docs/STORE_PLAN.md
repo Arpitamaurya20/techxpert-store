@@ -46,7 +46,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 - Homepage, help, About, policies and deals are empty until staff fill them.
 - Staff roles, stores, scope and an audit trail.
 
-208 unit tests pass, including shop settings, the large-order rule, Talk to us, staff-created orders, agreed prices and staff alerts. The old `inventory_stock` warehouse table is not the number the shop sells.
+Unit tests include shop settings, the large-order rule, Talk to us, staff-created orders, agreed prices, staff alerts and order confirmation. The old `inventory_stock` warehouse table is not the number the shop sells.
 
 ## Phase 0 — close what is already built
 
@@ -91,7 +91,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 
 - Staff may change the delivery charge, or agree a price, only on a pending or staff-created order, with its own permission and an audit line. **Built.** The permission is Agreed price. It applies while the order is pending, or while an order staff placed is still confirmed. Tax is worked out again. Stock is unchanged. Once the order is being prepared, the price stays.
 - Alerts when a new order or a new request arrives. **Built.** A customer order and a Talk to us request show under New in the portal, and on the dashboard, until someone marks it seen. The list is checked again every 30 seconds. An order staff place themselves does not. The alert names the order or the request and the money. It does not include a phone number or a customer name.
-- Order confirmation by SMS or WhatsApp.
+- Order confirmation by SMS or WhatsApp. **Built.** Staff choose Off, a text message, or WhatsApp on Shop settings. It starts off. When an order is confirmed, the customer is told the order number and the total. A pending order waits until staff confirm it. The phone number is not stored. A missing template is written on the order, and the order still stands. This uses the same text service as Homecare, with its own order template, not the sign-in code.
 - A reason on every stock edit: received, counted, or damaged, written to the audit trail.
 - A delivery promise ("arrives in X days") and a short "Report a problem" that creates a staff task.
 - The app reads the remaining server lists: home, search ideas, trust strip, About, policies, deals, help.
@@ -118,6 +118,7 @@ A customer website, ERP, warehouse management (warehouses, transfers, purchase o
 | Free delivery from | ₹2,000 | Yes |
 | Delivery fee | ₹99 | Yes |
 | GST | 18% | Yes |
+| Order confirmation | Off | Yes, once the order is confirmed. Text or WhatsApp. A pending order waits |
 
 Company-wide first. Per-store fees can wait. Switching a threshold off means that limit does not apply. Switching the delivery fee off means there is no fee. Switching the free-delivery line off means the fee is charged on every order that has one. Switching GST off means the order has no GST.
 

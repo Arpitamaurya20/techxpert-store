@@ -16,6 +16,7 @@ const saved = () => ({
   freeDeliveryFrom: { enabled: true, amount: 2000 },
   deliveryFee: { enabled: true, amount: 99 },
   gstPercent: { enabled: true, amount: 18 },
+  orderNotice: 'off',
 });
 
 describe('validateShopSettings', () => {
@@ -27,6 +28,17 @@ describe('validateShopSettings', () => {
     const body = saved() as Record<string, unknown>;
     delete body.deliveryFee;
     assert.throws(() => validateShopSettings(body), /Leave one out/);
+    delete body.orderNotice;
+    body.deliveryFee = { enabled: true, amount: 99 };
+    assert.throws(() => validateShopSettings(body), /Leave one out/);
+  });
+
+  it('keeps order confirmation off unless staff choose text or WhatsApp', () => {
+    const body = saved();
+    body.orderNotice = 'sms';
+    assert.equal(validateShopSettings(body).orderNotice, 'sms');
+    (body as { orderNotice: string }).orderNotice = 'email';
+    assert.throws(() => validateShopSettings(body), /WhatsApp/);
   });
 
   it('remembers a number while the rule is switched off', () => {

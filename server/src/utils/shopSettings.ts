@@ -1,3 +1,5 @@
+import { orderNoticeFromValue, readOrderNotice, type OrderNotice } from './orderNotice.js';
+
 /** A rule staff can switch off. The amount is remembered so switching it back on keeps the number. */
 export type ShopRule = { enabled: boolean; amount: number | null };
 
@@ -8,6 +10,8 @@ export type ShopSettings = {
   freeDeliveryFrom: ShopRule;
   deliveryFee: ShopRule;
   gstPercent: ShopRule;
+  /** Off until staff choose a text message or WhatsApp. */
+  orderNotice: OrderNotice;
 };
 
 /** What the cart charges. A null free-delivery line means the fee applies to every order that has one. */
@@ -45,6 +49,7 @@ export function defaultShopSettings(): ShopSettings {
     freeDeliveryFrom: { enabled: true, amount: 2000 },
     deliveryFee: { enabled: true, amount: 99 },
     gstPercent: { enabled: true, amount: 18 },
+    orderNotice: 'off',
   };
 }
 
@@ -84,6 +89,8 @@ export function validateShopSettings(body: unknown): ShopSettings {
     if (source[key] === undefined) throw ruleError('Save every shop rule. Leave one out and nothing is changed.');
     next[key] = readRule(key, source[key]);
   }
+  if (source.orderNotice === undefined) throw ruleError('Save every shop rule. Leave one out and nothing is changed.');
+  next.orderNotice = readOrderNotice(source.orderNotice);
   return next;
 }
 
@@ -92,6 +99,10 @@ export function shopSettingsFromRows(
 ): ShopSettings {
   const next = defaultShopSettings();
   for (const row of rows) {
+    if (row.key === 'orderNotice') {
+      next.orderNotice = orderNoticeFromValue(row.value);
+      continue;
+    }
     if (!(SHOP_SETTING_KEYS as readonly string[]).includes(row.key)) continue;
     const key = row.key as ShopSettingKey;
     const enabled = Number(row.enabled) === 1;

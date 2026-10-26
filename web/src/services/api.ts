@@ -135,6 +135,12 @@ export type StaffAlert = {
   arrivedAt: string;
 };
 export type ShopRule = { enabled: boolean; amount: number | null };
+export type OrderNotice = 'off' | 'sms' | 'whatsapp';
+export type OrderConfirmation = {
+  channel: 'sms' | 'whatsapp';
+  status: 'sent' | 'failed';
+  detail: string;
+};
 export type ShopSettings = {
   largeOrderValue: ShopRule;
   largeOrderQuantity: ShopRule;
@@ -142,6 +148,7 @@ export type ShopSettings = {
   freeDeliveryFrom: ShopRule;
   deliveryFee: ShopRule;
   gstPercent: ShopRule;
+  orderNotice: OrderNotice;
 };
 export type TrustClaim = { label: string; icon: string; action: string; position: number };
 export type TrustContent = { claims: TrustClaim[] };
@@ -401,6 +408,8 @@ export const api = {
     }),
   updateOrderStatus: (id: string, status: string) =>
     fetchApi<any>(`/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  sendOrderConfirmation: (id: string | number) =>
+    fetchApi<OrderConfirmation>(`/orders/${id}/confirmation`, { method: 'POST', body: '{}' }),
   agreeOrderPrice: (id: string | number, body: { delivery?: number; lines?: { itemId: number; unitPrice: number }[] }) =>
     fetchApi<any>(`/orders/${id}/price`, { method: 'PUT', body: JSON.stringify(body) }),
 

@@ -8,6 +8,7 @@ import { isOrderRefusal, orderRefusal } from '../utils/checkoutPricing.js';
 import { lineLimits, quantityRefusal } from '../utils/cartRules.js';
 import { coversStore, type Scope } from '../utils/scope.js';
 import { readStaffOrder } from '../utils/staffOrder.js';
+import { OrderNoticeService } from './orderNoticeService.js';
 
 /**
  * Staff place an order with the same price, stock, pack size, GST and pincode rules as the app.
@@ -102,6 +103,7 @@ export class StaffOrderService {
       conn.release();
     }
 
+    await OrderNoticeService.tell(orderId);
     const order = await OrderService.getOrderById(orderId);
     const source = input.requestId ? 'request' : 'staff';
     await AuditService.create({

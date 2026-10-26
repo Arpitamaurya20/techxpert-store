@@ -56,6 +56,12 @@ export class ShopSettingsService {
           [KEY_COLUMN[key], rule.amount == null ? null : String(rule.amount), rule.enabled ? 1 : 0]
         );
       }
+      await conn.query(
+        `INSERT INTO shop_settings (SettingKey, SettingValue, Enabled)
+         VALUES ('orderNotice', ?, ?)
+         ON DUPLICATE KEY UPDATE SettingValue = VALUES(SettingValue), Enabled = VALUES(Enabled)`,
+        [next.orderNotice, next.orderNotice === 'off' ? 0 : 1]
+      );
       await conn.commit();
     } catch (err) {
       await conn.rollback().catch(() => undefined);
@@ -78,8 +84,14 @@ export class ShopSettingsService {
 }
 
 function describe(settings: ShopSettings): string {
-  const part = (label: string, rule: ShopSettings[keyof ShopSettings], suffix = '') =>
+  const part = (label: string, rule: ShopSettings['deliveryFee'], suffix = '') =>
     rule.enabled && rule.amount != null ? `${label} ${rule.amount}${suffix}` : `${label} off`;
+  const notice =
+    settings.orderNotice === 'sms'
+      ? 'Order confirmation by text message'
+      : settings.orderNotice === 'whatsapp'
+        ? 'Order confirmation by WhatsApp'
+        : 'Order confirmation off';
   return [
     part('Large-order value', settings.largeOrderValue),
     part('Large-order quantity', settings.largeOrderQuantity),
@@ -87,5 +99,6 @@ function describe(settings: ShopSettings): string {
     part('Free delivery from', settings.freeDeliveryFrom),
     part('Delivery fee', settings.deliveryFee),
     part('GST', settings.gstPercent, '%'),
+    notice,
   ].join('. ');
 }

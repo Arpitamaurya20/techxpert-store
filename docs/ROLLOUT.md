@@ -42,6 +42,7 @@ Run from `server/`, against the MySQL host that has both `homecare` and `techxpe
 | 1.17 | `sql/talk_requests.sql` | `SHOW TABLES FROM techxpertstore LIKE 'talk_requests'` returns a row | Safe to run again. After the audit table exists. An empty queue is the start |
 | 1.18 | `sql/order_source.sql` | `SHOW COLUMNS FROM techxpertstore.orders LIKE 'OrderSource'` returns a row | Run once. Existing orders are tagged `app`. Skip the statement if the column is already there |
 | 1.19 | `sql/staff_alerts.sql` | `SHOW TABLES FROM techxpertstore LIKE 'staff_alerts'` returns a row | Safe to run again. Starts empty. A missing table does not stop an order or a request |
+| 1.20 | `sql/order_messages.sql` | `SHOW TABLES FROM techxpertstore LIKE 'order_messages'` returns a row | Safe to run again. Confirmation starts off. A missing table does not stop an order |
 
 `sql/portal_audit_logs_alter_category.sql` can be skipped: 1.3 and 1.4 make the same change. `sql/portal_staff.sql` is **not** run here, because it renames a column that the live API reads. It runs in step 3.2, right before the restart.
 

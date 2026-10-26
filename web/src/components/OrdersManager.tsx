@@ -3,6 +3,7 @@ import { ShoppingBag, Clock, CheckCircle2, IndianRupee, Phone, Mail, MapPin, Eye
 import { DataTable, StatGrid, Badge, Button, Field, LoadState, Modal, NotGiven, PageIntro, useConfirm } from './ui';
 import type { Column, StatItem } from './ui';
 import { formatWhen, inr, isMoney } from '../services/format';
+import type { OrderConfirmation } from '../services/api';
 import { PlaceOrderDialog } from './PlaceOrderDialog';
 import { emptyPlaceOrder, type PlaceOrderSeed, type PlacedOrder } from './placeOrderForm';
 import {
@@ -51,6 +52,7 @@ export interface Order {
   storeId?: number | null;
   storeName?: string | null;
   source?: string | null;
+  confirmation?: OrderConfirmation | null;
 }
 
 interface OrdersManagerProps {
@@ -72,6 +74,7 @@ interface OrdersManagerProps {
     body: { delivery?: number; lines?: { itemId: number; unitPrice: number }[] }
   ) => Promise<unknown>;
   onAgreed?: (order: Order) => void;
+  onSendConfirmation?: (id: string | number) => Promise<OrderConfirmation>;
 }
 
 const ALL = 'all';
@@ -91,6 +94,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
   canAgree = false,
   onAgree,
   onAgreed,
+  onSendConfirmation,
 }) => {
   const { confirm, dialog } = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -352,6 +356,8 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
           canAgree={canAgree && Boolean(onAgree)}
           onAgree={onAgree}
           onAgreed={onAgreed}
+          canSend={canEdit && Boolean(onSendConfirmation)}
+          onSendConfirmation={onSendConfirmation}
         />
       ) : null}
       {dialog}
@@ -377,7 +383,11 @@ const OrderDetail: React.FC<{
   canAgree: boolean;
   onAgree?: OrdersManagerProps['onAgree'];
   onAgreed?: (order: Order) => void;
-}> = ({ order, onClose, statusControl, canAgree, onAgree, onAgreed }) => {
+  canSend: boolean;
+  onSendConfirmation?: (id: string | number) => Promise<OrderConfirmation>;
+}> = ({ order, onClose, statusControl, canAgree, onAgree, onAgreed, canSend, onSendConfirmation }) => {
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const placed = formatWhen(order.placedAt);
   const payment = [paymentMethodLabel(order.paymentMethod), paymentStatusLabel(order.paymentStatus)]
     .filter(Boolean)
@@ -417,6 +427,35 @@ const OrderDetail: React.FC<{
                   ? 'This order is waiting for confirmation. The goods are held. Set it to Confirmed, or cancel it to put the stock back.'
                   : 'This order is waiting for confirmation. Set it to Confirmed when it should go ahead.'}
               </p>
+            ) : null}
+            {order.confirmation ? (
+              <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: '13px' }}>
+                {order.confirmation.status === 'sent'
+                  ? order.confirmation.channel === 'whatsapp'
+                    ? 'A WhatsApp message was sent with the order number and the total.'
+                    : 'A text message was sent with the order number and the total.'
+                  : order.confirmation.detail}
+              </p>
+            ) : null}
+            {order.confirmation?.status === 'failed' && canSend && onSendConfirmation ? (
+              <div style={{ marginTop: '8px' }}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  loading={sending}
+                  onClick={() => {
+                    setSending(true);
+                    setSendError(null);
+                    onSendConfirmation(order.id)
+                      .catch((err: { message?: string }) => setSendError(err?.message || 'The message was not sent.'))
+                      .finally(() => setSending(false));
+                  }}
+                >
+                  Send again
+                </Button>
+                {sendError ? <p style={{ color: 'var(--danger)', margin: '8px 0 0', fontSize: '13px' }}>{sendError}</p> : null}
+              </div>
             ) : null}
           </div>
           <div style={styles.fact}>

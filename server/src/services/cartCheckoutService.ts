@@ -9,6 +9,7 @@ import { StoreStockService } from './storeStockService.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
 import { StaffAlertService } from './staffAlertService.js';
+import { OrderNoticeService } from './orderNoticeService.js';
 
 export type CartCheckoutRequest = {
   cartId?: unknown;
@@ -123,6 +124,7 @@ export class CartCheckoutService {
         [cartId]
       );
       await conn.commit();
+      await OrderNoticeService.tell(orderId);
       return { order: await OrderService.receipt(orderId), replay: false };
     } catch (err: any) {
       await conn.rollback().catch(() => undefined);

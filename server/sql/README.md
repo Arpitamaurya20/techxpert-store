@@ -25,6 +25,7 @@ mysql -u root -p < sql/shop_settings.sql  # delivery, GST and thresholds staff c
 mysql -u root -p < sql/talk_requests.sql  # Talk to us queue; nothing is ordered; safe to run again; after the audit table exists
 mysql -u root -p < sql/order_source.sql  # order source tag; run once; existing orders are tagged app
 mysql -u root -p < sql/staff_alerts.sql  # portal alert when a customer orders or asks; safe to run again
+mysql -u root -p < sql/order_messages.sql  # order confirmation by text or WhatsApp; starts off; safe to run again
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -53,6 +54,7 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `talk_requests.sql` | A customer's request for staff. Nothing is ordered and no stock is held. Safe to run again |
 | `order_source.sql` | `app`, `request` or `staff` on each order. Run once. Existing orders are tagged `app` |
 | `staff_alerts.sql` | A portal alert for a customer order or a Talk to us request. Safe to run again. No phone number is stored |
+| `order_messages.sql` | One confirmation per order, by text or WhatsApp. Starts off. Safe to run again. No phone number is stored |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

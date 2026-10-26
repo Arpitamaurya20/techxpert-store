@@ -15,6 +15,7 @@ import { validateOrderStatusBody } from '../utils/validate.js';
 import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
 import { StaffOrderService } from '../services/staffOrderService.js';
 import { AgreedPriceService } from '../services/agreedPriceService.js';
+import { OrderNoticeService } from '../services/orderNoticeService.js';
 
 const router = Router();
 
@@ -103,6 +104,7 @@ router.get(
     if (!isAdmin && !isOwner) {
       return sendError(res, 403, 'Not allowed to view this order');
     }
+    if (!isAdmin) delete order.confirmation;
 
     return sendSuccess(res, order);
   })
@@ -130,6 +132,21 @@ router.post(
   asyncHandler(async (req, res) => {
     const newOrder = await OrderService.createOrder(req.body, req.user?.userId);
     return sendSuccess(res, newOrder, 'Order placed successfully', 201);
+  })
+);
+
+// POST /orders/:id/confirmation - Send the confirmation again after it failed.
+router.post(
+  '/:id/confirmation',
+  requireAdmin,
+  requirePermission('orders', 'edit'),
+  asyncHandler(async (req, res) => {
+    const existing = await OrderService.getOrderById(req.params.id);
+    if (!existing || !orderInScope(existing, req.user!.access!.scope)) {
+      return sendError(res, 404, 'Order not found');
+    }
+    const confirmation = await OrderNoticeService.resend(Number(existing.id));
+    return sendSuccess(res, confirmation, confirmation.status === 'sent' ? 'Confirmation sent' : undefined);
   })
 );
 
