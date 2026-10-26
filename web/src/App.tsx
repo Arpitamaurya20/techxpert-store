@@ -950,6 +950,12 @@ function PortalApp({
               loaded={loaded.orders}
               onRetry={() => loadData(true)}
               canEdit={can(permissions, 'orders', 'edit')}
+              canAgree={can(permissions, 'agreed', 'edit')}
+              onAgree={api.agreeOrderPrice}
+              onAgreed={(order) => {
+                addAuditLog('Agreed a price', 'order', order.orderNumber);
+                loadData(true);
+              }}
               onPlace={api.placeStaffOrder}
               onPlaced={(order) => {
                 addAuditLog('Placed an order', 'order', `${order.orderNumber} (${order.source ?? 'staff'})`);

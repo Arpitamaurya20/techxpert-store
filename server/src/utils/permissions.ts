@@ -4,6 +4,7 @@ export const MODULES = [
   { key: 'products', label: 'Products', levels: ['view', 'edit', 'delete'] },
   { key: 'categories', label: 'Categories', levels: ['view', 'edit', 'delete'] },
   { key: 'orders', label: 'Orders', levels: ['view', 'edit'] },
+  { key: 'agreed', label: 'Agreed price', levels: ['view', 'edit'] },
   { key: 'requests', label: 'Talk to us', levels: ['view', 'edit'] },
   { key: 'delivery', label: 'Delivery pincodes', levels: ['view', 'edit'] },
   { key: 'stores', label: 'Stores & groups', levels: ['view', 'edit', 'delete'] },

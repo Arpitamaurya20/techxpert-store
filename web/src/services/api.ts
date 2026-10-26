@@ -393,6 +393,8 @@ export const api = {
     }),
   updateOrderStatus: (id: string, status: string) =>
     fetchApi<any>(`/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  agreeOrderPrice: (id: string | number, body: { delivery?: number; lines?: { itemId: number; unitPrice: number }[] }) =>
+    fetchApi<any>(`/orders/${id}/price`, { method: 'PUT', body: JSON.stringify(body) }),
 
   // Banners
   getBanners: () => fetchApi<any[]>('/cms/banners'),

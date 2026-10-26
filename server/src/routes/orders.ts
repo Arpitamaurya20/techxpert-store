@@ -14,6 +14,7 @@ import { can } from '../utils/permissions.js';
 import { validateOrderStatusBody } from '../utils/validate.js';
 import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
 import { StaffOrderService } from '../services/staffOrderService.js';
+import { AgreedPriceService } from '../services/agreedPriceService.js';
 
 const router = Router();
 
@@ -129,6 +130,28 @@ router.post(
   asyncHandler(async (req, res) => {
     const newOrder = await OrderService.createOrder(req.body, req.user?.userId);
     return sendSuccess(res, newOrder, 'Order placed successfully', 201);
+  })
+);
+
+// PUT /orders/:id/price - Delivery charge or a line price, on a pending or staff-placed order.
+router.put(
+  '/:id/price',
+  requireAdmin,
+  requirePermission('agreed', 'edit'),
+  asyncHandler(async (req, res) => {
+    if (!can(req.user!.access!.permissions, 'orders', 'view')) {
+      return sendError(res, 403, permissionRefusal('orders', 'view'));
+    }
+    const existing = await OrderService.getOrderById(req.params.id);
+    if (!existing || !orderInScope(existing, req.user!.access!.scope)) {
+      return sendError(res, 404, 'Order not found');
+    }
+    const actor = accessActor(req);
+    const order = await AgreedPriceService.save(req.params.id, req.body ?? {}, {
+      staffId: actor.staffId,
+      name: actor.name,
+    });
+    return sendSuccess(res, order, 'Price saved');
   })
 );
 

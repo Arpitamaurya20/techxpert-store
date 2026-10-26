@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ShoppingBag, Clock, CheckCircle2, IndianRupee, Phone, Mail, MapPin, Eye } from 'lucide-react';
-import { DataTable, StatGrid, Badge, Button, LoadState, Modal, NotGiven, PageIntro, useConfirm } from './ui';
+import { DataTable, StatGrid, Badge, Button, Field, LoadState, Modal, NotGiven, PageIntro, useConfirm } from './ui';
 import type { Column, StatItem } from './ui';
 import { formatWhen, inr, isMoney } from '../services/format';
 import { PlaceOrderDialog } from './PlaceOrderDialog';
@@ -8,6 +8,7 @@ import { emptyPlaceOrder, type PlaceOrderSeed, type PlacedOrder } from './placeO
 import {
   ORDER_STATUSES,
   isOpenOrder,
+  canAgreePrice,
   orderSourceLabel,
   orderStatusLabel,
   orderStatusVariant,
@@ -64,6 +65,13 @@ interface OrdersManagerProps {
   canEdit?: boolean;
   onPlace?: (body: unknown) => Promise<PlacedOrder>;
   onPlaced?: (order: PlacedOrder) => void;
+  /** Agreed price is its own permission, separate from changing the status. */
+  canAgree?: boolean;
+  onAgree?: (
+    id: string | number,
+    body: { delivery?: number; lines?: { itemId: number; unitPrice: number }[] }
+  ) => Promise<unknown>;
+  onAgreed?: (order: Order) => void;
 }
 
 const ALL = 'all';
@@ -80,6 +88,9 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
   canEdit = true,
   onPlace,
   onPlaced,
+  canAgree = false,
+  onAgree,
+  onAgreed,
 }) => {
   const { confirm, dialog } = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -338,6 +349,9 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
           order={selectedOrder}
           onClose={() => setSelectedId(null)}
           statusControl={statusControl(selectedOrder, 'order-detail-status')}
+          canAgree={canAgree && Boolean(onAgree)}
+          onAgree={onAgree}
+          onAgreed={onAgreed}
         />
       ) : null}
       {dialog}
@@ -356,11 +370,14 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
   );
 };
 
-const OrderDetail: React.FC<{ order: Order; onClose: () => void; statusControl: React.ReactNode }> = ({
-  order,
-  onClose,
-  statusControl,
-}) => {
+const OrderDetail: React.FC<{
+  order: Order;
+  onClose: () => void;
+  statusControl: React.ReactNode;
+  canAgree: boolean;
+  onAgree?: OrdersManagerProps['onAgree'];
+  onAgreed?: (order: Order) => void;
+}> = ({ order, onClose, statusControl, canAgree, onAgree, onAgreed }) => {
   const placed = formatWhen(order.placedAt);
   const payment = [paymentMethodLabel(order.paymentMethod), paymentStatusLabel(order.paymentStatus)]
     .filter(Boolean)
@@ -470,6 +487,10 @@ const OrderDetail: React.FC<{ order: Order; onClose: () => void; statusControl: 
           </div>
         </section>
 
+        {canAgree && onAgree && canAgreePrice(order.status, order.source) ? (
+          <AgreePrice order={order} onAgree={onAgree} onAgreed={onAgreed} />
+        ) : null}
+
         <section style={styles.totals} aria-label="Totals">
           {lines.map((line) => (
             <div key={line.label} style={styles.totalLine}>
@@ -484,6 +505,101 @@ const OrderDetail: React.FC<{ order: Order; onClose: () => void; statusControl: 
         </section>
       </div>
     </Modal>
+  );
+};
+
+const priceDraft = (order: Order) => ({
+  delivery: order.deliveryCharge == null ? '' : String(order.deliveryCharge),
+  prices: Object.fromEntries(
+    (order.items ?? [])
+      .filter((item) => item.id != null)
+      .map((item) => [String(item.id), item.unitPrice == null ? '' : String(item.unitPrice)])
+  ),
+});
+
+const AgreePrice: React.FC<{
+  order: Order;
+  onAgree: NonNullable<OrdersManagerProps['onAgree']>;
+  onAgreed?: (order: Order) => void;
+}> = ({ order, onAgree, onAgreed }) => {
+  const [draft, setDraft] = useState(() => priceDraft(order));
+  const [seen, setSeen] = useState(order);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (order !== seen) {
+    setSeen(order);
+    setDraft(priceDraft(order));
+    setSaving(false);
+    setError(null);
+  }
+
+  const save = async () => {
+    const body: { delivery?: number; lines?: { itemId: number; unitPrice: number }[] } = {};
+    const delivery = Number(draft.delivery);
+    if (draft.delivery.trim() !== '' && Number.isFinite(delivery) && delivery !== Number(order.deliveryCharge)) {
+      body.delivery = delivery;
+    }
+    const lines: { itemId: number; unitPrice: number }[] = [];
+    for (const item of order.items ?? []) {
+      if (item.id == null) continue;
+      const raw = draft.prices[String(item.id)] ?? '';
+      const price = Number(raw);
+      if (raw.trim() === '' || !Number.isFinite(price) || price === Number(item.unitPrice)) continue;
+      lines.push({ itemId: Number(item.id), unitPrice: price });
+    }
+    if (lines.length) body.lines = lines;
+    if (body.delivery === undefined && !lines.length) {
+      setError('Nothing on this order changed.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onAgree(order.id, body);
+      onAgreed?.(order);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "We couldn't save that price.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section aria-label="Agreed price" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <h4 style={styles.cardTitle}>Agreed price</h4>
+      <p style={styles.muted}>
+        This replaces the delivery charge or a line price. Tax is worked out again. Stock stays as it is.
+      </p>
+      <Field id="agree-delivery" label="Delivery charge" hint="Rupees. Zero means no delivery charge.">
+        <input
+          inputMode="decimal"
+          value={draft.delivery}
+          onChange={(event) => setDraft({ ...draft, delivery: event.target.value })}
+        />
+      </Field>
+      {(order.items ?? [])
+        .filter((item) => item.id != null)
+        .map((item) => (
+          <Field key={item.id} id={`agree-line-${item.id}`} label={`${item.name} price`} hint="Rupees for one.">
+            <input
+              inputMode="decimal"
+              value={draft.prices[String(item.id)] ?? ''}
+              onChange={(event) =>
+                setDraft({ ...draft, prices: { ...draft.prices, [String(item.id)]: event.target.value } })
+              }
+            />
+          </Field>
+        ))}
+      {error ? (
+        <p role="alert" style={{ color: 'var(--danger)', margin: 0, fontSize: '13px' }}>
+          {error}
+        </p>
+      ) : null}
+      <div>
+        <Button type="button" size="sm" disabled={saving} onClick={save}>
+          {saving ? 'Saving…' : 'Save agreed price'}
+        </Button>
+      </div>
+    </section>
   );
 };
 

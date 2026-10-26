@@ -6,6 +6,7 @@ export type ModuleKey =
   | 'products'
   | 'categories'
   | 'orders'
+  | 'agreed'
   | 'requests'
   | 'delivery'
   | 'stores'
