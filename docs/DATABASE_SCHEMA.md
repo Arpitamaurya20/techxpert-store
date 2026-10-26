@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `home_deals`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes`, `shop_settings`, `talk_requests`, `talk_request_lines`, `staff_alerts`, `order_messages` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `home_deals`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes`, `shop_settings`, `talk_requests`, `talk_request_lines`, `staff_alerts`, `order_messages`, `order_delivery`, `order_problems` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -538,6 +538,24 @@ CREATE TABLE techxpertstore.shop_settings (
   Enabled TINYINT(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- The promise copied onto an order. No row means no promise was made.
+CREATE TABLE techxpertstore.order_delivery (
+  OrderID INT NOT NULL PRIMARY KEY,
+  Days SMALLINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- A short problem on an order. Closing it does not change the order.
+CREATE TABLE techxpertstore.order_problems (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  OrderID INT NOT NULL,
+  StoreID INT NOT NULL,
+  Note VARCHAR(400) NOT NULL,
+  Status ENUM('new', 'closed') NOT NULL DEFAULT 'new',
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL,
+  INDEX idx_order_problems_order (OrderID, ID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- One confirmation per order. The phone number is not stored. Off until staff choose text or WhatsApp.
 CREATE TABLE techxpertstore.order_messages (
   ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -553,7 +571,7 @@ CREATE TABLE techxpertstore.order_messages (
 -- A customer order or a Talk to us request, until staff mark it seen. No phone and no name.
 CREATE TABLE techxpertstore.staff_alerts (
   ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  Kind ENUM('order', 'request') NOT NULL,
+  Kind ENUM('order', 'request', 'problem') NOT NULL,
   StoreID INT NOT NULL,
   SubjectID INT NOT NULL,
   Headline VARCHAR(80) NOT NULL,

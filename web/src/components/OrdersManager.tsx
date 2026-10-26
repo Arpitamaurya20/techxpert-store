@@ -53,6 +53,8 @@ export interface Order {
   storeName?: string | null;
   source?: string | null;
   confirmation?: OrderConfirmation | null;
+  arrivesInDays?: number | null;
+  problem?: { status: 'new' | 'closed'; note: string } | null;
 }
 
 interface OrdersManagerProps {
@@ -75,6 +77,7 @@ interface OrdersManagerProps {
   ) => Promise<unknown>;
   onAgreed?: (order: Order) => void;
   onSendConfirmation?: (id: string | number) => Promise<OrderConfirmation>;
+  onCloseProblem?: (id: string | number) => Promise<{ status: 'closed'; note: string }>;
 }
 
 const ALL = 'all';
@@ -95,6 +98,7 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
   onAgree,
   onAgreed,
   onSendConfirmation,
+  onCloseProblem,
 }) => {
   const { confirm, dialog } = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -212,7 +216,10 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
       render: (o) => (
         <div>
           <div style={styles.strong}>{o.orderNumber}</div>
-          <div style={styles.small}>{orderSourceLabel(o.source)} · {formatWhen(o.placedAt) ?? 'Time not recorded'}</div>
+          <div style={styles.small}>
+            {orderSourceLabel(o.source)} · {formatWhen(o.placedAt) ?? 'Time not recorded'}
+            {o.problem?.status === 'new' ? ' · Problem' : ''}
+          </div>
         </div>
       ),
     },
@@ -358,6 +365,8 @@ export const OrdersManager: React.FC<OrdersManagerProps> = ({
           onAgreed={onAgreed}
           canSend={canEdit && Boolean(onSendConfirmation)}
           onSendConfirmation={onSendConfirmation}
+          canEdit={canEdit}
+          onCloseProblem={onCloseProblem}
         />
       ) : null}
       {dialog}
@@ -385,9 +394,13 @@ const OrderDetail: React.FC<{
   onAgreed?: (order: Order) => void;
   canSend: boolean;
   onSendConfirmation?: (id: string | number) => Promise<OrderConfirmation>;
-}> = ({ order, onClose, statusControl, canAgree, onAgree, onAgreed, canSend, onSendConfirmation }) => {
+  canEdit: boolean;
+  onCloseProblem?: (id: string | number) => Promise<{ status: 'closed'; note: string }>;
+}> = ({ order, onClose, statusControl, canAgree, onAgree, onAgreed, canSend, onSendConfirmation, canEdit, onCloseProblem }) => {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
   const placed = formatWhen(order.placedAt);
   const payment = [paymentMethodLabel(order.paymentMethod), paymentStatusLabel(order.paymentStatus)]
     .filter(Boolean)
@@ -427,6 +440,38 @@ const OrderDetail: React.FC<{
                   ? 'This order is waiting for confirmation. The goods are held. Set it to Confirmed, or cancel it to put the stock back.'
                   : 'This order is waiting for confirmation. Set it to Confirmed when it should go ahead.'}
               </p>
+            ) : null}
+            {order.arrivesInDays ? (
+              <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: '13px' }}>
+                {order.arrivesInDays === 1 ? 'Arrives in 1 day.' : `Arrives in ${order.arrivesInDays} days.`}
+              </p>
+            ) : null}
+            {order.problem ? (
+              <div style={{ marginTop: '8px' }}>
+                <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
+                  {order.problem.status === 'new' ? 'A problem was reported.' : 'This problem is closed.'} {order.problem.note}
+                </p>
+                {order.problem.status === 'new' && canEdit && onCloseProblem ? (
+                  <div style={{ marginTop: '8px' }}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      loading={closing}
+                      onClick={() => {
+                        setClosing(true);
+                        setCloseError(null);
+                        onCloseProblem(order.id)
+                          .catch((err: { message?: string }) => setCloseError(err?.message || "That problem wasn't closed."))
+                          .finally(() => setClosing(false));
+                      }}
+                    >
+                      Close problem
+                    </Button>
+                    {closeError ? <p style={{ color: 'var(--danger)', margin: '8px 0 0', fontSize: '13px' }}>{closeError}</p> : null}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
             {order.confirmation ? (
               <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: '13px' }}>

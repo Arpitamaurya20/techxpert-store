@@ -17,6 +17,7 @@ const saved = () => ({
   deliveryFee: { enabled: true, amount: 99 },
   gstPercent: { enabled: true, amount: 18 },
   orderNotice: 'off',
+  deliveryDays: { enabled: false, days: null },
 });
 
 describe('validateShopSettings', () => {
@@ -31,6 +32,17 @@ describe('validateShopSettings', () => {
     delete body.orderNotice;
     body.deliveryFee = { enabled: true, amount: 99 };
     assert.throws(() => validateShopSettings(body), /Leave one out/);
+    body.orderNotice = 'off';
+    delete body.deliveryDays;
+    assert.throws(() => validateShopSettings(body), /Leave one out/);
+  });
+
+  it('promises a whole number of days only while that line is switched on', () => {
+    const body = saved();
+    body.deliveryDays = { enabled: true, days: 3 };
+    assert.equal(validateShopSettings(body).deliveryDays.days, 3);
+    body.deliveryDays = { enabled: true, days: 40 };
+    assert.throws(() => validateShopSettings(body), /1 to 30/);
   });
 
   it('keeps order confirmation off unless staff choose text or WhatsApp', () => {
@@ -88,6 +100,7 @@ describe('publicShopRules', () => {
     assert.equal(rules.gstPercent, 18);
     assert.equal(rules.largeOrderValue, null);
     assert.equal(rules.codLimit, null);
+    assert.equal(rules.arrivesInDays, null);
   });
 });
 

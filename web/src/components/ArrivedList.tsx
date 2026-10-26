@@ -18,7 +18,7 @@ export const ArrivedList: React.FC<{
           </div>
           <div style={styles.actions}>
             <button type="button" style={styles.open} onClick={() => onOpen(alert.kind)}>
-              {alert.kind === 'order' ? 'Orders' : 'Talk to us'}
+              {alert.kind === 'request' ? 'Talk to us' : 'Orders'}
             </button>
             <button type="button" style={styles.seen} onClick={() => onSeen(alert.id)}>
               Seen

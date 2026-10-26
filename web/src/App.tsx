@@ -524,6 +524,7 @@ function PortalApp({
           if (known) {
             const fresh = rows.filter((alert) => !known.has(String(alert.id)));
             if (fresh.some((alert) => alert.kind === 'order')) toast.info('A new order arrived.');
+            else if (fresh.some((alert) => alert.kind === 'problem')) toast.info('A customer reported a problem.');
             else if (fresh.length) toast.info('A new request arrived.');
           }
           knownAlerts.current = ids;
@@ -948,7 +949,7 @@ function PortalApp({
               })
               .catch((err: Error) => toast.error(err?.message || "That alert couldn't be marked seen."));
           }}
-          onOpenAlert={(kind) => setActiveTab(kind === 'order' ? 'orders' : 'requests')}
+          onOpenAlert={(kind) => setActiveTab(kind === 'request' ? 'requests' : 'orders')}
         />
 
         <main style={styles.contentArea}>
@@ -1030,6 +1031,11 @@ function PortalApp({
                 setOrders((prev) => prev.map((o) => (String(o.id) === String(id) ? { ...o, confirmation } : o)));
                 if (confirmation.status === 'sent') toast.success('The customer was told.');
                 return confirmation;
+              }}
+              onCloseProblem={async (id) => {
+                const problem = await api.closeOrderProblem(id);
+                setOrders((prev) => prev.map((o) => (String(o.id) === String(id) ? { ...o, problem } : o)));
+                return problem;
               }}
             />
           )}

@@ -185,7 +185,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <ArrivedList
             alerts={alerts}
             onSeen={onSeen}
-            onOpen={(kind) => onNavigate(kind === 'order' ? 'orders' : 'requests')}
+            onOpen={(kind) => onNavigate(kind === 'request' ? 'requests' : 'orders')}
           />
         </section>
       ) : null}

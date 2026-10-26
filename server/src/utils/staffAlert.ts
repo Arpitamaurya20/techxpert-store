@@ -31,6 +31,15 @@ export function requestAlert(input: { id: number; lineCount: number; grandTotal:
   };
 }
 
+/** What staff see when a customer reports a problem. A phone number in the note is left out. */
+export function problemAlert(input: { orderNumber: string; note: string }): { headline: string; detail: string } {
+  const note = String(input.note || '').replace(/\d{10,}/g, '…');
+  return {
+    headline: clip(String(input.orderNumber || 'Order'), 80),
+    detail: clip(`Problem reported. ${note}`, 200),
+  };
+}
+
 /** Marking an alert seen is the only change this call accepts. */
 export function readAlertSeen(body: unknown): void {
   if (!body || typeof body !== 'object' || Array.isArray(body) || (body as { seen?: unknown }).seen !== true) {

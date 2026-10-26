@@ -9,6 +9,8 @@ import { lineLimits, quantityRefusal } from '../utils/cartRules.js';
 import { coversStore, type Scope } from '../utils/scope.js';
 import { readStaffOrder } from '../utils/staffOrder.js';
 import { OrderNoticeService } from './orderNoticeService.js';
+import { ShopSettingsService } from './shopSettingsService.js';
+import { deliveryPromise } from '../utils/deliveryPromise.js';
 
 /**
  * Staff place an order with the same price, stock, pack size, GST and pincode rules as the app.
@@ -72,6 +74,7 @@ export class StaffOrderService {
       const address = input.address.includes(pincode) ? input.address : `${input.address}, ${pincode}`;
       const source = input.requestId ? 'request' : 'staff';
       const notes = input.note ?? (source === 'request' ? `Placed from talk request ${input.requestId}` : 'Placed by staff');
+      const settings = await ShopSettingsService.read();
       orderId = await OrderService.writeOrder(conn, {
         storeId,
         userId,
@@ -86,6 +89,7 @@ export class StaffOrderService {
         historyNote: notes,
         source,
         createdBy: actor.staffId,
+        arrivesInDays: deliveryPromise(settings.deliveryDays),
       });
       if (input.requestId) {
         await conn.query(

@@ -16,6 +16,7 @@ import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
 import { StaffOrderService } from '../services/staffOrderService.js';
 import { AgreedPriceService } from '../services/agreedPriceService.js';
 import { OrderNoticeService } from '../services/orderNoticeService.js';
+import { OrderProblemService } from '../services/orderProblemService.js';
 
 const router = Router();
 
@@ -132,6 +133,35 @@ router.post(
   asyncHandler(async (req, res) => {
     const newOrder = await OrderService.createOrder(req.body, req.user?.userId);
     return sendSuccess(res, newOrder, 'Order placed successfully', 201);
+  })
+);
+
+// POST /orders/:id/problem - The customer reports a short problem. The order itself is unchanged.
+router.post(
+  '/:id/problem',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (req.user?.staffId || req.user?.userId == null) {
+      return sendError(res, 403, 'Not allowed to view this order');
+    }
+    const problem = await OrderProblemService.report(req.params.id, Number(req.user.userId), req.body ?? {});
+    return sendSuccess(res, problem, problem.message);
+  })
+);
+
+// PUT /orders/:id/problem - Staff close the open problem. The order status stays.
+router.put(
+  '/:id/problem',
+  requireAdmin,
+  requirePermission('orders', 'edit'),
+  asyncHandler(async (req, res) => {
+    const existing = await OrderService.getOrderById(req.params.id);
+    if (!existing || !orderInScope(existing, req.user!.access!.scope)) {
+      return sendError(res, 404, 'Order not found');
+    }
+    const actor = accessActor(req);
+    const problem = await OrderProblemService.close(req.params.id, req.body ?? {}, actor.access.scope, actor.name);
+    return sendSuccess(res, problem, 'Problem closed');
   })
 );
 

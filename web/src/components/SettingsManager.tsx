@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { OrderNotice, ShopRule, ShopSettings } from '../services/api';
 import { Button, Field, LoadState, PageIntro } from './ui';
 
-type RuleKey = Exclude<keyof ShopSettings, 'orderNotice'>;
+type RuleKey = Exclude<keyof ShopSettings, 'orderNotice' | 'deliveryDays'>;
 
 const ROWS: { key: RuleKey; label: string; hint: string; suffix?: string; whole?: boolean }[] = [
   {
@@ -39,7 +39,10 @@ const ROWS: { key: RuleKey; label: string; hint: string; suffix?: string; whole?
   },
 ];
 
-type Draft = Record<RuleKey, { enabled: boolean; amount: string }> & { orderNotice: OrderNotice };
+type Draft = Record<RuleKey, { enabled: boolean; amount: string }> & {
+  orderNotice: OrderNotice;
+  deliveryDays: { enabled: boolean; days: string };
+};
 
 const draftFor = (settings: ShopSettings): Draft =>
   ({
@@ -53,7 +56,20 @@ const draftFor = (settings: ShopSettings): Draft =>
       ])
     ),
     orderNotice: settings.orderNotice === 'sms' || settings.orderNotice === 'whatsapp' ? settings.orderNotice : 'off',
+    deliveryDays: {
+      enabled: Boolean(settings.deliveryDays?.enabled),
+      days: settings.deliveryDays?.days == null ? '' : String(settings.deliveryDays.days),
+    },
   }) as Draft;
+
+function daysError(days: { enabled: boolean; days: string }): string | null {
+  if (!days.enabled && days.days.trim() === '') return null;
+  const value = Number(days.days);
+  if (!Number.isInteger(value) || value < 1 || value > 30) {
+    return 'Arrives in is a whole number of days, from 1 to 30.';
+  }
+  return null;
+}
 
 function ruleError(row: (typeof ROWS)[number], rule: Draft[RuleKey]): string | null {
   if (!rule.enabled && rule.amount.trim() === '') return null;
@@ -99,6 +115,11 @@ export const SettingsManager: React.FC<{
         return;
       }
     }
+    const daysProblem = daysError(draft.deliveryDays);
+    if (daysProblem) {
+      setError(daysProblem);
+      return;
+    }
     const body = {
       ...Object.fromEntries(
         ROWS.map((row) => {
@@ -108,13 +129,17 @@ export const SettingsManager: React.FC<{
         })
       ),
       orderNotice: draft.orderNotice,
+      deliveryDays: {
+        enabled: draft.deliveryDays.enabled,
+        days: draft.deliveryDays.days.trim() === '' ? null : Number(draft.deliveryDays.days),
+      },
     } as ShopSettings;
     try {
       setSaving(true);
       setError(null);
       const saved = await save(body);
       onSaved(saved);
-      onAudit('Saved shop settings', 'Delivery, GST, the large-order thresholds and order confirmation');
+      onAudit('Saved shop settings', 'Delivery, GST, the large-order thresholds, order confirmation and the delivery promise');
     } catch (err: any) {
       setError(err?.message || 'The server refused the save.');
     } finally {
@@ -166,6 +191,38 @@ export const SettingsManager: React.FC<{
               </label>
             </div>
           ))}
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+            <Field
+              id="shop-delivery-days"
+              label="Arrives in (days)"
+              hint="A new order says it arrives in this many days. Switched off, no promise is made. An order already placed keeps the promise it was given."
+              style={{ flex: 1 }}
+            >
+              <input
+                inputMode="numeric"
+                value={draft.deliveryDays.days}
+                disabled={!canEdit}
+                onChange={(event) => {
+                  const days = event.target.value;
+                  setDraft((prev) => (prev ? { ...prev, deliveryDays: { ...prev.deliveryDays, days } } : prev));
+                  setError(null);
+                }}
+              />
+            </Field>
+            <label style={{ display: 'flex', gap: '8px', alignItems: 'center', paddingBottom: '10px', whiteSpace: 'nowrap' }}>
+              <input
+                type="checkbox"
+                checked={draft.deliveryDays.enabled}
+                disabled={!canEdit}
+                onChange={(event) => {
+                  const enabled = event.target.checked;
+                  setDraft((prev) => (prev ? { ...prev, deliveryDays: { ...prev.deliveryDays, enabled } } : prev));
+                  setError(null);
+                }}
+              />
+              In use
+            </label>
+          </div>
           <Field
             id="shop-order-notice"
             label="Tell the customer"

@@ -6,6 +6,7 @@ import { isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPric
 import { quantityRefusal, sameMoney } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
 import { StoreStockService } from './storeStockService.js';
+import { deliveryPromise } from '../utils/deliveryPromise.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
 import { StaffAlertService } from './staffAlertService.js';
@@ -90,8 +91,9 @@ export class CartCheckoutService {
         );
       }
 
+      const settings = await ShopSettingsService.read();
       const placement = checkoutPlacement({
-        settings: await ShopSettingsService.read(),
+        settings,
         grandTotal: totals.grandTotal,
         lines,
         paymentMethod,
@@ -115,6 +117,7 @@ export class CartCheckoutService {
         orderStatus: placement.status,
         historyNote: placement.reason ?? notes,
         source: 'app',
+        arrivesInDays: deliveryPromise(settings.deliveryDays),
       });
       await StaffAlertService.recordOrder(conn, orderId);
 

@@ -1,3 +1,4 @@
+import { deliveryPromise, readDeliveryDays, type DeliveryDays } from './deliveryPromise.js';
 import { orderNoticeFromValue, readOrderNotice, type OrderNotice } from './orderNotice.js';
 
 /** A rule staff can switch off. The amount is remembered so switching it back on keeps the number. */
@@ -12,6 +13,8 @@ export type ShopSettings = {
   gstPercent: ShopRule;
   /** Off until staff choose a text message or WhatsApp. */
   orderNotice: OrderNotice;
+  /** Off until staff promise a number of days. Copied onto each new order. */
+  deliveryDays: DeliveryDays;
 };
 
 /** What the cart charges. A null free-delivery line means the fee applies to every order that has one. */
@@ -50,6 +53,7 @@ export function defaultShopSettings(): ShopSettings {
     deliveryFee: { enabled: true, amount: 99 },
     gstPercent: { enabled: true, amount: 18 },
     orderNotice: 'off',
+    deliveryDays: { enabled: false, days: null },
   };
 }
 
@@ -74,6 +78,7 @@ export function publicShopRules(settings: ShopSettings) {
     largeOrderValue: shown(settings.largeOrderValue),
     largeOrderQuantity: shown(settings.largeOrderQuantity),
     codLimit: shown(settings.codLimit),
+    arrivesInDays: deliveryPromise(settings.deliveryDays),
   };
 }
 
@@ -91,6 +96,8 @@ export function validateShopSettings(body: unknown): ShopSettings {
   }
   if (source.orderNotice === undefined) throw ruleError('Save every shop rule. Leave one out and nothing is changed.');
   next.orderNotice = readOrderNotice(source.orderNotice);
+  if (source.deliveryDays === undefined) throw ruleError('Save every shop rule. Leave one out and nothing is changed.');
+  next.deliveryDays = readDeliveryDays(source.deliveryDays);
   return next;
 }
 
@@ -101,6 +108,15 @@ export function shopSettingsFromRows(
   for (const row of rows) {
     if (row.key === 'orderNotice') {
       next.orderNotice = orderNoticeFromValue(row.value);
+      continue;
+    }
+    if (row.key === 'deliveryDays') {
+      const enabled = Number(row.enabled) === 1;
+      const days = row.value == null || row.value === '' ? null : Number(row.value);
+      next.deliveryDays = {
+        enabled,
+        days: days != null && Number.isInteger(days) && days >= 1 && days <= 30 ? days : null,
+      };
       continue;
     }
     if (!(SHOP_SETTING_KEYS as readonly string[]).includes(row.key)) continue;

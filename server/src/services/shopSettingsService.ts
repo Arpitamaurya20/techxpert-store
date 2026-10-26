@@ -62,6 +62,12 @@ export class ShopSettingsService {
          ON DUPLICATE KEY UPDATE SettingValue = VALUES(SettingValue), Enabled = VALUES(Enabled)`,
         [next.orderNotice, next.orderNotice === 'off' ? 0 : 1]
       );
+      await conn.query(
+        `INSERT INTO shop_settings (SettingKey, SettingValue, Enabled)
+         VALUES ('deliveryDays', ?, ?)
+         ON DUPLICATE KEY UPDATE SettingValue = VALUES(SettingValue), Enabled = VALUES(Enabled)`,
+        [next.deliveryDays.days == null ? null : String(next.deliveryDays.days), next.deliveryDays.enabled ? 1 : 0]
+      );
       await conn.commit();
     } catch (err) {
       await conn.rollback().catch(() => undefined);
@@ -92,6 +98,8 @@ function describe(settings: ShopSettings): string {
       : settings.orderNotice === 'whatsapp'
         ? 'Order confirmation by WhatsApp'
         : 'Order confirmation off';
+  const promised = settings.deliveryDays.enabled ? settings.deliveryDays.days : null;
+  const promise = promised ? `Arrives in ${promised} ${promised === 1 ? 'day' : 'days'}` : 'Arrives in off';
   return [
     part('Large-order value', settings.largeOrderValue),
     part('Large-order quantity', settings.largeOrderQuantity),
@@ -100,5 +108,6 @@ function describe(settings: ShopSettings): string {
     part('Delivery fee', settings.deliveryFee),
     part('GST', settings.gstPercent, '%'),
     notice,
+    promise,
   ].join('. ');
 }

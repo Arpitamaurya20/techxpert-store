@@ -15,9 +15,11 @@ import { DeliveryAreaService } from './deliveryAreaService.js';
 import { StoreStockService } from './storeStockService.js';
 import { orderSource, type OrderSource } from '../utils/staffOrder.js';
 import { ShopSettingsService } from './shopSettingsService.js';
+import { deliveryPromise } from '../utils/deliveryPromise.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
 import { StaffAlertService } from './staffAlertService.js';
 import { OrderNoticeService } from './orderNoticeService.js';
+import { OrderProblemService } from './orderProblemService.js';
 import { orderAccepted } from '../utils/orderNotice.js';
 
 export interface OrderFilterParams {
@@ -134,6 +136,8 @@ export class OrderService {
         order.customerName = givenName(order.customerName);
       }
       if (params.isPortal) await OrderNoticeService.attach(orders);
+      await OrderService.attachPromise(orders);
+      await OrderProblemService.attach(orders);
 
       return {
         orders,
@@ -242,6 +246,8 @@ export class OrderService {
       order.customerName = givenName(order.customerName);
     }
     if (params.isPortal) await OrderNoticeService.attach(orders);
+    await OrderService.attachPromise(orders);
+    await OrderProblemService.attach(orders);
     return {
       orders,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -373,6 +379,8 @@ export class OrderService {
         );
         order.history = history;
         await OrderNoticeService.attach([order]);
+        await OrderService.attachPromise([order]);
+        await OrderProblemService.attach([order]);
 
         return order;
       }
@@ -538,6 +546,8 @@ export class OrderService {
       source?: OrderSource;
       /** Staff member when they placed it. Otherwise the customer, or 1. */
       createdBy?: number;
+      /** Days promised when the order was placed. Null means no promise. */
+      arrivesInDays?: number | null;
     }
   ): Promise<number> {
     const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
@@ -572,6 +582,7 @@ export class OrderService {
       ]
     );
     const orderId = Number(orderRes.insertId);
+    await OrderService.rememberPromise(conn, orderId, order.arrivesInDays ?? null);
 
     for (const line of order.lines) {
       await conn.query(
@@ -626,6 +637,44 @@ export class OrderService {
     return orderId;
   }
 
+  /** Copies the delivery promise onto the order. A missing table does not stop the order. */
+  private static async rememberPromise(conn: PoolConnection, orderId: number, days: number | null): Promise<void> {
+    if (days == null) return;
+    try {
+      await conn.query(
+        `INSERT INTO order_delivery (OrderID, Days) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE Days = VALUES(Days)`,
+        [orderId, days]
+      );
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ER_NO_SUCH_TABLE') return;
+      throw err;
+    }
+  }
+
+  /** The promise made when the order was placed. Later shop settings do not change it. */
+  static async attachPromise(orders: { id: unknown; arrivesInDays?: number | null }[]): Promise<void> {
+    const ids = orders.map((order) => Number(order.id)).filter((id) => Number.isInteger(id) && id > 0);
+    if (!ids.length) return;
+    try {
+      const [rows] = await storePool.query<any[]>(
+        `SELECT OrderID as orderId, Days as days FROM order_delivery WHERE OrderID IN (?)`,
+        [ids]
+      );
+      const byId = new Map(rows.map((row) => [Number(row.orderId), Number(row.days)]));
+      for (const order of orders) {
+        const days = byId.get(Number(order.id));
+        order.arrivesInDays = days != null && Number.isInteger(days) && days >= 1 ? days : null;
+      }
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ER_NO_SUCH_TABLE') {
+        for (const order of orders) order.arrivesInDays = null;
+        return;
+      }
+      throw err;
+    }
+  }
+
   /** What the customer is shown for a placed order; the same body for a first answer and a repeat. */
   static async receipt(orderId: number, conn: Pick<PoolConnection, 'query'> = storePool) {
     const [rows] = await conn.query<any[]>(
@@ -652,6 +701,8 @@ export class OrderService {
        WHERE oi.OrderID = ? ORDER BY oi.ID ASC`,
       [orderId]
     );
+    const promised = { id: o.id, arrivesInDays: null as number | null };
+    await OrderService.attachPromise([promised]);
     return {
       id: String(o.id),
       orderNumber: String(o.orderNumber),
@@ -672,6 +723,7 @@ export class OrderService {
       },
       total: o.grandTotal,
       shippingCharges: o.delivery,
+      arrivesInDays: promised.arrivesInDays,
       awaitingStaff: o.status === 'pending',
       message:
         o.status === 'pending'
@@ -734,8 +786,9 @@ export class OrderService {
         if (refusal) throw orderRefusal(409, refusal);
       }
 
+      const settings = await ShopSettingsService.read();
       const placement = checkoutPlacement({
-        settings: await ShopSettingsService.read(),
+        settings,
         grandTotal: totals.grandTotal,
         lines,
         paymentMethod,
@@ -766,6 +819,7 @@ export class OrderService {
         orderStatus: placement.status,
         historyNote: placement.reason ?? notes,
         source: 'app',
+        arrivesInDays: deliveryPromise(settings.deliveryDays),
       });
       await StaffAlertService.recordOrder(conn, orderId);
       await conn.commit();

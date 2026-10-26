@@ -3,22 +3,28 @@ import { storePool } from '../db/mysql.js';
 import { orderRefusal } from '../utils/checkoutPricing.js';
 import { can, type Permissions } from '../utils/permissions.js';
 import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
-import { orderAlert, requestAlert } from '../utils/staffAlert.js';
+import { orderAlert, problemAlert, requestAlert } from '../utils/staffAlert.js';
 
 const NOT_READY = 'Alerts are not ready. Run the staff alerts SQL, then try again.';
 
 export type StaffAlert = {
   id: number;
-  kind: 'order' | 'request';
+  kind: 'order' | 'request' | 'problem';
   subjectId: number;
   headline: string;
   detail: string;
   arrivedAt: string;
 };
 
-function kindsFor(permissions: Permissions): Array<'order' | 'request'> {
-  const kinds: Array<'order' | 'request'> = [];
-  if (can(permissions, 'orders', 'view')) kinds.push('order');
+export type AlertKind = 'order' | 'request' | 'problem';
+
+function alertKind(value: unknown): AlertKind {
+  return value === 'request' || value === 'problem' ? value : 'order';
+}
+
+function kindsFor(permissions: Permissions): AlertKind[] {
+  const kinds: AlertKind[] = [];
+  if (can(permissions, 'orders', 'view')) kinds.push('order', 'problem');
   if (can(permissions, 'requests', 'view')) kinds.push('request');
   return kinds;
 }
@@ -51,6 +57,34 @@ export class StaffAlertService {
       });
     } catch (err) {
       console.warn('[StaffAlert] order alert skipped', err);
+    }
+  }
+
+  static async recordProblem(
+    conn: PoolConnection,
+    orderId: number,
+    orderNumber: string,
+    storeId: number,
+    note: string
+  ): Promise<void> {
+    try {
+      const text = problemAlert({ orderNumber, note });
+      await conn.query(
+        `INSERT INTO staff_alerts
+         (Kind, StoreID, SubjectID, Headline, Detail, Seen, CreatedDate, CreatedTime)
+         VALUES ('problem', ?, ?, ?, ?, 0, CURDATE(), CURTIME())
+         ON DUPLICATE KEY UPDATE
+           Headline = VALUES(Headline), Detail = VALUES(Detail), Seen = 0,
+           CreatedDate = CURDATE(), CreatedTime = CURTIME()`,
+        [storeId, orderId, text.headline, text.detail]
+      );
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'ER_NO_SUCH_TABLE' || code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' || code === 'WARN_DATA_TRUNCATED') {
+        console.warn('[StaffAlert] problem alert skipped', code);
+        return;
+      }
+      throw err;
     }
   }
 
@@ -107,7 +141,7 @@ export class StaffAlertService {
       );
       return rows.map((row) => ({
         id: Number(row.id),
-        kind: row.kind === 'request' ? 'request' : 'order',
+        kind: alertKind(row.kind),
         subjectId: Number(row.subjectId),
         headline: String(row.headline),
         detail: String(row.detail),
@@ -133,8 +167,8 @@ export class StaffAlertService {
       );
       const alert = rows[0];
       if (!alert) throw orderRefusal(404, 'That alert was not found.');
-      const kind = alert.kind === 'request' ? 'request' : 'order';
-      const module = kind === 'order' ? 'orders' : 'requests';
+      const kind = alertKind(alert.kind);
+      const module = kind === 'request' ? 'requests' : 'orders';
       if (!can(permissions, module, 'view')) {
         throw orderRefusal(403, "You don't have access to that.");
       }

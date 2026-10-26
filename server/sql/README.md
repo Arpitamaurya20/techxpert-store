@@ -26,6 +26,7 @@ mysql -u root -p < sql/talk_requests.sql  # Talk to us queue; nothing is ordered
 mysql -u root -p < sql/order_source.sql  # order source tag; run once; existing orders are tagged app
 mysql -u root -p < sql/staff_alerts.sql  # portal alert when a customer orders or asks; safe to run again
 mysql -u root -p < sql/order_messages.sql  # order confirmation by text or WhatsApp; starts off; safe to run again
+mysql -u root -p < sql/delivery_promise.sql  # arrives in N days, and a problem report; starts off; safe to run again
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -55,6 +56,7 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `order_source.sql` | `app`, `request` or `staff` on each order. Run once. Existing orders are tagged `app` |
 | `staff_alerts.sql` | A portal alert for a customer order or a Talk to us request. Safe to run again. No phone number is stored |
 | `order_messages.sql` | One confirmation per order, by text or WhatsApp. Starts off. Safe to run again. No phone number is stored |
+| `delivery_promise.sql` | Arrives in a number of days, copied onto a new order, and a short problem report. Starts off. Safe to run again. Run after `staff_alerts.sql` |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

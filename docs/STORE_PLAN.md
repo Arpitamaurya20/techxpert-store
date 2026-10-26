@@ -46,7 +46,7 @@ Plan items 1–24. Detail is in [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 - Homepage, help, About, policies and deals are empty until staff fill them.
 - Staff roles, stores, scope and an audit trail.
 
-Unit tests include shop settings, the large-order rule, Talk to us, staff-created orders, agreed prices, staff alerts and order confirmation. The old `inventory_stock` warehouse table is not the number the shop sells.
+Unit tests include shop settings, the large-order rule, Talk to us, staff-created orders, agreed prices, staff alerts, order confirmation and the delivery promise. The old `inventory_stock` warehouse table is not the number the shop sells.
 
 ## Phase 0 — close what is already built
 
@@ -93,7 +93,7 @@ Unit tests include shop settings, the large-order rule, Talk to us, staff-create
 - Alerts when a new order or a new request arrives. **Built.** A customer order and a Talk to us request show under New in the portal, and on the dashboard, until someone marks it seen. The list is checked again every 30 seconds. An order staff place themselves does not. The alert names the order or the request and the money. It does not include a phone number or a customer name.
 - Order confirmation by SMS or WhatsApp. **Built.** Staff choose Off, a text message, or WhatsApp on Shop settings. It starts off. When an order is confirmed, the customer is told the order number and the total. A pending order waits until staff confirm it. The phone number is not stored. A missing template is written on the order, and the order still stands. This uses the same text service as Homecare, with its own order template, not the sign-in code.
 - A reason on every stock edit: received, counted, or damaged, written to the audit trail. **Built.** A save that changes a company quantity or a store quantity needs one of those three. The same quantities need no reason, and nothing is written until the reason is there. Checkout and cancel are not stock edits.
-- A delivery promise ("arrives in X days") and a short "Report a problem" that creates a staff task.
+- A delivery promise ("arrives in X days") and a short "Report a problem" that creates a staff task. **Built.** Arrives in starts off. Staff set a whole number of days, from 1 to 30. A new order keeps that number. Changing the setting later does not change an order already placed. The customer reports a short problem on their own order. Staff see it under New and on the order, and close it. The order status, the price and the stock stay as they were.
 - The app reads the remaining server lists: home, search ideas, trust strip, About, policies, deals, help.
 
 ## Phase 3 — later, only when named, in this order
@@ -119,6 +119,7 @@ A customer website, ERP, warehouse management (warehouses, transfers, purchase o
 | Delivery fee | ₹99 | Yes |
 | GST | 18% | Yes |
 | Order confirmation | Off | Yes, once the order is confirmed. Text or WhatsApp. A pending order waits |
+| Arrives in | Off | Yes, copied onto a new order. 1 to 30 days. An order already placed keeps its own number |
 
 Company-wide first. Per-store fees can wait. Switching a threshold off means that limit does not apply. Switching the delivery fee off means there is no fee. Switching the free-delivery line off means the fee is charged on every order that has one. Switching GST off means the order has no GST.
 

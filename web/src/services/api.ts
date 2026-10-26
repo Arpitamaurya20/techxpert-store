@@ -128,7 +128,7 @@ export type TalkRequest = {
 };
 export type StaffAlert = {
   id: number;
-  kind: 'order' | 'request';
+  kind: 'order' | 'request' | 'problem';
   subjectId: number;
   headline: string;
   detail: string;
@@ -141,6 +141,7 @@ export type OrderConfirmation = {
   status: 'sent' | 'failed';
   detail: string;
 };
+export type DeliveryDays = { enabled: boolean; days: number | null };
 export type ShopSettings = {
   largeOrderValue: ShopRule;
   largeOrderQuantity: ShopRule;
@@ -149,6 +150,7 @@ export type ShopSettings = {
   deliveryFee: ShopRule;
   gstPercent: ShopRule;
   orderNotice: OrderNotice;
+  deliveryDays: DeliveryDays;
 };
 export type TrustClaim = { label: string; icon: string; action: string; position: number };
 export type TrustContent = { claims: TrustClaim[] };
@@ -410,6 +412,11 @@ export const api = {
     fetchApi<any>(`/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
   sendOrderConfirmation: (id: string | number) =>
     fetchApi<OrderConfirmation>(`/orders/${id}/confirmation`, { method: 'POST', body: '{}' }),
+  closeOrderProblem: (id: string | number) =>
+    fetchApi<{ status: 'closed'; note: string }>(`/orders/${id}/problem`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'closed' }),
+    }),
   agreeOrderPrice: (id: string | number, body: { delivery?: number; lines?: { itemId: number; unitPrice: number }[] }) =>
     fetchApi<any>(`/orders/${id}/price`, { method: 'PUT', body: JSON.stringify(body) }),
 
