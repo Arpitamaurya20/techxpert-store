@@ -5,6 +5,7 @@ import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 import { AuthService } from './authService.js';
 import { CartService, type CheckoutLine } from './cartService.js';
 import { guestOrderOwner, isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPricing.js';
+import { readOrderChannel, type OrderChannel } from '../utils/orderChannel.js';
 import { quantityRefusal, TAX_RATE, type CartTotals } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
 import type { OrderStatus } from '../utils/validate.js';
@@ -12,6 +13,15 @@ import { orderAgainItem, orderAgainLimit, restocksOnCancel, statusChangeRefusal,
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
 import { VARIANT_SELLING_PRICE } from '../utils/variants.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
+import { StoreStockService } from './storeStockService.js';
+import { orderSource, type OrderSource } from '../utils/staffOrder.js';
+import { ShopSettingsService } from './shopSettingsService.js';
+import { deliveryPromise } from '../utils/deliveryPromise.js';
+import { checkoutPlacement } from '../utils/shopSettings.js';
+import { StaffAlertService } from './staffAlertService.js';
+import { OrderNoticeService } from './orderNoticeService.js';
+import { OrderProblemService } from './orderProblemService.js';
+import { orderAccepted } from '../utils/orderNotice.js';
 
 export interface OrderFilterParams {
   userId?: number;
@@ -82,6 +92,7 @@ export class OrderService {
           o.OrderStatus as status,
           o.PaymentStatus as paymentStatus,
           o.PaymentMethod as paymentMethod,
+          o.OrderSource as source,
           CAST(o.GrandTotal AS DOUBLE) as total,
           CAST(o.SubTotal AS DOUBLE) as subtotal,
           CAST(o.TaxTotal AS DOUBLE) as taxTotal,
@@ -125,6 +136,10 @@ export class OrderService {
         order.items = items;
         order.customerName = givenName(order.customerName);
       }
+      if (params.isPortal) await OrderNoticeService.attach(orders);
+      await OrderService.attachPromise(orders);
+      await OrderService.attachChannel(orders);
+      await OrderProblemService.attach(orders);
 
       return {
         orders,
@@ -192,6 +207,7 @@ export class OrderService {
          o.OrderStatus as status,
          o.PaymentStatus as paymentStatus,
          o.PaymentMethod as paymentMethod,
+         o.OrderSource as source,
          CAST(o.GrandTotal AS DOUBLE) as total,
          CAST(o.SubTotal AS DOUBLE) as subtotal,
          CAST(o.TaxTotal AS DOUBLE) as taxTotal,
@@ -231,6 +247,10 @@ export class OrderService {
       order.items = items;
       order.customerName = givenName(order.customerName);
     }
+    if (params.isPortal) await OrderNoticeService.attach(orders);
+    await OrderService.attachPromise(orders);
+    await OrderService.attachChannel(orders);
+    await OrderProblemService.attach(orders);
     return {
       orders,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -260,7 +280,8 @@ export class OrderService {
          pv.VariantName as variantName,
          pv.IsActive as variantActive,
          COALESCE(pv.StockQuantity, 0) as stockQuantity,
-         COALESCE(p.MinOrderQuantity, 1) as minOrderQuantity
+         COALESCE(p.MinOrderQuantity, 1) as minOrderQuantity,
+         COALESCE(p.QuantityStep, 1) as quantityStep
        FROM order_items oi
        JOIN orders o ON o.ID = oi.OrderID
        JOIN (
@@ -294,6 +315,7 @@ export class OrderService {
         stockQuantity:
           row.variantId != null && Number(row.variantActive) === 1 ? Number(row.stockQuantity) || 0 : 0,
         minOrderQuantity: Number(row.minOrderQuantity) || 1,
+        quantityStep: Number(row.quantityStep) || 1,
         lastQuantity: Number(row.lastQuantity) || 1,
         lastOrderedAt: String(row.lastOrderedAt),
       } satisfies OrderAgainSource)
@@ -311,6 +333,7 @@ export class OrderService {
            o.OrderStatus as status,
            o.PaymentStatus as paymentStatus,
            o.PaymentMethod as paymentMethod,
+          o.OrderSource as source,
            CAST(o.GrandTotal AS DOUBLE) as total,
            CAST(o.SubTotal AS DOUBLE) as subtotal,
            CAST(o.TaxTotal AS DOUBLE) as taxTotal,
@@ -358,6 +381,10 @@ export class OrderService {
           [order.id]
         );
         order.history = history;
+        await OrderNoticeService.attach([order]);
+        await OrderService.attachPromise([order]);
+        await OrderService.attachChannel([order]);
+        await OrderProblemService.attach([order]);
 
         return order;
       }
@@ -462,9 +489,14 @@ export class OrderService {
   }
 
   /**
-   * The customer who owns a guest's order. An unregistered 10-digit phone gets a new unverified
-   * customer; a phone that already has an account stays a guest order and the account is not touched.
+   * The customer a staff order is attached to. An existing phone keeps that account.
+   * A new 10-digit phone gets an unverified customer, the same as guest checkout.
    */
+  static async customerForStaff(phone: string, name: string): Promise<number | undefined> {
+    const attached = await AuthService.attachByPhone({ phone, name, verify: false });
+    return attached?.userId;
+  }
+
   static async ownerForGuest(guest: { name?: string; phone?: string; email?: string }): Promise<number | undefined> {
     const phone = AuthService.cleanPhone(guest.phone);
     try {
@@ -475,14 +507,14 @@ export class OrderService {
       const existingId = existing.length ? Number(existing[0].user_id) : null;
       if (guestOrderOwner(phone, existingId) === 'guest') return undefined;
 
-      const name = String(guest.name || '').trim();
-      const storedName = name && !AuthService.isPlaceholderName(name) ? name.slice(0, 200) : null;
-      const email = String(guest.email || '').trim();
-      const [insertRes] = await userPool.query<any>(
-        `INSERT INTO users (phone, full_name, email, is_active, is_verified) VALUES (?, ?, ?, 1, 0)`,
-        [phone, storedName, email.includes('@') ? email.slice(0, 200) : null]
-      );
-      return Number(insertRes.insertId);
+      const attached = await AuthService.attachByPhone({
+        phone,
+        name: guest.name,
+        email: guest.email,
+        verify: false,
+      });
+      if (!attached?.created) return undefined;
+      return attached.userId;
     } catch (err) {
       console.warn('[OrderService] guest customer record failed; placing a guest order', err);
       return undefined;
@@ -506,17 +538,32 @@ export class OrderService {
       notes: string;
       lines: CheckoutLine[];
       totals: CartTotals;
+      /** The GST rate the cart totals were priced with. */
+      taxRate?: number;
+      /** Pending holds the stock for staff to confirm. Omitted means confirmed. */
+      orderStatus?: 'pending' | 'confirmed';
+      /** First history line. The customer's note stays on the order either way. */
+      historyNote?: string;
+      /** Who placed it. Omitted means the app. */
+      source?: OrderSource;
+      /** Staff member when they placed it. Otherwise the customer, or 1. */
+      createdBy?: number;
+      /** Days promised when the order was placed. Null means no promise. */
+      arrivesInDays?: number | null;
+      /** Customer app that placed it. Staff orders leave this out. */
+      channel?: OrderChannel | null;
     }
   ): Promise<number> {
     const orderNumber = `TX-ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-    const orderStatus = 'confirmed';
+    const orderStatus = order.orderStatus ?? 'confirmed';
+    const source = orderSource(order.source);
     const paymentStatus = 'pending';
     const { totals } = order;
 
     const [orderRes] = await conn.query<any>(
       `INSERT INTO orders
-       (OrderNumber, UserID, CartID, StoreID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, CreatedDate, CreatedTime, CreatedBy)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
+       (OrderNumber, UserID, CartID, StoreID, GuestName, GuestPhone, GuestEmail, ShippingAddress, SubTotal, TaxTotal, DiscountTotal, ShippingCharges, GrandTotal, OrderStatus, PaymentStatus, PaymentMethod, OrderSource, CreatedDate, CreatedTime, CreatedBy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURTIME(), ?)`,
       [
         orderNumber,
         order.userId || null,
@@ -534,10 +581,13 @@ export class OrderService {
         orderStatus,
         paymentStatus,
         order.paymentMethod,
-        order.userId || 1,
+        source,
+        order.createdBy ?? order.userId ?? 1,
       ]
     );
     const orderId = Number(orderRes.insertId);
+    await OrderService.rememberPromise(conn, orderId, order.arrivesInDays ?? null);
+    await OrderService.rememberChannel(conn, orderId, order.channel ?? null);
 
     for (const line of order.lines) {
       await conn.query(
@@ -550,7 +600,7 @@ export class OrderService {
           Number(line.productId),
           line.quantity,
           Number(line.unitPrice).toFixed(2),
-          (line.lineTotal * TAX_RATE).toFixed(2),
+          (line.lineTotal * (order.taxRate ?? TAX_RATE)).toFixed(2),
           line.savings.toFixed(2),
           line.lineTotal.toFixed(2),
         ]
@@ -567,6 +617,14 @@ export class OrderService {
          WHERE VariantID = ?`,
         [line.quantity, line.variantId]
       );
+      if (order.storeId) {
+        await conn.query(
+          `UPDATE store_variant_stock
+           SET StockQuantity = GREATEST(0, StockQuantity - ?)
+           WHERE StoreID = ? AND VariantID = ?`,
+          [line.quantity, order.storeId, line.variantId]
+        );
+      }
       await conn.query(
         `UPDATE products
          SET StockStatus = 'out_of_stock', UpdatedDate = CURDATE(), UpdatedTime = CURTIME()
@@ -579,9 +637,86 @@ export class OrderService {
       `INSERT INTO order_status_history
        (OrderID, OrderStatus, PaymentStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
        VALUES (?, ?, ?, ?, ?, CURDATE(), CURTIME())`,
-      [orderId, orderStatus, paymentStatus, order.notes, order.userId || 1]
+      [orderId, orderStatus, paymentStatus, order.historyNote ?? order.notes, order.userId || 1]
     );
     return orderId;
+  }
+
+  /** Copies the delivery promise onto the order. A missing table does not stop the order. */
+  private static async rememberPromise(conn: PoolConnection, orderId: number, days: number | null): Promise<void> {
+    if (days == null) return;
+    try {
+      await conn.query(
+        `INSERT INTO order_delivery (OrderID, Days) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE Days = VALUES(Days)`,
+        [orderId, days]
+      );
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ER_NO_SUCH_TABLE') return;
+      throw err;
+    }
+  }
+
+  /** Which app placed the order. A missing table does not stop the order. */
+  private static async rememberChannel(
+    conn: PoolConnection,
+    orderId: number,
+    channel: OrderChannel | null
+  ): Promise<void> {
+    if (channel == null) return;
+    try {
+      await conn.query(
+        `INSERT INTO order_channel (OrderID, Channel) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE Channel = VALUES(Channel)`,
+        [orderId, channel]
+      );
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ER_NO_SUCH_TABLE') return;
+      throw err;
+    }
+  }
+
+  static async attachChannel(orders: { id: unknown; channel?: OrderChannel | null }[]): Promise<void> {
+    const ids = orders.map((order) => Number(order.id)).filter((id) => Number.isInteger(id) && id > 0);
+    for (const order of orders) order.channel = null;
+    if (!ids.length) return;
+    try {
+      const [rows] = await storePool.query<any[]>(
+        `SELECT OrderID as orderId, Channel as channel FROM order_channel WHERE OrderID IN (?)`,
+        [ids]
+      );
+      const byId = new Map(rows.map((row) => [Number(row.orderId), row.channel]));
+      for (const order of orders) {
+        const channel = byId.get(Number(order.id));
+        order.channel = channel === 'store_app' || channel === 'homecare_app' ? channel : null;
+      }
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ER_NO_SUCH_TABLE') return;
+      throw err;
+    }
+  }
+
+  /** The promise made when the order was placed. Later shop settings do not change it. */
+  static async attachPromise(orders: { id: unknown; arrivesInDays?: number | null }[]): Promise<void> {
+    const ids = orders.map((order) => Number(order.id)).filter((id) => Number.isInteger(id) && id > 0);
+    if (!ids.length) return;
+    try {
+      const [rows] = await storePool.query<any[]>(
+        `SELECT OrderID as orderId, Days as days FROM order_delivery WHERE OrderID IN (?)`,
+        [ids]
+      );
+      const byId = new Map(rows.map((row) => [Number(row.orderId), Number(row.days)]));
+      for (const order of orders) {
+        const days = byId.get(Number(order.id));
+        order.arrivesInDays = days != null && Number.isInteger(days) && days >= 1 ? days : null;
+      }
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ER_NO_SUCH_TABLE') {
+        for (const order of orders) order.arrivesInDays = null;
+        return;
+      }
+      throw err;
+    }
   }
 
   /** What the customer is shown for a placed order; the same body for a first answer and a repeat. */
@@ -590,6 +725,7 @@ export class OrderService {
       `SELECT o.ID as id, o.OrderNumber as orderNumber,
               UNIX_TIMESTAMP(TIMESTAMP(o.CreatedDate, COALESCE(o.CreatedTime, '00:00:00'))) as placedEpoch,
               o.OrderStatus as status, o.PaymentStatus as paymentStatus, o.PaymentMethod as paymentMethod,
+              o.OrderSource as source,
               o.GuestName as customerName, o.ShippingAddress as deliveryAddress,
               CAST(o.SubTotal AS DOUBLE) as subtotal, CAST(o.DiscountTotal AS DOUBLE) as bulkSavings,
               CAST(o.ShippingCharges AS DOUBLE) as delivery, CAST(o.TaxTotal AS DOUBLE) as tax,
@@ -609,6 +745,9 @@ export class OrderService {
        WHERE oi.OrderID = ? ORDER BY oi.ID ASC`,
       [orderId]
     );
+    const promised = { id: o.id, arrivesInDays: null as number | null };
+    await OrderService.attachPromise([promised]);
+    await OrderService.attachChannel([promised]);
     return {
       id: String(o.id),
       orderNumber: String(o.orderNumber),
@@ -616,6 +755,7 @@ export class OrderService {
       status: o.status,
       paymentStatus: o.paymentStatus,
       paymentMethod: o.paymentMethod,
+      source: orderSource(o.source),
       customerName: o.customerName,
       deliveryAddress: o.deliveryAddress,
       lines: items.map((it) => ({ ...it, productId: String(it.productId) })),
@@ -628,6 +768,12 @@ export class OrderService {
       },
       total: o.grandTotal,
       shippingCharges: o.delivery,
+      arrivesInDays: promised.arrivesInDays,
+      awaitingStaff: o.status === 'pending',
+      message:
+        o.status === 'pending'
+          ? 'This order is waiting for staff to confirm it. The goods are held until they confirm it or cancel it.'
+          : null,
     };
   }
 
@@ -646,6 +792,7 @@ export class OrderService {
     guestPhone?: string;
     guestEmail?: string;
     pincode?: string;
+    channel?: unknown;
   }) {
     const paymentMethod = String(payload.paymentMethod || 'COD').toUpperCase();
     if (paymentMethod !== 'COD') throw orderRefusal(400, 'Only cash on delivery is available.');
@@ -678,11 +825,21 @@ export class OrderService {
         rows.push({ ...product, quantity });
       }
 
-      const { lines, totals } = await CartService.priceRows(rows);
+      await StoreStockService.capLines(conn, storeId, rows);
+      const { lines, totals, taxRate } = await CartService.priceRows(rows);
       for (const line of lines) {
         const refusal = quantityRefusal(line.name, line.quantity, line.limits, line.basePrice);
         if (refusal) throw orderRefusal(409, refusal);
       }
+
+      const settings = await ShopSettingsService.read();
+      const placement = checkoutPlacement({
+        settings,
+        grandTotal: totals.grandTotal,
+        lines,
+        paymentMethod,
+      });
+      if (placement.refusal) throw orderRefusal(409, placement.refusal);
 
       const userId = payload.userId ?? (await this.ownerForGuest({
         name: payload.guestName,
@@ -694,18 +851,26 @@ export class OrderService {
         phone: payload.guestPhone,
         email: payload.guestEmail,
       });
-
+      const notes = payload.notes || 'Order placed directly via Buy Now';
       const orderId = await this.writeOrder(conn, {
         storeId,
         userId,
         customer,
         deliveryAddress: address.addressString,
         paymentMethod,
-        notes: payload.notes || 'Order placed directly via Buy Now',
+        notes,
         lines,
         totals,
+        taxRate,
+        orderStatus: placement.status,
+        historyNote: placement.reason ?? notes,
+        source: 'app',
+        arrivesInDays: deliveryPromise(settings.deliveryDays),
+        channel: readOrderChannel(payload.channel, 'store_app'),
       });
+      await StaffAlertService.recordOrder(conn, orderId);
       await conn.commit();
+      await OrderNoticeService.tell(orderId);
       return this.receipt(orderId);
     } catch (err) {
       await conn.rollback().catch(() => undefined);
@@ -738,7 +903,8 @@ export class OrderService {
       );
       if (!orders.length) throw Object.assign(new Error('Order not found'), { statusCode: 404 });
       const order = orders[0];
-      const refusal = statusChangeRefusal(String(order.OrderStatus), status);
+      const previous = String(order.OrderStatus);
+      const refusal = statusChangeRefusal(previous, status);
       if (refusal) throw Object.assign(new Error(refusal), { statusCode: 409 });
 
       await conn.query(
@@ -762,7 +928,9 @@ export class OrderService {
         [order.ID, status, note || defaultNote, actorId]
       );
       await conn.commit();
-      return { success: true, status, stockReturned };
+      const confirmation =
+        !orderAccepted(previous) && orderAccepted(status) ? await OrderNoticeService.tell(Number(order.ID)) : null;
+      return { success: true, status, stockReturned, confirmation };
     } catch (err: any) {
       await conn?.rollback().catch(() => undefined);
       if (err?.statusCode) throw err;
@@ -779,8 +947,11 @@ export class OrderService {
   /**
    * The reverse of the stock taken in `writeOrder`: each line's quantity goes back on its variant, the
    * variant's inventory rows are resized to add up to it again, and an out-of-stock product is back in stock.
+   * A store that had its own quantity gets the same amount back on that row. A store with no row is unchanged.
    */
   private static async putStockBack(conn: PoolConnection, orderId: number) {
+    const [orders] = await conn.query<any[]>(`SELECT StoreID as storeId FROM orders WHERE ID = ? LIMIT 1`, [orderId]);
+    const storeId = Number(orders[0]?.storeId) || 0;
     const [lines] = await conn.query<any[]>(
       `SELECT ProductID as productId, VariantID as variantId, Quantity as quantity FROM order_items WHERE OrderID = ?`,
       [orderId]
@@ -809,6 +980,12 @@ export class OrderService {
         await conn.query(
           `UPDATE inventory_stock SET StockQuantity = ?, UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
           [row.quantity, row.id]
+        );
+      }
+      if (storeId) {
+        await conn.query(
+          `UPDATE store_variant_stock SET StockQuantity = StockQuantity + ? WHERE StoreID = ? AND VariantID = ?`,
+          [quantity, storeId, variantId]
         );
       }
       await conn.query(

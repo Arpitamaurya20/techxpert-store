@@ -6,14 +6,54 @@ import { SupportContactRows } from '@/components/store/SupportContactRows';
 import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { SettingsRow } from '@/components/ui/SettingsRow';
 import { BRAND, COMPANY } from '@/constants/brand';
+import { StateView } from '@/components/ui/StateView';
 import { getPolicy, type PolicyBlock, type PolicyContent } from '@/constants/policies';
 import { MAX_CONTENT_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/theme';
+import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
+import { getErrorMessage } from '@/services/apiClient';
+import { isApiConfigured } from '@/services/apiConfig';
+import { getPolicies } from '@/services/cmsApi';
 
 export default function PolicyScreen() {
   useStatusBarStyle('dark');
   const { policy: policyId } = useLocalSearchParams<{ policy: string }>();
-  const policy = getPolicy(policyId);
+  const pages = useAsyncData('cms-policies', getPolicies);
+  const known = getPolicy(policyId);
+  const published = pages.data?.source === 'live' ? pages.data.data.find((page) => page.id === policyId) : undefined;
+  const policy = pages.data?.source === 'live'
+    ? known || published
+      ? {
+          title: published?.title ?? known?.title ?? 'Policy',
+          content:
+            published && (published.intro.length > 0 || published.sections.length > 0)
+              ? {
+                  lastUpdated: published.lastUpdated,
+                  sourceUrl: published.sourceUrl,
+                  intro: published.intro,
+                  sections: published.sections,
+                }
+              : null,
+        }
+      : undefined
+    : known
+      ? { title: known.title, content: known.content }
+      : undefined;
+
+  if (isApiConfigured && pages.status === 'loading' && !pages.data) {
+    return <StateView variant="loading" message="Loading policy" />;
+  }
+  if (pages.status === 'error') {
+    return (
+      <StateView
+        variant="error"
+        title="Couldn't load this policy"
+        message={getErrorMessage(pages.error)}
+        actionLabel="Try Again"
+        onAction={pages.reload}
+      />
+    );
+  }
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -51,7 +91,7 @@ function PolicyDocument({ content }: { content: PolicyContent }) {
   return (
     <>
       <View style={styles.block}>
-        <Text style={styles.updated}>Last updated: {content.lastUpdated}</Text>
+        {content.lastUpdated ? <Text style={styles.updated}>Last updated: {content.lastUpdated}</Text> : null}
         {content.intro.map((paragraph) => (
           <Text key={paragraph} style={styles.paragraph}>
             {paragraph}
@@ -70,12 +110,14 @@ function PolicyDocument({ content }: { content: PolicyContent }) {
         </View>
       ))}
 
-      <SettingsRow
-        icon="open-outline"
-        label={`View on ${COMPANY.websiteLabel}`}
-        isLast
-        onPress={() => Linking.openURL(content.sourceUrl)}
-      />
+      {content.sourceUrl ? (
+        <SettingsRow
+          icon="open-outline"
+          label={`View on ${COMPANY.websiteLabel}`}
+          isLast
+          onPress={() => Linking.openURL(content.sourceUrl)}
+        />
+      ) : null}
     </>
   );
 }

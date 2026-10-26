@@ -18,6 +18,7 @@ export type SavedItem = {
   stockQuantity: number;
   stockStatus: 'in_stock' | 'out_of_stock';
   minOrderQuantity: number;
+  quantityStep: number;
   variantId: number | null;
   available: boolean;
   unavailableReason: string | null;
@@ -41,7 +42,8 @@ const ITEM_SQL = `
     (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
     (SELECT v.ID FROM product_variants v WHERE v.ProductID = p.ID ORDER BY v.ID ASC LIMIT 1) as variantId,
     COALESCE((SELECT v.StockQuantity FROM product_variants v WHERE v.ProductID = p.ID ORDER BY v.ID ASC LIMIT 1), 0) as stockQuantity,
-    COALESCE(p.MinOrderQuantity, 1) as minOrderQuantity
+    COALESCE(p.MinOrderQuantity, 1) as minOrderQuantity,
+    COALESCE(p.QuantityStep, 1) as quantityStep
   FROM saved_items s
   LEFT JOIN products p ON p.ID = s.ProductID
   LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
@@ -58,6 +60,7 @@ function toItem(row: any): SavedItem {
     brandName: row.brandName == null || row.brandName === '' ? null : String(row.brandName),
     unit: String(row.unit || 'unit'),
     minOrderQuantity: Number(row.minOrderQuantity) > 0 ? Math.floor(Number(row.minOrderQuantity)) : 1,
+    quantityStep: Number(row.quantityStep) > 0 ? Math.floor(Number(row.quantityStep)) : 1,
     variantId: row.variantId == null ? null : Number(row.variantId),
     ...availability,
   };

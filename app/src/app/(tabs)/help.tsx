@@ -6,7 +6,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BRAND, SUPPORT } from '@/constants/brand';
 import { MAX_CONTENT_WIDTH, SCREEN_PADDING, cardShadow, colors, fonts, radius, spacing } from '@/constants/theme';
+import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
+import { isApiConfigured } from '@/services/apiConfig';
+import { getHelpContent } from '@/services/cmsApi';
 
 const HERO_BACKGROUND = '#E8F5FD';
 const HERO_HEIGHT = 120;
@@ -63,7 +66,13 @@ export default function HelpScreen() {
   useStatusBarStyle('light');
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const call = () => Linking.openURL(`tel:${SUPPORT.phone}`);
+  const help = useAsyncData('cms-help', getHelpContent);
+  const live = help.data?.source === 'live' ? help.data.data : null;
+  const phone = live ? live.phone : SUPPORT.phone;
+  const phoneLabel = live ? live.phoneLabel || live.phone : SUPPORT.phoneLabel;
+  const hours = live ? live.hours : SUPPORT.hours;
+  const whatsappDigits = (live?.whatsapp ?? '').replace(/[^\d]/g, '');
+  const showCall = Boolean(phone) && !(isApiConfigured && help.status === 'loading' && !help.data);
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -138,21 +147,39 @@ export default function HelpScreen() {
             ))}
           </View>
 
-          <Pressable
-            onPress={call}
-            accessibilityRole="button"
-            accessibilityLabel={`Call us on ${SUPPORT.phoneLabel}, ${SUPPORT.hours}`}
-            style={({ pressed }) => [styles.callCard, pressed && styles.rowPressed]}
-          >
-            <View style={styles.callIcon}>
-              <Ionicons name="call" size={24} color={colors.white} />
-            </View>
-            <View style={styles.rowText}>
-              <Text style={styles.callLabel}>Call Us</Text>
-              <Text style={styles.callNumber}>{SUPPORT.phoneLabel}</Text>
-              <Text style={styles.callHours}>({SUPPORT.hours})</Text>
-            </View>
-          </Pressable>
+          {showCall ? (
+            <Pressable
+              onPress={() => Linking.openURL(`tel:${phone}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`Call us on ${phoneLabel}${hours ? `, ${hours}` : ''}`}
+              style={({ pressed }) => [styles.callCard, pressed && styles.rowPressed]}
+            >
+              <View style={styles.callIcon}>
+                <Ionicons name="call" size={24} color={colors.white} />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.callLabel}>Call Us</Text>
+                <Text style={styles.callNumber}>{phoneLabel}</Text>
+                {hours ? <Text style={styles.callHours}>({hours})</Text> : null}
+              </View>
+            </Pressable>
+          ) : null}
+          {whatsappDigits ? (
+            <Pressable
+              onPress={() => Linking.openURL(`https://wa.me/${whatsappDigits}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`WhatsApp ${live?.whatsapp}`}
+              style={({ pressed }) => [styles.callCard, pressed && styles.rowPressed]}
+            >
+              <View style={styles.callIcon}>
+                <Ionicons name="logo-whatsapp" size={24} color={colors.white} />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.callLabel}>WhatsApp</Text>
+                <Text style={styles.callNumber}>{live?.whatsapp}</Text>
+              </View>
+            </Pressable>
+          ) : null}
         </View>
       </ScrollView>
     </View>

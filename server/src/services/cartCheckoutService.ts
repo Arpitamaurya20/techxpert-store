@@ -5,6 +5,13 @@ import { DeliveryAreaService } from './deliveryAreaService.js';
 import { isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPricing.js';
 import { quantityRefusal, sameMoney } from '../utils/cartRules.js';
 import { deliveryPincode } from '../utils/pincode.js';
+import { StoreStockService } from './storeStockService.js';
+import { deliveryPromise } from '../utils/deliveryPromise.js';
+import { readOrderChannel } from '../utils/orderChannel.js';
+import { ShopSettingsService } from './shopSettingsService.js';
+import { checkoutPlacement } from '../utils/shopSettings.js';
+import { StaffAlertService } from './staffAlertService.js';
+import { OrderNoticeService } from './orderNoticeService.js';
 
 export type CartCheckoutRequest = {
   cartId?: unknown;
@@ -17,6 +24,7 @@ export type CartCheckoutRequest = {
   guestName?: unknown;
   guestPhone?: unknown;
   guestEmail?: unknown;
+  channel?: unknown;
 };
 
 type Placed = { order: Awaited<ReturnType<typeof OrderService.receipt>>; replay: boolean };
@@ -69,7 +77,8 @@ export class CartCheckoutService {
       const rows = await CartService.cartRows(cartId, conn, true);
       if (rows.length === 0) throw orderRefusal(400, 'Your cart is empty.');
 
-      const { lines, totals } = await CartService.priceRows(rows);
+      await StoreStockService.capLines(conn, storeId, rows);
+      const { lines, totals, taxRate } = await CartService.priceRows(rows);
       for (const line of lines) {
         if (!line.problem) continue;
         const reason =
@@ -84,8 +93,18 @@ export class CartCheckoutService {
         );
       }
 
+      const settings = await ShopSettingsService.read();
+      const placement = checkoutPlacement({
+        settings,
+        grandTotal: totals.grandTotal,
+        lines,
+        paymentMethod,
+      });
+      if (placement.refusal) throw orderRefusal(409, placement.refusal);
+
       const userId = access.userId ?? (await OrderService.ownerForGuest(guest));
       const customer = await OrderService.resolveCustomerInfo(userId, guest);
+      const notes = text(body.notes) ?? 'Order placed from the cart';
       const orderId = await OrderService.writeOrder(conn, {
         cartId,
         storeId,
@@ -93,10 +112,17 @@ export class CartCheckoutService {
         customer,
         deliveryAddress: address.addressString,
         paymentMethod,
-        notes: text(body.notes) ?? 'Order placed from the cart',
+        notes,
         lines,
         totals,
+        taxRate,
+        orderStatus: placement.status,
+        historyNote: placement.reason ?? notes,
+        source: 'app',
+        arrivesInDays: deliveryPromise(settings.deliveryDays),
+        channel: readOrderChannel(body.channel, 'store_app'),
       });
+      await StaffAlertService.recordOrder(conn, orderId);
 
       await conn.query(`DELETE FROM cart_items WHERE CartID = ?`, [cartId]);
       await conn.query(
@@ -104,6 +130,7 @@ export class CartCheckoutService {
         [cartId]
       );
       await conn.commit();
+      await OrderNoticeService.tell(orderId);
       return { order: await OrderService.receipt(orderId), replay: false };
     } catch (err: any) {
       await conn.rollback().catch(() => undefined);

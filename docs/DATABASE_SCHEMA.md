@@ -14,7 +14,7 @@ The platform operates across two dedicated MySQL databases:
 | Database | Responsibility | Core Entities |
 | :--- | :--- | :--- |
 | **`homecare`** | **Identity, Authentication & Users** | `users`, `user_addresses`, `otp_attempts`, `refresh_tokens`, `admin_users` |
-| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes` |
+| **`techxpertstore`** | **Store Catalog, Commerce & Operations** | `products`, `categories`, `sub_categories`, `product_pricing`, `product_variants`, `product_highlights`, `product_specifications`, `inventory_stock`, `orders`, `order_items`, `order_status_history`, `carts`, `cart_items`, `saved_items`, `help_contact`, `help_faqs`, `home_shortcuts`, `home_projects`, `home_project_categories`, `search_suggestions`, `trust_claims`, `about_page`, `about_facts`, `about_values`, `policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`, `home_deals`, `cms_banners`, `cms_homepage_sections`, `bulk_price_tiers`, `portal_audit_logs`, `portal_roles`, `portal_role_permissions`, `portal_staff`, `portal_staff_roles`, `portal_staff_scope`, `store_groups`, `store_group_stores`, `store_pincodes`, `shop_settings`, `talk_requests`, `talk_request_lines`, `staff_alerts`, `order_messages`, `order_delivery`, `order_channel`, `order_problems` |
 
 ```
 [ homecare ] (User Accounts & Addresses)
@@ -186,9 +186,20 @@ CREATE TABLE techxpertstore.products (
   StockStatus ENUM('in_stock', 'out_of_stock', 'pre_order') NOT NULL DEFAULT 'in_stock',
   MinOrderQuantity INT NOT NULL DEFAULT 1,
   MaxOrderQuantity INT NULL,
+  QuantityStep INT NOT NULL DEFAULT 1,
   INDEX idx_products_cat (CategoryID),
   INDEX idx_products_brand (Brand),
   INDEX idx_products_active (IsActive)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Per-store stock. No row means that store sells the company figure on product_variants.StockQuantity.
+CREATE TABLE techxpertstore.store_variant_stock (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  StoreID INT NOT NULL,
+  VariantID INT NOT NULL,
+  StockQuantity INT NOT NULL,
+  UNIQUE KEY uniq_store_variant (StoreID, VariantID),
+  INDEX idx_store_stock_variant (VariantID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Product Pricing
@@ -231,6 +242,7 @@ CREATE TABLE techxpertstore.orders (
   OrderStatus ENUM('pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled') NOT NULL DEFAULT 'pending',
   PaymentStatus ENUM('pending', 'paid', 'failed', 'refunded') NOT NULL DEFAULT 'pending',
   PaymentMethod VARCHAR(50) NULL,
+  OrderSource ENUM('app', 'request', 'staff') NOT NULL DEFAULT 'app',
   CreatedDate DATE NOT NULL,
   CreatedTime TIME NOT NULL,
   UpdatedDate DATE NULL,
@@ -320,6 +332,24 @@ CREATE TABLE techxpertstore.saved_items (
   INDEX idx_saved_session (SessionID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Product page points and specification rows. See server/sql/product_page.sql. Starts empty.
+CREATE TABLE techxpertstore.product_highlights (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ProductID INT NOT NULL,
+  Text VARCHAR(160) NOT NULL,
+  Position INT NOT NULL,
+  INDEX idx_product_highlights (ProductID, Position)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.product_specifications (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ProductID INT NOT NULL,
+  SpecLabel VARCHAR(80) NOT NULL,
+  SpecValue VARCHAR(160) NOT NULL,
+  Position INT NOT NULL,
+  INDEX idx_product_specifications (ProductID, Position)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Help page. One contact row, questions in order. See server/sql/help_content.sql. Starts empty.
 CREATE TABLE techxpertstore.help_contact (
   ID TINYINT NOT NULL PRIMARY KEY,
@@ -364,6 +394,92 @@ CREATE TABLE techxpertstore.home_project_categories (
   Position INT NOT NULL,
   PRIMARY KEY (ProjectID, CategoryID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Home search chips. See server/sql/search_suggestions.sql. Starts empty.
+CREATE TABLE techxpertstore.search_suggestions (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Phrase VARCHAR(40) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Home trust-strip claims. See server/sql/trust_claims.sql. Starts empty.
+CREATE TABLE techxpertstore.trust_claims (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Label VARCHAR(32) NOT NULL,
+  Icon VARCHAR(40) NOT NULL,
+  Action VARCHAR(16) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- About us: mission, facts and values. See server/sql/about_page.sql. Starts empty.
+CREATE TABLE techxpertstore.about_page (
+  ID TINYINT NOT NULL PRIMARY KEY,
+  MissionTitle VARCHAR(80) NOT NULL DEFAULT '',
+  MissionBody VARCHAR(600) NOT NULL DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.about_facts (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  FactValue VARCHAR(16) NOT NULL,
+  FactLabel VARCHAR(32) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.about_values (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Icon VARCHAR(40) NOT NULL,
+  Title VARCHAR(40) NOT NULL,
+  Body VARCHAR(240) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Privacy, terms, cancellation and shipping. See server/sql/policies.sql. Starts empty.
+CREATE TABLE techxpertstore.policy_pages (
+  PolicyID VARCHAR(16) NOT NULL PRIMARY KEY,
+  LastUpdated VARCHAR(40) NOT NULL DEFAULT '',
+  SourceUrl VARCHAR(300) NOT NULL DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.policy_intro (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  PolicyID VARCHAR(16) NOT NULL,
+  Paragraph VARCHAR(800) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.policy_sections (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  PolicyID VARCHAR(16) NOT NULL,
+  Heading VARCHAR(120) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.policy_blocks (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  SectionID INT NOT NULL,
+  Kind ENUM('paragraph', 'list') NOT NULL,
+  Paragraph VARCHAR(800) NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.policy_bullets (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  BlockID INT NOT NULL,
+  Bullet VARCHAR(400) NOT NULL,
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Deals-for-you tiles. See server/sql/home_deals.sql. Starts empty. Two tiles fill the row.
+CREATE TABLE techxpertstore.home_deals (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CategoryID INT NOT NULL,
+  Title VARCHAR(32) NOT NULL,
+  Highlight VARCHAR(24) NOT NULL DEFAULT '',
+  Tagline VARCHAR(60) NOT NULL DEFAULT '',
+  Tone VARCHAR(8) NOT NULL,
+  ImageURL VARCHAR(1000) NOT NULL DEFAULT '',
+  Position INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 ---
@@ -407,12 +523,103 @@ CREATE TABLE techxpertstore.cms_homepage_sections (
 CREATE TABLE techxpertstore.portal_audit_logs (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   action VARCHAR(255) NOT NULL,
-  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store') NOT NULL,
+  entity ENUM('banner', 'section', 'bulk_tier', 'product', 'publish', 'order', 'category', 'delivery', 'access', 'store', 'help', 'about', 'policy', 'setting', 'request') NOT NULL,
   details TEXT NULL,
   actor VARCHAR(255) NOT NULL DEFAULT 'Store Admin',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_audit_created (created_at),
   INDEX idx_audit_entity (entity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Shop rules staff can change. A switched-off row does not apply.
+CREATE TABLE techxpertstore.shop_settings (
+  SettingKey VARCHAR(64) NOT NULL PRIMARY KEY,
+  SettingValue VARCHAR(40) NULL,
+  Enabled TINYINT(1) NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Which customer app placed the order. No row means staff, or an order from before this.
+CREATE TABLE techxpertstore.order_channel (
+  OrderID INT NOT NULL PRIMARY KEY,
+  Channel ENUM('store_app', 'homecare_app') NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- The promise copied onto an order. No row means no promise was made.
+CREATE TABLE techxpertstore.order_delivery (
+  OrderID INT NOT NULL PRIMARY KEY,
+  Days SMALLINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- A short problem on an order. Closing it does not change the order.
+CREATE TABLE techxpertstore.order_problems (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  OrderID INT NOT NULL,
+  StoreID INT NOT NULL,
+  Note VARCHAR(400) NOT NULL,
+  Status ENUM('new', 'closed') NOT NULL DEFAULT 'new',
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL,
+  INDEX idx_order_problems_order (OrderID, ID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- One confirmation per order. The phone number is not stored. Off until staff choose text or WhatsApp.
+CREATE TABLE techxpertstore.order_messages (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  OrderID INT NOT NULL,
+  Channel ENUM('sms', 'whatsapp') NOT NULL,
+  Status ENUM('sent', 'failed') NOT NULL,
+  Detail VARCHAR(200) NOT NULL,
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL,
+  UNIQUE KEY uq_order_message (OrderID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- A customer order or a Talk to us request, until staff mark it seen. No phone and no name.
+CREATE TABLE techxpertstore.staff_alerts (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Kind ENUM('order', 'request', 'problem') NOT NULL,
+  StoreID INT NOT NULL,
+  SubjectID INT NOT NULL,
+  Headline VARCHAR(80) NOT NULL,
+  Detail VARCHAR(200) NOT NULL,
+  Seen TINYINT(1) NOT NULL DEFAULT 0,
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL,
+  UNIQUE KEY uq_staff_alert (Kind, SubjectID),
+  INDEX idx_staff_alerts_open (Seen, StoreID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- A customer's request for staff. Nothing is ordered and no stock is held.
+CREATE TABLE techxpertstore.talk_requests (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CustomerName VARCHAR(80) NOT NULL,
+  CustomerPhone VARCHAR(10) NOT NULL,
+  Pincode VARCHAR(6) NOT NULL,
+  StoreID INT NOT NULL,
+  Note VARCHAR(400) NULL,
+  Status ENUM('new', 'closed') NOT NULL DEFAULT 'new',
+  SubTotal DECIMAL(12,2) NOT NULL,
+  TaxTotal DECIMAL(12,2) NOT NULL,
+  ShippingCharges DECIMAL(12,2) NOT NULL,
+  GrandTotal DECIMAL(12,2) NOT NULL,
+  CreatedDate DATE NOT NULL,
+  CreatedTime TIME NOT NULL,
+  UpdatedDate DATE NULL,
+  UpdatedTime TIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE techxpertstore.talk_request_lines (
+  ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  RequestID INT NOT NULL,
+  ProductID INT NOT NULL,
+  VariantID INT NOT NULL,
+  ProductName VARCHAR(255) NOT NULL,
+  VariantName VARCHAR(255) NULL,
+  Quantity INT NOT NULL,
+  UnitPrice DECIMAL(12,2) NOT NULL,
+  LineTotal DECIMAL(12,2) NOT NULL,
+  StockAtRequest INT NOT NULL,
+  Note VARCHAR(255) NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Portal roles: per-module View / Edit / Delete (server/sql/portal_access.sql)

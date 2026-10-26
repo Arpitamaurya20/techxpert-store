@@ -25,12 +25,21 @@ export type NewProductInput = {
   unit: string;
   stockQuantity: number;
   description: string;
+  quantityStep: number;
   sku?: string;
   brandName?: string;
 };
 
 const PAGE_SIZE = 50;
 const ALL = 'all';
+const HIGHLIGHT_MAX = 8;
+const SPEC_MAX = 16;
+
+let nextPageKey = 1;
+function pageKey() {
+  nextPageKey += 1;
+  return `page-${nextPageKey}`;
+}
 
 interface CatalogOverviewProps {
   /** First page from the shell's load, shown until this screen's own page arrives. */
@@ -56,10 +65,15 @@ interface ProductForm {
   price: string;
   stock: string;
   unit: string;
+  quantityStep: string;
   sku: string;
   brandName: string;
   description: string;
   variantStocks: { id: number; name: string; stock: string }[];
+  storeStock: { variantId: number; variantName: string; storeId: number; storeName: string; quantity: string }[];
+  stockReason: '' | 'received' | 'counted' | 'damaged';
+  highlights: { key: string; text: string }[];
+  specifications: { key: string; label: string; value: string }[];
 }
 
 type FormErrors = Partial<Record<keyof ProductForm | 'form', string>>;
@@ -70,6 +84,7 @@ const formFor = (product: Product | null): ProductForm => ({
   price: product?.price != null ? String(product.price) : '',
   stock: product ? String(product.stockQuantity ?? 0) : '',
   unit: product?.unit ?? '',
+  quantityStep: String(product?.quantityStep ?? 1),
   sku: product?.sku ?? '',
   brandName: product?.brandName ?? '',
   description: product?.description ?? '',
@@ -81,7 +96,72 @@ const formFor = (product: Product | null): ProductForm => ({
           stock: String(variant.stockQuantity ?? 0),
         }))
       : [],
+  stockReason: '',
+  storeStock: (product?.storeStock ?? []).map((row) => ({
+    variantId: row.variantId,
+    variantName: row.variantName,
+    storeId: row.storeId,
+    storeName: row.storeName,
+    quantity: row.quantity == null ? '' : String(row.quantity),
+  })),
+  highlights: (product?.highlights ?? []).map((text) => ({ key: pageKey(), text })),
+  specifications: (product?.specifications ?? []).map((row) => ({
+    key: pageKey(),
+    label: row.label,
+    value: row.value,
+  })),
 });
+
+/** Empty uses the company stock. A number is only what that store can sell, and the stores together cannot exceed it. */
+function storeQuantityError(form: ProductForm): string | null {
+  const companyFor = (variantId: number) => {
+    const variant = form.variantStocks.find((row) => row.id === variantId);
+    if (form.variantStocks.length > 1 && variant) return Number(variant.stock);
+    return Number(form.stock);
+  };
+  const held = new Map<number, { name: string; quantity: number; company: number }>();
+  for (const row of form.storeStock) {
+    const text = row.quantity.trim();
+    if (text === '') continue;
+    const quantity = Number(text);
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      return 'Stock at a store is a whole number, or empty to use the company stock.';
+    }
+    const current = held.get(row.variantId) ?? {
+      name: row.variantName || 'this option',
+      quantity: 0,
+      company: companyFor(row.variantId),
+    };
+    current.quantity += quantity;
+    held.set(row.variantId, current);
+  }
+  for (const row of held.values()) {
+    if (row.quantity > row.company) {
+      return `The stores hold ${row.quantity} of ${row.name}, which is more than the ${row.company} in stock.`;
+    }
+  }
+  return null;
+}
+
+function stockChanged(form: ProductForm, editing: Product): boolean {
+  if (form.variantStocks.length > 1) {
+    for (const row of form.variantStocks) {
+      const current = editing.variants?.find((variant) => Number(variant.id) === row.id);
+      if (Number(row.stock) !== Number(current?.stockQuantity ?? 0)) return true;
+    }
+  } else if (Number(form.stock) !== Number(editing.stockQuantity ?? 0)) {
+    return true;
+  }
+  for (const row of form.storeStock) {
+    const current = editing.storeStock?.find(
+      (item) => item.variantId === row.variantId && item.storeId === row.storeId
+    );
+    const before = current?.quantity ?? null;
+    const after = row.quantity.trim() === '' ? null : Number(row.quantity);
+    if (before !== after) return true;
+  }
+  return false;
+}
 
 /** Mirrors the server: a new product needs a price; an edited one may have it removed. A price must be more than ₹0. */
 function checkForm(form: ProductForm, editing: Product | null): FormErrors {
@@ -107,7 +187,26 @@ function checkForm(form: ProductForm, editing: Product | null): FormErrors {
       errors.stock = 'Enter a whole number, 0 or more.';
     }
   }
+  const storeStockError = storeQuantityError(form);
+  if (storeStockError) errors.stock = errors.stock || storeStockError;
+  if (editing && !errors.stock && stockChanged(form, editing) && !form.stockReason) {
+    errors.stockReason = 'Say why the stock changed: received, counted, or damaged.';
+  }
   if (!form.unit.trim()) errors.unit = 'Enter the selling unit, e.g. "50 kg bag".';
+  const pack = Number(form.quantityStep.trim());
+  if (form.quantityStep.trim() === '' || !Number.isInteger(pack) || pack < 1 || pack > 9999) {
+    errors.quantityStep = 'Enter a whole number from 1 to 9,999.';
+  }
+  const highlights = form.highlights.map((row) => row.text.trim()).filter(Boolean);
+  if (highlights.length > HIGHLIGHT_MAX) errors.highlights = 'A product can have up to 8 highlights.';
+  else if (highlights.some((text) => text.length > 160)) errors.highlights = 'Each highlight is 160 characters or less.';
+  const specs = form.specifications.filter((row) => row.label.trim() || row.value.trim());
+  if (specs.length > SPEC_MAX) errors.specifications = 'A product can have up to 16 specifications.';
+  else if (specs.some((row) => !row.label.trim() || !row.value.trim())) {
+    errors.specifications = 'Each specification needs a name and a value.';
+  } else if (specs.some((row) => row.label.trim().length > 80 || row.value.trim().length > 160)) {
+    errors.specifications = 'Keep each name to 80 characters and each value to 160.';
+  }
   return errors;
 }
 
@@ -220,6 +319,23 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
       }
     } catch {
       detail = product;
+    }
+    try {
+      const stock = await api.getProductStoreStock(String(product.id));
+      detail = {
+        ...detail,
+        storeStock: (stock?.variants ?? []).flatMap((variant) =>
+          (variant.stores ?? []).map((store) => ({
+            variantId: variant.variantId,
+            variantName: variant.name,
+            storeId: store.storeId,
+            storeName: store.name,
+            quantity: store.quantity,
+          }))
+        ),
+      };
+    } catch {
+      detail = { ...detail, storeStock: undefined };
     }
     setEditing(detail);
     setFormOpen(true);
@@ -444,8 +560,25 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                     }
                   : { stockQuantity: Number(form.stock) }),
                 unit: form.unit.trim(),
+                quantityStep: Number(form.quantityStep),
                 brandName: form.brandName.trim(),
                 description: form.description.trim(),
+                highlights: form.highlights.map((row) => row.text.trim()).filter(Boolean),
+                specifications: form.specifications
+                  .filter((row) => row.label.trim() || row.value.trim())
+                  .map((row) => ({ label: row.label.trim(), value: row.value.trim() })),
+                ...(form.storeStock.length
+                  ? {
+                      storeStock: form.storeStock.map((row) => ({
+                        variantId: row.variantId,
+                        variantName: row.variantName,
+                        storeId: row.storeId,
+                        storeName: row.storeName,
+                        quantity: row.quantity.trim() === '' ? null : Number(row.quantity),
+                      })),
+                    }
+                  : {}),
+                ...(form.stockReason && stockChanged(form, editing) ? { stockReason: form.stockReason } : {}),
               });
             } else {
               await onCreateProduct({
@@ -454,6 +587,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                 price: Number(form.price),
                 stockQuantity: Number(form.stock),
                 unit: form.unit.trim(),
+                quantityStep: Number(form.quantityStep),
                 description: form.description.trim(),
                 sku: form.sku.trim() || undefined,
                 brandName: form.brandName.trim() || undefined,
@@ -515,6 +649,36 @@ const ProductFormDialog: React.FC<{
   };
 
   const formId = editing ? `product-edit-${editing.id}` : 'product-add';
+
+  const storeFields = (variantId: number | null) =>
+    form.storeStock
+      .filter((row) => variantId == null || row.variantId === variantId)
+      .map((row, index) => (
+        <Field
+          key={`${row.variantId}-${row.storeId}`}
+          id={`${formId}-store-${row.variantId}-${row.storeId}`}
+          label={`Stock at ${row.storeName}`}
+          hint={index === 0 ? 'Empty uses the company stock. 0 means this store has none.' : undefined}
+        >
+          <input
+            inputMode="numeric"
+            value={row.quantity}
+            placeholder="Company stock"
+            onChange={(event) => {
+              const value = event.target.value;
+              setForm((prev) => ({
+                ...prev,
+                storeStock: prev.storeStock.map((item) =>
+                  item.variantId === row.variantId && item.storeId === row.storeId
+                    ? { ...item, quantity: value }
+                    : item
+                ),
+              }));
+              if (errors.stock || errors.form) setErrors((prev) => ({ ...prev, stock: undefined, form: undefined }));
+            }}
+          />
+        </Field>
+      ));
 
   return (
     <Modal
@@ -585,7 +749,17 @@ const ProductFormDialog: React.FC<{
           <Field id={`${formId}-unit`} label="Sold as" error={errors.unit} style={{ flex: 1.3 }}>
             <input value={form.unit} onChange={set('unit')} maxLength={60} placeholder="50 kg bag" />
           </Field>
+          <Field
+            id={`${formId}-step`}
+            label="Sold in multiples of"
+            error={errors.quantityStep}
+            hint="1 means any quantity. 6 means 6, then 12, then 18."
+            style={{ flex: 1 }}
+          >
+            <input inputMode="numeric" value={form.quantityStep} onChange={set('quantityStep')} placeholder="1" />
+          </Field>
         </div>
+        {form.variantStocks.length > 1 ? null : storeFields(null)}
         <div style={styles.row}>
           {editing ? null : (
             <Field
@@ -605,34 +779,169 @@ const ProductFormDialog: React.FC<{
         {form.variantStocks.length > 1 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {form.variantStocks.map((variant, index) => (
-              <Field
-                key={variant.id}
-                id={`${formId}-option-${variant.id}`}
-                label={`${variant.name} stock`}
-                error={index === 0 ? errors.stock : null}
-                hint={index === 0 ? 'Each option has its own stock. The app sells the one the customer picks.' : undefined}
-              >
-                <input
-                  inputMode="numeric"
-                  value={variant.stock}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setForm((prev) => ({
-                      ...prev,
-                      variantStocks: prev.variantStocks.map((row) =>
-                        row.id === variant.id ? { ...row, stock: value } : row
-                      ),
-                    }));
-                    if (errors.stock || errors.form) setErrors((prev) => ({ ...prev, stock: undefined, form: undefined }));
-                  }}
-                />
-              </Field>
+              <div key={variant.id} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <Field
+                  id={`${formId}-option-${variant.id}`}
+                  label={`${variant.name} stock`}
+                  error={index === 0 ? errors.stock : null}
+                  hint={index === 0 ? 'Each option has its own stock. The app sells the one the customer picks.' : undefined}
+                >
+                  <input
+                    inputMode="numeric"
+                    value={variant.stock}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        variantStocks: prev.variantStocks.map((row) =>
+                          row.id === variant.id ? { ...row, stock: value } : row
+                        ),
+                      }));
+                      if (errors.stock || errors.form) setErrors((prev) => ({ ...prev, stock: undefined, form: undefined }));
+                    }}
+                  />
+                </Field>
+                {storeFields(variant.id)}
+              </div>
             ))}
           </div>
+        ) : null}
+        {editing ? (
+          <Field
+            id={`${formId}-stock-reason`}
+            label="Why the stock changed"
+            error={errors.stockReason}
+            hint="Received, counted, or damaged. Leave this empty when the quantities stay the same."
+          >
+            <select
+              className="tx-input"
+              value={form.stockReason}
+              onChange={(event) => {
+                const value = event.target.value;
+                const stockReason = value === 'received' || value === 'counted' || value === 'damaged' ? value : '';
+                setForm((prev) => ({ ...prev, stockReason }));
+                if (errors.stockReason) setErrors((prev) => ({ ...prev, stockReason: undefined }));
+              }}
+            >
+              <option value="">No change</option>
+              <option value="received">Received</option>
+              <option value="counted">Counted</option>
+              <option value="damaged">Damaged</option>
+            </select>
+          </Field>
         ) : null}
         <Field id={`${formId}-description`} label="Description">
           <textarea value={form.description} onChange={set('description')} maxLength={2000} />
         </Field>
+        {editing ? (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <span style={styles.strong}>Highlights</span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={form.highlights.length >= HIGHLIGHT_MAX}
+                  onClick={() => setForm((prev) => ({ ...prev, highlights: [...prev.highlights, { key: pageKey(), text: '' }] }))}
+                >
+                  Add highlight
+                </Button>
+              </div>
+              <p style={styles.small}>Short points on the product page. Leave this empty until you have them. Up to 8.</p>
+              {form.highlights.map((row, index) => (
+                <div key={row.key} style={styles.row}>
+                  <Field id={`${formId}-highlight-${row.key}`} label={`Highlight ${index + 1}`} error={index === 0 ? errors.highlights : null} style={{ flex: 1 }}>
+                    <input
+                      value={row.text}
+                      maxLength={160}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setForm((prev) => ({
+                          ...prev,
+                          highlights: prev.highlights.map((item) => (item.key === row.key ? { ...item, text: value } : item)),
+                        }));
+                        if (errors.highlights || errors.form) setErrors((prev) => ({ ...prev, highlights: undefined, form: undefined }));
+                      }}
+                    />
+                  </Field>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setForm((prev) => ({ ...prev, highlights: prev.highlights.filter((item) => item.key !== row.key) }))}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <span style={styles.strong}>Specifications</span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={form.specifications.length >= SPEC_MAX}
+                  onClick={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      specifications: [...prev.specifications, { key: pageKey(), label: '', value: '' }],
+                    }))
+                  }
+                >
+                  Add specification
+                </Button>
+              </div>
+              <p style={styles.small}>Name and value rows, such as Sweep and 48 inch. Leave this empty until you have them. Up to 16.</p>
+              {form.specifications.map((row, index) => (
+                <div key={row.key} style={styles.row}>
+                  <Field id={`${formId}-spec-label-${row.key}`} label={`Specification ${index + 1}`} error={index === 0 ? errors.specifications : null} style={{ flex: 1 }}>
+                    <input
+                      value={row.label}
+                      maxLength={80}
+                      placeholder="Sweep"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setForm((prev) => ({
+                          ...prev,
+                          specifications: prev.specifications.map((item) => (item.key === row.key ? { ...item, label: value } : item)),
+                        }));
+                        if (errors.specifications || errors.form) setErrors((prev) => ({ ...prev, specifications: undefined, form: undefined }));
+                      }}
+                    />
+                  </Field>
+                  <Field id={`${formId}-spec-value-${row.key}`} label="Value" style={{ flex: 1.4 }}>
+                    <input
+                      value={row.value}
+                      maxLength={160}
+                      placeholder="48 inch"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setForm((prev) => ({
+                          ...prev,
+                          specifications: prev.specifications.map((item) => (item.key === row.key ? { ...item, value } : item)),
+                        }));
+                        if (errors.specifications || errors.form) setErrors((prev) => ({ ...prev, specifications: undefined, form: undefined }));
+                      }}
+                    />
+                  </Field>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setForm((prev) => ({ ...prev, specifications: prev.specifications.filter((item) => item.key !== row.key) }))
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
         {errors.form ? <FormError>{errors.form}</FormError> : null}
       </form>
     </Modal>

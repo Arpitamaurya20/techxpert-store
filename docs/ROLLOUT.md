@@ -30,6 +30,21 @@ Run from `server/`, against the MySQL host that has both `homecare` and `techxpe
 | 1.5 | `sql/saved_items.sql` | `SHOW TABLES IN techxpertstore LIKE 'saved_items'` returns a row | Safe to run again. The previous API ignores the table |
 | 1.6 | `sql/help_content.sql` | `SHOW TABLES IN techxpertstore LIKE 'help_contact'` returns a row | Safe to run again. After the audit table exists. The page starts empty |
 | 1.7 | `sql/home_merch.sql` | `SHOW TABLES IN techxpertstore LIKE 'home_shortcuts'` returns a row | Safe to run again. The shortcut row and project tiles start empty |
+| 1.8 | `sql/product_page.sql` | `SHOW TABLES IN techxpertstore LIKE 'product_highlights'` returns a row | Safe to run again. Highlights and specifications start empty. The previous API ignores the tables |
+| 1.9 | `sql/search_suggestions.sql` | `SHOW TABLES IN techxpertstore LIKE 'search_suggestions'` returns a row | Safe to run again. Search ideas start empty. The previous API ignores the table |
+| 1.10 | `sql/trust_claims.sql` | `SHOW TABLES IN techxpertstore LIKE 'trust_claims'` returns a row | Safe to run again. Trust-strip claims start empty. The previous API ignores the table |
+| 1.11 | `sql/about_page.sql` | `SHOW TABLES IN techxpertstore LIKE 'about_page'` returns a row | Safe to run again. After the audit table exists. The About page starts empty. The previous API ignores the tables |
+| 1.12 | `sql/policies.sql` | `SHOW TABLES IN techxpertstore LIKE 'policy_pages'` returns a row | Safe to run again. After the audit table exists. The four policy pages start empty. The previous API ignores the tables |
+| 1.13 | `sql/home_deals.sql` | `SHOW TABLES IN techxpertstore LIKE 'home_deals'` returns a row | Safe to run again. Deals tiles start empty. The previous API ignores the table |
+| 1.14 | `sql/quantity_step.sql` | `SHOW COLUMNS FROM techxpertstore.products LIKE 'QuantityStep'` returns a row | Safe to run again. Existing products stay at 1 |
+| 1.15 | `sql/store_variant_stock.sql` | `SHOW TABLES FROM techxpertstore LIKE 'store_variant_stock'` returns a row | Safe to run again. No rows means every store still sells the company stock |
+| 1.16 | `sql/shop_settings.sql` | `SHOW TABLES FROM techxpertstore LIKE 'shop_settings'` returns a row | Safe to run again. After the audit table exists. Missing rows keep delivery ₹99, free from ₹2,000, GST 18% |
+| 1.17 | `sql/talk_requests.sql` | `SHOW TABLES FROM techxpertstore LIKE 'talk_requests'` returns a row | Safe to run again. After the audit table exists. An empty queue is the start |
+| 1.18 | `sql/order_source.sql` | `SHOW COLUMNS FROM techxpertstore.orders LIKE 'OrderSource'` returns a row | Run once. Existing orders are tagged `app`. Skip the statement if the column is already there |
+| 1.19 | `sql/staff_alerts.sql` | `SHOW TABLES FROM techxpertstore LIKE 'staff_alerts'` returns a row | Safe to run again. Starts empty. A missing table does not stop an order or a request |
+| 1.20 | `sql/order_messages.sql` | `SHOW TABLES FROM techxpertstore LIKE 'order_messages'` returns a row | Safe to run again. Confirmation starts off. A missing table does not stop an order |
+| 1.21 | `sql/delivery_promise.sql` | `SHOW TABLES FROM techxpertstore LIKE 'order_problems'` returns a row | Safe to run again. Run after 1.19. Arrives in starts off. A missing table does not stop an order |
+| 1.22 | `sql/order_channel.sql` | `SHOW TABLES FROM techxpertstore LIKE 'order_channel'` returns a row | Safe to run again. A missing table does not stop an order. Null means staff, or an order from before this |
 
 `sql/portal_audit_logs_alter_category.sql` can be skipped: 1.3 and 1.4 make the same change. `sql/portal_staff.sql` is **not** run here, because it renames a column that the live API reads. It runs in step 3.2, right before the restart.
 

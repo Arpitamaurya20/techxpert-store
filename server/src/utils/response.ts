@@ -5,6 +5,7 @@ export interface ApiResponse<T = any> {
   data?: T;
   message?: string;
   error?: string;
+  code?: string;
   details?: any;
   meta?: {
     page?: number;
@@ -57,7 +58,13 @@ export function asyncHandler(fn: AsyncRouteHandler) {
       console.error(`[Error] in ${req.method} ${req.originalUrl}:`, err);
       const status = err.statusCode || err.status || 500;
       const msg = err.message || 'Internal server error';
-      sendError(res, status, msg, process.env.NODE_ENV !== 'production' ? err.stack : undefined);
+      const body: ApiResponse = {
+        success: false,
+        error: msg,
+        ...(typeof err.code === 'string' ? { code: err.code } : {}),
+        ...(process.env.NODE_ENV !== 'production' ? { details: err.stack } : {}),
+      };
+      return res.status(status).json(body);
     });
   };
 }

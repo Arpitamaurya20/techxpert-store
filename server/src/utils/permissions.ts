@@ -4,6 +4,8 @@ export const MODULES = [
   { key: 'products', label: 'Products', levels: ['view', 'edit', 'delete'] },
   { key: 'categories', label: 'Categories', levels: ['view', 'edit', 'delete'] },
   { key: 'orders', label: 'Orders', levels: ['view', 'edit'] },
+  { key: 'agreed', label: 'Agreed price', levels: ['view', 'edit'] },
+  { key: 'requests', label: 'Talk to us', levels: ['view', 'edit'] },
   { key: 'delivery', label: 'Delivery pincodes', levels: ['view', 'edit'] },
   { key: 'stores', label: 'Stores & groups', levels: ['view', 'edit', 'delete'] },
   { key: 'customers', label: 'Customers', levels: ['view'] },
@@ -11,6 +13,9 @@ export const MODULES = [
   { key: 'banners', label: 'Campaign banners', levels: ['view', 'edit', 'delete'] },
   { key: 'sections', label: 'Home screen sections', levels: ['view', 'edit', 'delete'] },
   { key: 'help', label: 'Help & support', levels: ['view', 'edit'] },
+  { key: 'about', label: 'About the company', levels: ['view', 'edit'] },
+  { key: 'policies', label: 'Policies', levels: ['view', 'edit'] },
+  { key: 'settings', label: 'Shop settings', levels: ['view', 'edit'] },
   { key: 'audit', label: 'Audit trail', levels: ['view'] },
   { key: 'access', label: 'Roles & access', levels: ['view', 'edit', 'delete'] },
 ] as const satisfies readonly { key: string; label: string; levels: readonly Level[] }[];

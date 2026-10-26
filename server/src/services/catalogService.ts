@@ -1,7 +1,13 @@
 import { storePool } from '../db/mysql.js';
 import type { PoolConnection } from 'mysql2/promise';
 import { allocateCatalogueStock } from '../utils/stockAllocation.js';
+import { allocationOver } from '../utils/storeStock.js';
+import { StoreStockService } from './storeStockService.js';
+import { AuditService } from './auditService.js';
+import { changedStock, stockChangeDetails, stockChangeRefusal, type StockFigure, type StockReason } from '../utils/stockReason.js';
+import { productPageUpdates } from '../utils/productPage.js';
 import { variantStockUpdates } from '../utils/variants.js';
+import { badRequest } from '../utils/validate.js';
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
@@ -22,6 +28,8 @@ export interface ProductFilterParams {
   inStock?: boolean;
   page?: number;
   limit?: number;
+  /** Customer listings hide products with no active selling price. The portal does not. */
+  pricedOnly?: boolean;
 }
 
 /**
@@ -432,6 +440,13 @@ export class CatalogService {
         queryParams.push(params.featured ? 1 : 0);
       }
 
+      if (params.pricedOnly) {
+        whereClause += ` AND EXISTS (
+          SELECT 1 FROM product_pricing pr
+          WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+        )`;
+      }
+
       // Count query for pagination meta
       const [countResult] = await storePool.query<any[]>(
         `SELECT COUNT(*) as total FROM products p ${whereClause}`,
@@ -454,6 +469,7 @@ export class CatalogService {
           ${SHOP_STOCK_STATUS} as stockStatus,
           p.MinOrderQuantity as minOrderQuantity,
           p.MaxOrderQuantity as maxOrderQuantity,
+          p.QuantityStep as quantityStep,
           p.IsFeatured as featured,
           p.CreatedDate as createdAt,
           (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
@@ -515,6 +531,7 @@ export class CatalogService {
            ${SHOP_STOCK_STATUS} as stockStatus,
            p.MinOrderQuantity as minOrderQuantity,
            p.MaxOrderQuantity as maxOrderQuantity,
+           p.QuantityStep as quantityStep,
            p.IsFeatured as featured,
            p.CreatedDate as createdAt,
            (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
@@ -565,6 +582,9 @@ export class CatalogService {
             available: active && priced && stockQuantity > 0,
           };
         });
+        const page = await CatalogService.readProductPage(Number(prod.id));
+        prod.highlights = page.highlights;
+        prod.specifications = page.specifications;
         return prod;
       }
       return null;
@@ -610,8 +630,8 @@ export class CatalogService {
 
       await conn.query(
         `INSERT INTO products
-         (ID, ProductCode, ProductName, ProductDescription, CategoryID, Brand, MeasurementUnitID, StockStatus, MinOrderQuantity, IsActive, IsFeatured)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 0)`,
+         (ID, ProductCode, ProductName, ProductDescription, CategoryID, Brand, MeasurementUnitID, StockStatus, MinOrderQuantity, QuantityStep, IsActive, IsFeatured)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1, 0)`,
         [
           productId,
           productCode,
@@ -621,6 +641,7 @@ export class CatalogService {
           brand,
           measurementUnitId,
           stockStatus,
+          Number(data.quantityStep) >= 1 ? Number(data.quantityStep) : 1,
         ]
       );
 
@@ -708,14 +729,19 @@ export class CatalogService {
   }
 
   /** `data` comes from `validateProductUpdateBody`: `price: null` removes the price, `brandName: null` clears it. */
-  static async updateProduct(id: string | number, data: any) {
-    const { name, price, stockQuantity, description, brandName, unit } = data;
+  static async updateProduct(id: string | number, data: any, actorName = 'Staff') {
+    const { name, price, stockQuantity, description, brandName, unit, quantityStep } = data;
     const hasNewPrice = typeof price === 'number';
 
     try {
       const numId = Number(id);
+      let stockEdit: { name: string; changes: StockFigure[] } = { name: '', changes: [] };
       if (!isNaN(numId)) {
         const optionStocks = variantStockUpdates(data.variants);
+        stockEdit = await CatalogService.stockChange(numId, data, optionStocks);
+        const stockRefusal = stockChangeRefusal(stockEdit.changes, data.stockReason ?? null);
+        if (stockRefusal) throw Object.assign(new Error(stockRefusal), { statusCode: 400 });
+        const page = productPageUpdates(data);
         const stockStatus =
           !optionStocks && stockQuantity !== undefined
             ? Number(stockQuantity) > 0
@@ -733,6 +759,7 @@ export class CatalogService {
              Brand = IF(? = 1, ?, Brand),
              StockStatus = COALESCE(?, StockStatus),
              MeasurementUnitID = COALESCE(?, MeasurementUnitID),
+             QuantityStep = IF(? = 1, ?, QuantityStep),
              UpdatedDate = CURDATE(),
              UpdatedTime = CURTIME()
            WHERE ID = ?`,
@@ -743,6 +770,8 @@ export class CatalogService {
             brandName ?? null,
             stockStatus,
             measurementUnitId,
+            quantityStep !== undefined ? 1 : 0,
+            quantityStep ?? null,
             numId,
           ]
         );
@@ -757,12 +786,28 @@ export class CatalogService {
         }
 
         if (optionStocks) {
-          await CatalogService.writeChosenStocks(numId, optionStocks);
+          await CatalogService.writeChosenStocks(numId, optionStocks, data.storeStock);
         } else if (stockQuantity !== undefined) {
-          await CatalogService.writeCatalogueStock(numId, Number(stockQuantity));
+          await CatalogService.writeCatalogueStock(numId, Number(stockQuantity), data.storeStock);
+        } else if (data.storeStock !== undefined) {
+          await CatalogService.writeStoreStockOnly(numId, data.storeStock);
+        }
+
+        if (page.highlights || page.specifications) {
+          const [exists] = await storePool.query<any[]>(`SELECT ID FROM products WHERE ID = ? LIMIT 1`, [numId]);
+          if (exists.length > 0) await CatalogService.writeProductPage(numId, page);
         }
       }
       const updated = await CatalogService.getProductById(id);
+      const reason = data.stockReason as StockReason | null | undefined;
+      if (updated && stockEdit.changes.length && reason) {
+        await AuditService.create({
+          action: 'Changed stock',
+          entity: 'product',
+          details: stockChangeDetails(stockEdit.name || updated.name, reason, stockEdit.changes),
+          user: actorName,
+        }).catch((err) => console.warn('[Catalog] stock audit failed', err));
+      }
       if (updated) return updated;
     } catch (err) {
       if (err && typeof err === 'object' && 'statusCode' in err) throw err;
@@ -816,7 +861,7 @@ export class CatalogService {
    * sells when it does not name an option. A product without a variant gets one. Existing inventory
    * rows are resized to that figure; a variant with none keeps the number on the variant row.
    */
-  private static async writeCatalogueStock(productId: number, quantity: number) {
+  private static async writeCatalogueStock(productId: number, quantity: number, storeStock?: unknown) {
     await CatalogService.withProductIdLock(async (conn) => {
       const [variants] = await conn.query<any[]>(
         `SELECT ID FROM product_variants WHERE ProductID = ? ORDER BY ID ASC LIMIT 1`,
@@ -833,14 +878,76 @@ export class CatalogService {
           [variantId, productId]
         );
       }
+      if (storeStock !== undefined) {
+        await StoreStockService.apply(conn, productId, storeStock, new Map([[variantId, quantity]]));
+      }
       await CatalogService.writeVariantStock(conn, variantId, quantity);
     });
+  }
+
+  /** Store quantities only. The company figure on each option stays as it is. */
+  private static async writeStoreStockOnly(productId: number, storeStock: unknown) {
+    await CatalogService.withProductIdLock(async (conn) => {
+      await StoreStockService.apply(conn, productId, storeStock, null);
+    });
+  }
+
+  /** Highlights and specifications. Missing tables read as an empty page so the product still loads. */
+  private static async readProductPage(productId: number): Promise<{
+    highlights: string[];
+    specifications: { label: string; value: string }[];
+  }> {
+    try {
+      const [highlights] = await storePool.query<any[]>(
+        `SELECT Text as text FROM product_highlights WHERE ProductID = ? ORDER BY Position ASC, ID ASC`,
+        [productId]
+      );
+      const [specifications] = await storePool.query<any[]>(
+        `SELECT SpecLabel as label, SpecValue as value
+         FROM product_specifications WHERE ProductID = ? ORDER BY Position ASC, ID ASC`,
+        [productId]
+      );
+      return {
+        highlights: highlights.map((row) => String(row.text)),
+        specifications: specifications.map((row) => ({ label: String(row.label), value: String(row.value) })),
+      };
+    } catch (err) {
+      console.warn('[CatalogService] product page read skipped', err);
+      return { highlights: [], specifications: [] };
+    }
+  }
+
+  /** Replaces the lists that were sent. A list left out stays as it is. */
+  private static async writeProductPage(
+    productId: number,
+    page: { highlights?: string[]; specifications?: { label: string; value: string }[] }
+  ) {
+    if (page.highlights) {
+      await storePool.query(`DELETE FROM product_highlights WHERE ProductID = ?`, [productId]);
+      for (let index = 0; index < page.highlights.length; index += 1) {
+        await storePool.query(
+          `INSERT INTO product_highlights (ProductID, Text, Position) VALUES (?, ?, ?)`,
+          [productId, page.highlights[index], index + 1]
+        );
+      }
+    }
+    if (page.specifications) {
+      await storePool.query(`DELETE FROM product_specifications WHERE ProductID = ?`, [productId]);
+      for (let index = 0; index < page.specifications.length; index += 1) {
+        const row = page.specifications[index];
+        await storePool.query(
+          `INSERT INTO product_specifications (ProductID, SpecLabel, SpecValue, Position) VALUES (?, ?, ?, ?)`,
+          [productId, row.label, row.value, index + 1]
+        );
+      }
+    }
   }
 
   /** Sets each named option's stock. Every id must already belong to this product. */
   private static async writeChosenStocks(
     productId: number,
-    updates: { id: number; stockQuantity: number }[]
+    updates: { id: number; stockQuantity: number }[],
+    storeStock?: unknown,
   ) {
     await CatalogService.withProductIdLock(async (conn) => {
       const [variants] = await conn.query<any[]>(
@@ -848,6 +955,14 @@ export class CatalogService {
         [productId]
       );
       const ids = new Set(variants.map((row) => Number(row.id)));
+      if (storeStock !== undefined) {
+        await StoreStockService.apply(
+          conn,
+          productId,
+          storeStock,
+          new Map(updates.map((update) => [update.id, update.stockQuantity])),
+        );
+      }
       for (const update of updates) {
         if (!ids.has(update.id)) {
           throw Object.assign(new Error("That option isn't part of this product."), { statusCode: 400 });
@@ -873,6 +988,19 @@ export class CatalogService {
    */
   private static async writeVariantStock(conn: PoolConnection, variantId: number, quantity: number) {
     const target = Math.max(0, Math.round(quantity));
+    const [heldRows] = await conn.query<any[]>(
+      `SELECT COALESCE(SUM(StockQuantity), 0) as held FROM store_variant_stock WHERE VariantID = ?`,
+      [variantId]
+    );
+    const held = Number(heldRows[0]?.held) || 0;
+    if (held > target) {
+      const [names] = await conn.query<any[]>(
+        `SELECT VariantName as name FROM product_variants WHERE ID = ? LIMIT 1`,
+        [variantId]
+      );
+      const reason = allocationOver(target, [held], String(names[0]?.name || 'this option'));
+      throw Object.assign(new Error(reason || 'The stores hold more than that.'), { statusCode: 400 });
+    }
     const [rows] = await conn.query<any[]>(
       `SELECT ID as id, StockQuantity as quantity FROM inventory_stock WHERE VariantID = ? ORDER BY ID ASC`,
       [variantId]
@@ -916,6 +1044,95 @@ export class CatalogService {
     } finally {
       conn.release();
     }
+  }
+
+  /**
+   * Quantities this save would change. A reason is required only when this list is not empty,
+   * and the check runs before any row is written.
+   */
+  private static async stockChange(
+    productId: number,
+    data: any,
+    optionStocks: { id: number; stockQuantity: number }[] | undefined
+  ): Promise<{ name: string; changes: StockFigure[] }> {
+    const [products] = await storePool.query<any[]>(
+      `SELECT ProductName as name FROM products WHERE ID = ? LIMIT 1`,
+      [productId]
+    );
+    if (!products.length) return { name: '', changes: [] };
+    const [variants] = await storePool.query<any[]>(
+      `SELECT ID as id, VariantName as name, StockQuantity as stock
+       FROM product_variants WHERE ProductID = ? ORDER BY ID ASC`,
+      [productId]
+    );
+    const byId = new Map(variants.map((row) => [Number(row.id), row]));
+    const figures: StockFigure[] = [];
+    if (optionStocks) {
+      for (const update of optionStocks) {
+        const current = byId.get(update.id);
+        if (!current) continue;
+        figures.push({
+          label: String(current.name || 'Option'),
+          before: Number(current.stock) || 0,
+          after: update.stockQuantity,
+        });
+      }
+    } else if (data.stockQuantity !== undefined) {
+      const first = variants[0];
+      const after = Number(data.stockQuantity);
+      figures.push(
+        first
+          ? { label: String(first.name || 'Stock'), before: Number(first.stock) || 0, after }
+          : { label: 'Stock', before: 0, after }
+      );
+    }
+    if (data.storeStock !== undefined) {
+      figures.push(...(await CatalogService.storeStockFigures(data.storeStock, byId)));
+    }
+    return { name: String(products[0].name || 'Product'), changes: changedStock(figures) };
+  }
+
+  private static async storeStockFigures(
+    value: unknown,
+    variants: Map<number, { name?: string }>
+  ): Promise<StockFigure[]> {
+    if (!Array.isArray(value)) badRequest('storeStock must be a list.');
+    const rows = value.map((row) => {
+      const variantId = Number(row?.variantId);
+      const storeId = Number(row?.storeId);
+      if (!Number.isInteger(variantId) || variantId <= 0) badRequest("That option isn't part of this product.");
+      if (!Number.isInteger(storeId) || storeId <= 0) badRequest('Pick a store that is open.');
+      if (row?.quantity == null || row?.quantity === '') return { variantId, storeId, quantity: null as number | null };
+      const quantity = Number(row.quantity);
+      if (!Number.isInteger(quantity) || quantity < 0) {
+        badRequest('Stock at a store is a whole number, or empty to use the company stock.');
+      }
+      return { variantId, storeId, quantity };
+    });
+    if (!rows.length) return [];
+    const variantIds = [...new Set(rows.map((row) => row.variantId))];
+    const storeIds = [...new Set(rows.map((row) => row.storeId))];
+    const [held] = await storePool.query<any[]>(
+      `SELECT VariantID as variantId, StoreID as storeId, StockQuantity as quantity
+       FROM store_variant_stock WHERE VariantID IN (${variantIds.map(() => '?').join(',')})`,
+      variantIds
+    );
+    const current = new Map(held.map((row) => [`${row.variantId}:${row.storeId}`, Number(row.quantity) || 0]));
+    const [stores] = await storePool.query<any[]>(
+      `SELECT ID as id, StoreName as name FROM stores WHERE ID IN (${storeIds.map(() => '?').join(',')})`,
+      storeIds
+    );
+    const storeNames = new Map(stores.map((row) => [Number(row.id), String(row.name || 'Store')]));
+    return rows.map((row) => {
+      const variantName = String(variants.get(row.variantId)?.name || 'Option');
+      const storeName = storeNames.get(row.storeId) || 'Store';
+      const key = `${row.variantId}:${row.storeId}`;
+      return {
+        label: `${variantName} at ${storeName}`,
+        before: current.has(key) ? current.get(key)! : null,
+        after: row.quantity,
+      };
+    });
   }
 
   static async deleteProduct(id: string | number) {

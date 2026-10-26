@@ -1,5 +1,7 @@
-import React from 'react';
-import { RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { RefreshCw, CheckCircle2, AlertCircle, Bell } from 'lucide-react';
+import { ArrivedList } from './ArrivedList';
+import type { StaffAlert } from '../services/api';
 
 interface HeaderProps {
   title: string;
@@ -8,6 +10,9 @@ interface HeaderProps {
   loading: boolean;
   /** null while the first check is running. */
   serverOnline: boolean | null;
+  alerts?: StaffAlert[];
+  onSeen?: (id: number) => void;
+  onOpenAlert?: (kind: StaffAlert['kind']) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -16,7 +21,11 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   loading,
   serverOnline,
+  alerts = [],
+  onSeen,
+  onOpenAlert,
 }) => {
+  const [open, setOpen] = useState(false);
   return (
     <header style={styles.header}>
       {/* Title & Subtitle */}
@@ -27,6 +36,29 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Controls */}
       <div style={styles.actionsArea}>
+        {alerts.length > 0 && onSeen && onOpenAlert ? (
+          <div style={{ position: 'relative' }}>
+            <button type="button" style={styles.refreshBtn} onClick={() => setOpen((value) => !value)}>
+              <Bell size={15} />
+              <span>New {alerts.length.toLocaleString('en-IN')}</span>
+            </button>
+            {open ? (
+              <div style={styles.panel}>
+                <ArrivedList
+                  alerts={alerts}
+                  onSeen={(id) => {
+                    onSeen(id);
+                    if (alerts.length === 1) setOpen(false);
+                  }}
+                  onOpen={(kind) => {
+                    setOpen(false);
+                    onOpenAlert(kind);
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div
           role="status"
           style={{
@@ -107,6 +139,14 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 'var(--radius-full)',
     fontSize: '0.78rem',
     fontWeight: 600,
+  },
+  panel: {
+    position: 'absolute',
+    top: 'calc(100% + 8px)',
+    right: 0,
+    width: '360px',
+    maxWidth: '70vw',
+    zIndex: 20,
   },
   refreshBtn: {
     display: 'inline-flex',

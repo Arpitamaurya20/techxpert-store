@@ -13,6 +13,8 @@ import { getCategoryIcon } from '@/utils/categoryIcon';
 type CategoryShortcutsProps = {
   categories: Category[];
   loading: boolean;
+  /** Published shortcuts. Leave this out to use the app's own list. */
+  published?: { categoryId: string; label: string; name: string; imageUrl: string }[];
   onOpenCategory: (category: Category) => void;
   onViewAll: () => void;
 };
@@ -38,11 +40,21 @@ function ShortcutArt({ category }: { category: Category }) {
 }
 
 /** Two rows of four category shortcuts under the header, ending in "More". */
-export function CategoryShortcuts({ categories, loading, onOpenCategory, onViewAll }: CategoryShortcutsProps) {
-  const shortcuts = CATEGORY_SHORTCUTS.flatMap(({ categoryId, label }) => {
-    const category = categories.find((item) => item.id === categoryId);
-    return category ? [{ category, label }] : [];
-  });
+export function CategoryShortcuts({ categories, loading, published, onOpenCategory, onViewAll }: CategoryShortcutsProps) {
+  const shortcuts = published
+    ? published.map((shortcut) => {
+        const known = categories.find((item) => item.id === shortcut.categoryId);
+        const category: Category = {
+          id: shortcut.categoryId,
+          name: shortcut.name,
+          imageUrl: shortcut.imageUrl || known?.imageUrl,
+        };
+        return { category, label: shortcut.label };
+      })
+    : CATEGORY_SHORTCUTS.flatMap(({ categoryId, label }) => {
+        const category = categories.find((item) => item.id === categoryId);
+        return category ? [{ category, label }] : [];
+      });
 
   return (
     <View style={styles.row}>

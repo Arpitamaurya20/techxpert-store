@@ -6,13 +6,19 @@ import { SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/them
 import { SEARCH_SUGGESTIONS } from '@/data/homeContent';
 import { addRecentSearch, clearRecentSearches, useRecentSearches } from '@/state/searchHistoryStore';
 
+type SearchSuggestionsProps = {
+  /** Published ideas. Leave this out to use the app's own list. An empty list draws no extra chips. */
+  published?: string[];
+};
+
 /** The customer's recent searches first, then search ideas, as one swipeable row of chips. */
-export function SearchSuggestions() {
+export function SearchSuggestions({ published }: SearchSuggestionsProps) {
   const router = useRouter();
   const recent = useRecentSearches();
-  const ideas = SEARCH_SUGGESTIONS.filter(
-    (idea) => !recent.some((item) => item.toLowerCase() === idea.toLowerCase())
-  );
+  const source = published ?? SEARCH_SUGGESTIONS;
+  const ideas = source.filter((idea) => !recent.some((item) => item.toLowerCase() === idea.toLowerCase()));
+
+  if (recent.length === 0 && ideas.length === 0) return null;
 
   const search = (query: string) => {
     addRecentSearch(query);

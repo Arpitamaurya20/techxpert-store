@@ -5,6 +5,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SUPPORT } from '@/constants/brand';
 import { cardShadow, colors, fonts, radius, spacing } from '@/constants/theme';
+import type { TrustClaim } from '@/services/cmsApi';
 
 type TrustItem = {
   icon: ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -13,10 +14,34 @@ type TrustItem = {
   onPress: () => void;
 };
 
-export function TrustStrip() {
+type TrustStripProps = {
+  /** Published claims. Leave this out to use the app's own four. An empty list draws nothing. */
+  published?: TrustClaim[];
+  phone?: string;
+  phoneLabel?: string;
+};
+
+export function TrustStrip({ published, phone, phoneLabel }: TrustStripProps) {
   const router = useRouter();
 
-  const items: TrustItem[] = [
+  if (published && published.length === 0) return null;
+
+  const open = (action: TrustClaim['action']) => {
+    if (action === 'delivery') router.push('/delivery-location');
+    else if (action === 'about') router.push('/about/us');
+    else if (action === 'phone' && phone) {
+      Linking.openURL(`tel:${phone}`).catch(() => router.push('/help'));
+    } else router.push('/help');
+  };
+
+  const items: TrustItem[] = published
+    ? published.map((claim) => ({
+        icon: claim.icon,
+        label: claim.label,
+        accessibilityLabel: claim.action === 'phone' && phoneLabel ? `${claim.label}. Call ${phoneLabel}` : claim.label,
+        onPress: () => open(claim.action),
+      }))
+    : [
     {
       icon: 'truck-fast-outline',
       label: 'Fast\nDelivery',

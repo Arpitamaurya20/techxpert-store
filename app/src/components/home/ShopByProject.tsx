@@ -4,14 +4,22 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SCREEN_PADDING, cardShadow, colors, fonts, radius, spacing } from '@/constants/theme';
 import { SHOP_PROJECTS } from '@/data/homeContent';
+import type { HomeProject } from '@/services/cmsApi';
 
 import { SectionHeader } from './SectionHeader';
 
 const CARD_WIDTH = 140;
 
+type ShopByProjectProps = {
+  /** Published projects. Leave this out to use the app's own list. An empty list draws nothing. */
+  published?: HomeProject[];
+};
+
 /** Swipeable project cards; each opens the list of categories needed for that job. */
-export function ShopByProject() {
+export function ShopByProject({ published }: ShopByProjectProps) {
   const router = useRouter();
+  if (published && published.length === 0) return null;
+  const projects = published ?? SHOP_PROJECTS;
 
   return (
     <View style={styles.section}>
@@ -22,7 +30,7 @@ export function ShopByProject() {
         style={styles.scroller}
         contentContainerStyle={styles.row}
       >
-        {SHOP_PROJECTS.map((project) => (
+        {projects.map((project) => (
           <Pressable
             key={project.id}
             onPress={() => router.push({ pathname: '/project/[id]', params: { id: project.id } })}
@@ -30,7 +38,12 @@ export function ShopByProject() {
             accessibilityLabel={`${project.title} project. ${project.subtitle}`}
             style={({ pressed }) => [styles.card, pressed && styles.pressed]}
           >
-            <Image source={project.image} style={styles.image} contentFit="cover" accessible={false} />
+            <Image
+              source={'imageUrl' in project && project.imageUrl ? { uri: project.imageUrl } : 'image' in project ? project.image : undefined}
+              style={styles.image}
+              contentFit="cover"
+              accessible={false}
+            />
             <View style={styles.text}>
               <Text style={styles.title} numberOfLines={1}>
                 {project.title}

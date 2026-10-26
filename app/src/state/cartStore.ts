@@ -36,6 +36,8 @@ export type CartItem = {
   minQuantity: number;
   quantityStep: number;
   maxQuantity: number;
+  /** The option this line is selling. Sent back on the next quantity change. */
+  variantId?: string;
   tierLabel?: string;
   problem?: CartLineProblem;
   /** Most that can be ordered now (stock and order limit), from the server. */
@@ -154,7 +156,8 @@ function fromServerLine(line: ServerCartLine, local: CartItem | undefined): Cart
     price: line.unitPrice ?? line.basePrice ?? local?.price ?? 0,
     quantity: line.quantity,
     minQuantity: line.min,
-    quantityStep: local?.quantityStep ?? 1,
+    quantityStep: line.step || local?.quantityStep || 1,
+    variantId: line.variantId ?? local?.variantId,
     maxQuantity: Math.max(line.quantity, orderable),
     tierLabel: line.tierLabel,
     problem: line.problem,
@@ -193,7 +196,8 @@ async function syncLine(productId: string) {
   wanted.delete(productId);
   inFlight.add(productId);
   try {
-    const cart = await putCartLine(productId, quantity);
+    const variantId = cartStore.getState().items.find((item) => item.productId === productId)?.variantId;
+    const cart = await putCartLine(productId, quantity, variantId);
     inFlight.delete(productId);
     applyServerCart(cart);
   } catch (error) {

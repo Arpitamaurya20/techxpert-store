@@ -11,7 +11,10 @@ import { getShopProject } from '@/data/homeContent';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
 import { getErrorMessage } from '@/services/apiClient';
+import { isApiConfigured } from '@/services/apiConfig';
+import { getHomeContent } from '@/services/cmsApi';
 import { getCategories, getSubcategories } from '@/services/productApi';
+import type { Category } from '@/types/catalog';
 import type { CalculatorMode } from '@/utils/materialEstimates';
 
 const CALCULATOR_FOR_PROJECT: Partial<Record<string, CalculatorMode>> = {
@@ -25,10 +28,49 @@ export default function ProjectScreen() {
   useStatusBarStyle('dark');
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const project = getShopProject(id);
+  const home = useAsyncData(`project-home-${id ?? ''}`, getHomeContent);
+  const localProject = !isApiConfigured || home.data?.source === 'demo' ? getShopProject(id) : undefined;
+  const liveProject = home.data?.source === 'live' ? home.data.data.projects.find((item) => item.id === id) : undefined;
 
   const categories = useAsyncData('project-categories', getCategories);
   const subcategories = useAsyncData('project-subcategories', getSubcategories);
+
+  if (isApiConfigured && home.status === 'loading' && !home.data) {
+    return <StateView variant="loading" message="Loading project" />;
+  }
+  if (home.status === 'error') {
+    return (
+      <StateView
+        variant="error"
+        title="Couldn't load this project"
+        message={getErrorMessage(home.error)}
+        actionLabel="Try Again"
+        onAction={home.reload}
+      />
+    );
+  }
+
+  const project = liveProject
+    ? {
+        id: liveProject.id,
+        title: liveProject.title,
+        subtitle: liveProject.subtitle,
+        image: liveProject.imageUrl ? { uri: liveProject.imageUrl } : null,
+        categoryIds: liveProject.categories.map((item) => item.categoryId),
+        names: new Map(liveProject.categories.map((item) => [item.categoryId, item.name])),
+        calculator: liveProject.calculator || undefined,
+      }
+    : localProject
+      ? {
+          id: localProject.id,
+          title: localProject.title,
+          subtitle: localProject.subtitle,
+          image: localProject.image,
+          categoryIds: localProject.categoryIds,
+          names: new Map<string, string>(),
+          calculator: CALCULATOR_FOR_PROJECT[localProject.id],
+        }
+      : null;
 
   if (!project) {
     return (
@@ -45,11 +87,13 @@ export default function ProjectScreen() {
     );
   }
 
-  const calculatorMode = CALCULATOR_FOR_PROJECT[project.id];
+  const calculatorMode = project.calculator as CalculatorMode | undefined;
   const allCategories = categories.data?.data ?? [];
   const projectCategories = project.categoryIds.flatMap((categoryId) => {
     const category = allCategories.find((item) => item.id === categoryId);
-    return category ? [category] : [];
+    if (category) return [category];
+    const name = project.names.get(categoryId);
+    return name ? [{ id: categoryId, name } satisfies Category] : [];
   });
   const typeCount = (categoryId: string) =>
     (subcategories.data?.data ?? []).filter((item) => item.categoryId === categoryId).length;
@@ -92,7 +136,7 @@ export default function ProjectScreen() {
       <HeaderBackFallback fallback="/home" accessibilityLabel="Back to Home" />
       <View style={styles.inner}>
         <View style={styles.hero}>
-          <Image source={project.image} style={styles.heroImage} contentFit="cover" accessible={false} />
+          {project.image ? <Image source={project.image} style={styles.heroImage} contentFit="cover" accessible={false} /> : null}
           <View style={styles.heroText}>
             <Text style={styles.heroTitle} accessibilityRole="header">
               {project.title}

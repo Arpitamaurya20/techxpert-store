@@ -8,10 +8,15 @@ import {
   requirePermission,
   resolveAdmin,
   permissionRefusal,
+  accessActor,
 } from '../middleware/auth.js';
 import { can } from '../utils/permissions.js';
 import { validateOrderStatusBody } from '../utils/validate.js';
 import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
+import { StaffOrderService } from '../services/staffOrderService.js';
+import { AgreedPriceService } from '../services/agreedPriceService.js';
+import { OrderNoticeService } from '../services/orderNoticeService.js';
+import { OrderProblemService } from '../services/orderProblemService.js';
 
 const router = Router();
 
@@ -100,8 +105,24 @@ router.get(
     if (!isAdmin && !isOwner) {
       return sendError(res, 403, 'Not allowed to view this order');
     }
+    if (!isAdmin) delete order.confirmation;
 
     return sendSuccess(res, order);
+  })
+);
+
+// POST /orders/staff - Staff place an order. Same price and stock rules; tagged staff, or request when it came from Talk to us.
+router.post(
+  '/staff',
+  requireAdmin,
+  requirePermission('orders', 'edit'),
+  asyncHandler(async (req, res) => {
+    const actor = accessActor(req);
+    const order = await StaffOrderService.place(req.body ?? {}, actor.access.scope, {
+      staffId: actor.staffId,
+      name: actor.name,
+    });
+    return sendSuccess(res, order, 'Order placed', 201);
   })
 );
 
@@ -112,6 +133,72 @@ router.post(
   asyncHandler(async (req, res) => {
     const newOrder = await OrderService.createOrder(req.body, req.user?.userId);
     return sendSuccess(res, newOrder, 'Order placed successfully', 201);
+  })
+);
+
+// POST /orders/:id/problem - The customer reports a short problem. The order itself is unchanged.
+router.post(
+  '/:id/problem',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (req.user?.staffId || req.user?.userId == null) {
+      return sendError(res, 403, 'Not allowed to view this order');
+    }
+    const problem = await OrderProblemService.report(req.params.id, Number(req.user.userId), req.body ?? {});
+    return sendSuccess(res, problem, problem.message);
+  })
+);
+
+// PUT /orders/:id/problem - Staff close the open problem. The order status stays.
+router.put(
+  '/:id/problem',
+  requireAdmin,
+  requirePermission('orders', 'edit'),
+  asyncHandler(async (req, res) => {
+    const existing = await OrderService.getOrderById(req.params.id);
+    if (!existing || !orderInScope(existing, req.user!.access!.scope)) {
+      return sendError(res, 404, 'Order not found');
+    }
+    const actor = accessActor(req);
+    const problem = await OrderProblemService.close(req.params.id, req.body ?? {}, actor.access.scope, actor.name);
+    return sendSuccess(res, problem, 'Problem closed');
+  })
+);
+
+// POST /orders/:id/confirmation - Send the confirmation again after it failed.
+router.post(
+  '/:id/confirmation',
+  requireAdmin,
+  requirePermission('orders', 'edit'),
+  asyncHandler(async (req, res) => {
+    const existing = await OrderService.getOrderById(req.params.id);
+    if (!existing || !orderInScope(existing, req.user!.access!.scope)) {
+      return sendError(res, 404, 'Order not found');
+    }
+    const confirmation = await OrderNoticeService.resend(Number(existing.id));
+    return sendSuccess(res, confirmation, confirmation.status === 'sent' ? 'Confirmation sent' : undefined);
+  })
+);
+
+// PUT /orders/:id/price - Delivery charge or a line price, on a pending or staff-placed order.
+router.put(
+  '/:id/price',
+  requireAdmin,
+  requirePermission('agreed', 'edit'),
+  asyncHandler(async (req, res) => {
+    if (!can(req.user!.access!.permissions, 'orders', 'view')) {
+      return sendError(res, 403, permissionRefusal('orders', 'view'));
+    }
+    const existing = await OrderService.getOrderById(req.params.id);
+    if (!existing || !orderInScope(existing, req.user!.access!.scope)) {
+      return sendError(res, 404, 'Order not found');
+    }
+    const actor = accessActor(req);
+    const order = await AgreedPriceService.save(req.params.id, req.body ?? {}, {
+      staffId: actor.staffId,
+      name: actor.name,
+    });
+    return sendSuccess(res, order, 'Price saved');
   })
 );
 

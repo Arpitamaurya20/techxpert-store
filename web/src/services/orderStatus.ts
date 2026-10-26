@@ -45,6 +45,18 @@ export const orderStatusVariant = (status: string | null | undefined): BadgeVari
   return 'warning';
 };
 
+/** Mirrors the server: a pending order, or a confirmed order staff placed. */
+export const canAgreePrice = (status: string | null | undefined, source: string | null | undefined): boolean => {
+  if (status === 'pending') return true;
+  return status === 'confirmed' && (source === 'staff' || source === 'request');
+};
+
+export const orderSourceLabel = (source: string | null | undefined): string => {
+  if (source === 'staff') return 'Staff';
+  if (source === 'request') return 'Talk to us';
+  return 'App';
+};
+
 export const paymentMethodLabel = (method: string | null | undefined): string | null => {
   const key = String(method || '').trim();
   if (!key) return null;

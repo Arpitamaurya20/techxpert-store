@@ -13,6 +13,21 @@ mysql -u root -p < sql/portal_staff.sql   # before restarting the API on the A3 
 mysql -u root -p < sql/saved_items.sql    # customer wishlist; safe to run again; the previous API ignores it
 mysql -u root -p < sql/help_content.sql   # help page, empty until staff fill it; safe to run again; after the audit table exists
 mysql -u root -p < sql/home_merch.sql     # home shortcuts and projects, empty until staff fill them; safe to run again
+mysql -u root -p < sql/product_page.sql   # product highlights and specifications, empty until staff fill them; safe to run again
+mysql -u root -p < sql/search_suggestions.sql   # home search ideas, empty until staff fill them; safe to run again
+mysql -u root -p < sql/trust_claims.sql   # home trust-strip claims, empty until staff fill them; safe to run again
+mysql -u root -p < sql/about_page.sql     # about page, empty until staff fill it; safe to run again; after the audit table exists
+mysql -u root -p < sql/policies.sql       # privacy, terms, cancellation and shipping, empty until staff paste them; safe to run again
+mysql -u root -p < sql/home_deals.sql     # deals-for-you tiles, empty until staff pick categories; safe to run again
+mysql -u root -p < sql/quantity_step.sql  # pack size on products; existing rows stay at 1; safe to run again
+mysql -u root -p < sql/store_variant_stock.sql  # per-store stock; no row means the company stock; safe to run again
+mysql -u root -p < sql/shop_settings.sql  # delivery, GST and thresholds staff can change; safe to run again; after the audit table exists
+mysql -u root -p < sql/talk_requests.sql  # Talk to us queue; nothing is ordered; safe to run again; after the audit table exists
+mysql -u root -p < sql/order_source.sql  # order source tag; run once; existing orders are tagged app
+mysql -u root -p < sql/staff_alerts.sql  # portal alert when a customer orders or asks; safe to run again
+mysql -u root -p < sql/order_messages.sql  # order confirmation by text or WhatsApp; starts off; safe to run again
+mysql -u root -p < sql/delivery_promise.sql  # arrives in N days, and a problem report; starts off; safe to run again
+mysql -u root -p < sql/order_channel.sql    # which customer app placed the order; safe to run again
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -29,6 +44,21 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `saved_items.sql` | Customer and guest wishlists (`saved_items`). Safe to run again |
 | `help_content.sql` | Help page (`help_contact`, `help_faqs`) and the `help` audit label. Starts empty. Safe to run again |
 | `home_merch.sql` | Home category shortcuts and project tiles (`home_shortcuts`, `home_projects`, `home_project_categories`). Starts empty. Safe to run again |
+| `product_page.sql` | Product page highlights and specifications (`product_highlights`, `product_specifications`). Starts empty. Safe to run again |
+| `search_suggestions.sql` | Home search ideas (`search_suggestions`). Starts empty. Safe to run again |
+| `trust_claims.sql` | Home trust-strip claims (`trust_claims`). Starts empty. Safe to run again |
+| `about_page.sql` | About page (`about_page`, `about_facts`, `about_values`) and the `about` audit label. Starts empty. Safe to run again |
+| `policies.sql` | Privacy, terms, cancellation and shipping (`policy_pages`, `policy_intro`, `policy_sections`, `policy_blocks`, `policy_bullets`) and the `policy` audit label. Starts empty. Safe to run again |
+| `home_deals.sql` | Deals-for-you tiles (`home_deals`). Starts empty. Safe to run again |
+| `quantity_step.sql` | Pack size on `products.QuantityStep`. Existing products stay at 1. Safe to run again |
+| `store_variant_stock.sql` | A store's own quantity for an option. No row means that store sells the company stock. Safe to run again |
+| `shop_settings.sql` | Delivery fee, free delivery, GST, and the large-order thresholds. Safe to run again |
+| `talk_requests.sql` | A customer's request for staff. Nothing is ordered and no stock is held. Safe to run again |
+| `order_source.sql` | `app`, `request` or `staff` on each order. Run once. Existing orders are tagged `app` |
+| `staff_alerts.sql` | A portal alert for a customer order or a Talk to us request. Safe to run again. No phone number is stored |
+| `order_messages.sql` | One confirmation per order, by text or WhatsApp. Starts off. Safe to run again. No phone number is stored |
+| `delivery_promise.sql` | Arrives in a number of days, copied onto a new order, and a short problem report. Starts off. Safe to run again. Run after `staff_alerts.sql` |
+| `order_channel.sql` | Which customer app placed the order: `store_app` or `homecare_app`. Older rows and staff orders have none. Safe to run again |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

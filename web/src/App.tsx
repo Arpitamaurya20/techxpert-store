@@ -10,8 +10,15 @@ import { UserManager, type CustomerRecord } from './components/UserManager';
 import { BulkPricingManager } from './components/BulkPricingManager';
 import { BannerCMS } from './components/BannerCMS';
 import { SectionLayoutManager } from './components/SectionLayoutManager';
+import { TrustStripManager } from './components/TrustStripManager';
 import { HelpManager } from './components/HelpManager';
+import { AboutManager } from './components/AboutManager';
+import { PoliciesManager } from './components/PoliciesManager';
+import { SettingsManager } from './components/SettingsManager';
+import { RequestsManager } from './components/RequestsManager';
 import { HomeMerchManager } from './components/HomeMerchManager';
+import { SearchIdeasManager } from './components/SearchIdeasManager';
+import { DealsManager } from './components/DealsManager';
 import { ApiExplorer } from './components/ApiExplorer';
 import { AuditLogViewer } from './components/AuditLogViewer';
 import { DeliveryPincodeManager } from './components/DeliveryPincodeManager';
@@ -31,7 +38,7 @@ import {
   type PortalSession,
 } from './services/session';
 import type { Banner, BulkPriceTier, Product, AuditLog, HomepageSection } from './types';
-import type { HelpContent, HomeContent } from './services/api';
+import type { AboutContent, DealsContent, HelpContent, HomeContent, PoliciesContent, SearchIdeas, ShopSettings, StaffAlert, TalkRequest, TrustContent } from './services/api';
 import type { NewProductInput } from './components/CatalogOverview';
 import { ShieldOff } from 'lucide-react';
 import { useToast } from './components/ui';
@@ -232,6 +239,22 @@ function PortalApp({
   const [helpError, setHelpError] = useState<string | null>(null);
   const [homeMerch, setHomeMerch] = useState<HomeContent | null>(null);
   const [homeMerchError, setHomeMerchError] = useState<string | null>(null);
+  const [searchIdeas, setSearchIdeas] = useState<SearchIdeas | null>(null);
+  const [searchIdeasError, setSearchIdeasError] = useState<string | null>(null);
+  const [deals, setDeals] = useState<DealsContent | null>(null);
+  const [dealsError, setDealsError] = useState<string | null>(null);
+  const [trustClaims, setTrustClaims] = useState<TrustContent | null>(null);
+  const [trustError, setTrustError] = useState<string | null>(null);
+  const [about, setAbout] = useState<AboutContent | null>(null);
+  const [aboutError, setAboutError] = useState<string | null>(null);
+  const [policies, setPolicies] = useState<PoliciesContent | null>(null);
+  const [policiesError, setPoliciesError] = useState<string | null>(null);
+  const [shopSettings, setShopSettings] = useState<ShopSettings | null>(null);
+  const [shopSettingsError, setShopSettingsError] = useState<string | null>(null);
+  const [talkRequests, setTalkRequests] = useState<TalkRequest[]>([]);
+  const [talkError, setTalkError] = useState<string | null>(null);
+  const [alerts, setAlerts] = useState<StaffAlert[]>([]);
+  const knownAlerts = useRef<Set<string> | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   /** Screens that load their own data reload when this goes up. */
   const [refreshKey, setRefreshKey] = useState(0);
@@ -296,6 +319,13 @@ function PortalApp({
     const skip = Promise.resolve(undefined);
     let helpFailed: string | null = null;
     let homeFailed: string | null = null;
+    let searchFailed: string | null = null;
+    let dealsFailed: string | null = null;
+    let trustFailed: string | null = null;
+    let aboutFailed: string | null = null;
+    let policiesFailed: string | null = null;
+    let settingsFailed: string | null = null;
+    let requestsFailed: string | null = null;
     try {
       setLoading(true);
       const [
@@ -308,6 +338,14 @@ function PortalApp({
         sectionsData,
         helpData,
         homeData,
+        searchData,
+        dealsData,
+        trustData,
+        aboutData,
+        policiesData,
+        settingsData,
+        requestsData,
+        alertsData,
         auditData,
         healthy,
       ] = await Promise.all([
@@ -329,6 +367,62 @@ function PortalApp({
           ? api.getHome().catch((err: Error) => {
               failed.push('the home shortcuts');
               homeFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'sections', 'view')
+          ? api.getSearchSuggestions().catch((err: Error) => {
+              failed.push('the search ideas');
+              searchFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'sections', 'view')
+          ? api.getDeals().catch((err: Error) => {
+              failed.push('the deals');
+              dealsFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'sections', 'view')
+          ? api.getTrustClaims().catch((err: Error) => {
+              failed.push('the trust strip');
+              trustFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'about', 'view')
+          ? api.getAbout().catch((err: Error) => {
+              failed.push('the about page');
+              aboutFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'policies', 'view')
+          ? api.getPolicies().catch((err: Error) => {
+              failed.push('the policies');
+              policiesFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'settings', 'view')
+          ? api.getShopSettings().catch((err: Error) => {
+              failed.push('shop settings');
+              settingsFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'requests', 'view')
+          ? api.getTalkRequests().catch((err: Error) => {
+              failed.push('talk requests');
+              requestsFailed = err?.message || "The server didn't answer.";
+              return undefined;
+            })
+          : skip,
+        can(permissions, 'orders', 'view') || can(permissions, 'requests', 'view')
+          ? api.getAlerts().catch((err: Error) => {
+              failed.push('alerts');
+              console.warn(err?.message || "The server didn't answer.");
               return undefined;
             })
           : skip,
@@ -369,6 +463,24 @@ function PortalApp({
       if (helpData) setHelp(helpData);
       setHomeMerchError(homeFailed);
       if (homeData) setHomeMerch(homeData);
+      setSearchIdeasError(searchFailed);
+      if (searchData) setSearchIdeas(searchData);
+      setDealsError(dealsFailed);
+      if (dealsData) setDeals(dealsData);
+      setTrustError(trustFailed);
+      if (trustData) setTrustClaims(trustData);
+      setAboutError(aboutFailed);
+      if (aboutData) setAbout(aboutData);
+      setPoliciesError(policiesFailed);
+      if (policiesData) setPolicies(policiesData);
+      setShopSettingsError(settingsFailed);
+      if (settingsData) setShopSettings(settingsData);
+      setTalkError(requestsFailed);
+      if (requestsData) setTalkRequests(requestsData);
+      if (alertsData) {
+        setAlerts(alertsData);
+        knownAlerts.current = new Set(alertsData.map((alert) => String(alert.id)));
+      }
       if (Array.isArray(auditData)) {
         setAuditLogs(auditData as AuditLog[]);
       }
@@ -403,9 +515,25 @@ function PortalApp({
           if (healthy && serverOnline === false) toast.success('Connected to the server again.');
           if (healthy !== serverOnline) setServerOnline(healthy);
         });
+      if (!can(permissions, 'orders', 'view') && !can(permissions, 'requests', 'view')) return;
+      api
+        .getAlerts()
+        .then((rows) => {
+          const ids = new Set(rows.map((alert) => String(alert.id)));
+          const known = knownAlerts.current;
+          if (known) {
+            const fresh = rows.filter((alert) => !known.has(String(alert.id)));
+            if (fresh.some((alert) => alert.kind === 'order')) toast.info('A new order arrived.');
+            else if (fresh.some((alert) => alert.kind === 'problem')) toast.info('A customer reported a problem.');
+            else if (fresh.length) toast.info('A new request arrived.');
+          }
+          knownAlerts.current = ids;
+          setAlerts(rows);
+        })
+        .catch(() => undefined);
     }, 30_000);
     return () => clearInterval(timer);
-  }, [serverOnline, setServerOnline, toast]);
+  }, [serverOnline, setServerOnline, toast, permissions]);
 
   // Product Actions
   /** Rejects on refusal; the edit form shows the reason next to the fields. */
@@ -427,7 +555,15 @@ function PortalApp({
         updated.variants?.length
           ? updated.variants.map((variant) => `${variant.name} ${variant.stockQuantity}`).join(', ')
           : next.stockQuantity
-      }`
+      }${
+        updated.stockReason === 'received'
+          ? ', received'
+          : updated.stockReason === 'counted'
+            ? ', counted'
+            : updated.stockReason === 'damaged'
+              ? ', damaged'
+              : ''
+      }, ${updated.highlights?.length ?? 0} highlights, ${updated.specifications?.length ?? 0} specifications`
     );
     toast.success(`"${next.name}" saved.`);
   };
@@ -476,7 +612,13 @@ function PortalApp({
     const label = orderStatusLabel(status).toLowerCase();
     try {
       const result = await api.updateOrderStatus(orderId, status);
-      setOrders((prev) => prev.map((o) => (String(o.id) === orderId ? { ...o, status } : o)));
+      setOrders((prev) =>
+        prev.map((o) =>
+          String(o.id) === orderId
+            ? { ...o, status, ...(result?.confirmation ? { confirmation: result.confirmation } : {}) }
+            : o
+        )
+      );
       const units = (result?.stockReturned ?? []).reduce((sum: number, line: any) => sum + Number(line.quantity || 0), 0);
       const stockNote = status === 'cancelled' ? (units ? `; ${units} ${units === 1 ? 'unit' : 'units'} put back in stock` : '; no stock put back') : '';
       addAuditLog('Changed order status', 'order', `Marked order ${number} as ${label}${stockNote}`);
@@ -674,6 +816,10 @@ function PortalApp({
       title: 'Orders',
       subtitle: 'Orders placed in the app, and where each one is in fulfilment',
     },
+    requests: {
+      title: 'Talk to us',
+      subtitle: 'Carts a customer asked staff to look at. Nothing is ordered until staff place one',
+    },
     delivery: {
       title: 'Delivery pincodes',
       subtitle: 'Where each store delivers; checkout refuses pincodes that are paused or have no store',
@@ -700,11 +846,23 @@ function PortalApp({
     },
     shortcuts: {
       title: 'Shortcuts & projects',
-      subtitle: 'The category row and project tiles on the app home screen',
+      subtitle: 'The category row, project tiles, search ideas and deals on the app home screen',
     },
     help: {
       title: 'Help & support',
       subtitle: 'The phone number, WhatsApp number and questions the app shows on Help',
+    },
+    about: {
+      title: 'About the company',
+      subtitle: 'The mission, facts and values the app shows on About us',
+    },
+    policies: {
+      title: 'Policies',
+      subtitle: 'Privacy, terms, cancellation and shipping. Paste the published words; leave a page empty until they exist',
+    },
+    settings: {
+      title: 'Shop settings',
+      subtitle: 'Delivery, GST and the limits staff can change without an app release',
     },
     api: {
       title: 'Developer tools',
@@ -755,6 +913,7 @@ function PortalApp({
         visibleTabs={tabs}
         onTabChange={(tab) => setActiveTab(tab)}
         ordersCount={loaded.orders ? orders.length : undefined}
+        requestsCount={talkRequests.filter((request) => request.status === 'new').length}
         productsCount={loaded.products ? catalogTotal || products.length : undefined}
         usersCount={loaded.users ? users.length : undefined}
         adminName={session.admin.name}
@@ -780,6 +939,17 @@ function PortalApp({
           }}
           loading={loading}
           serverOnline={serverOnline}
+          alerts={alerts}
+          onSeen={(id) => {
+            api
+              .seeAlert(id)
+              .then(() => {
+                setAlerts((current) => current.filter((alert) => alert.id !== id));
+                knownAlerts.current?.delete(String(id));
+              })
+              .catch((err: Error) => toast.error(err?.message || "That alert couldn't be marked seen."));
+          }}
+          onOpenAlert={(kind) => setActiveTab(kind === 'request' ? 'requests' : 'orders')}
         />
 
         <main style={styles.contentArea}>
@@ -797,6 +967,16 @@ function PortalApp({
               sectionsEnabled={sections.filter((s) => s.enabled).length}
               onNavigate={setActiveTab}
               canView={(tab) => tabs.includes(tab)}
+              alerts={alerts}
+              onSeen={(id) => {
+                api
+                  .seeAlert(id)
+                  .then(() => {
+                    setAlerts((current) => current.filter((alert) => alert.id !== id));
+                    knownAlerts.current?.delete(String(id));
+                  })
+                  .catch((err: Error) => toast.error(err?.message || "That alert couldn't be marked seen."));
+              }}
             />
           )}
 
@@ -835,6 +1015,28 @@ function PortalApp({
               loaded={loaded.orders}
               onRetry={() => loadData(true)}
               canEdit={can(permissions, 'orders', 'edit')}
+              canAgree={can(permissions, 'agreed', 'edit')}
+              onAgree={api.agreeOrderPrice}
+              onAgreed={(order) => {
+                addAuditLog('Agreed a price', 'order', order.orderNumber);
+                loadData(true);
+              }}
+              onPlace={api.placeStaffOrder}
+              onPlaced={(order) => {
+                addAuditLog('Placed an order', 'order', `${order.orderNumber} (${order.source ?? 'staff'})`);
+                loadData(true);
+              }}
+              onSendConfirmation={async (id) => {
+                const confirmation = await api.sendOrderConfirmation(id);
+                setOrders((prev) => prev.map((o) => (String(o.id) === String(id) ? { ...o, confirmation } : o)));
+                if (confirmation.status === 'sent') toast.success('The customer was told.');
+                return confirmation;
+              }}
+              onCloseProblem={async (id) => {
+                const problem = await api.closeOrderProblem(id);
+                setOrders((prev) => prev.map((o) => (String(o.id) === String(id) ? { ...o, problem } : o)));
+                return problem;
+              }}
             />
           )}
 
@@ -911,32 +1113,119 @@ function PortalApp({
             />
           )}
 
-          {currentTab === 'shortcuts' && (
-            <HomeMerchManager
-              content={homeMerch}
-              categories={categories}
+          {currentTab === 'about' && (
+            <AboutManager
+              content={about}
               loading={loading}
-              loadError={homeMerchError}
+              loadError={aboutError}
               onRetry={() => loadData(true)}
-              canEdit={can(permissions, 'sections', 'edit')}
-              onSaved={setHomeMerch}
-              onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              canEdit={can(permissions, 'about', 'edit')}
+              onSaved={setAbout}
+              onAudit={(action, details) => addAuditLog(action, 'about', details)}
             />
           )}
 
-          {currentTab === 'sections' && (
-            <SectionLayoutManager
-              sections={sections}
+          {currentTab === 'requests' && (
+            <RequestsManager
+              requests={talkRequests}
               loading={loading}
-              loadError={loadErrors.sections ?? null}
-              loaded={loaded.sections}
+              loadError={talkError}
               onRetry={() => loadData(true)}
-              onToggleSection={handleToggleSection}
-              onReorderSection={handleReorderSection}
-              canEdit={can(permissions, 'sections', 'edit')}
-              canDelete={can(permissions, 'sections', 'delete')}
-              onResetDefaultOrder={handleResetSections}
+              canEdit={can(permissions, 'requests', 'edit')}
+              onUpdated={(saved) => setTalkRequests((prev) => prev.map((request) => (request.id === saved.id ? saved : request)))}
+              onAudit={(action, details) => addAuditLog(action, 'request', details)}
+              saveStatus={api.setTalkRequestStatus}
+              onPlace={can(permissions, 'orders', 'edit') ? api.placeStaffOrder : undefined}
+              onPlaced={(order) => {
+                addAuditLog('Placed an order', 'order', `${order.orderNumber} (${order.source ?? 'request'})`);
+                loadData(true);
+              }}
             />
+          )}
+
+          {currentTab === 'settings' && (
+            <SettingsManager
+              settings={shopSettings}
+              loading={loading}
+              loadError={shopSettingsError}
+              onRetry={() => loadData(true)}
+              canEdit={can(permissions, 'settings', 'edit')}
+              onSaved={setShopSettings}
+              onAudit={(action, details) => addAuditLog(action, 'setting', details)}
+              save={api.saveShopSettings}
+            />
+          )}
+
+          {currentTab === 'policies' && (
+            <PoliciesManager
+              content={policies}
+              loading={loading}
+              loadError={policiesError}
+              onRetry={() => loadData(true)}
+              canEdit={can(permissions, 'policies', 'edit')}
+              onSaved={setPolicies}
+              onAudit={(action, details) => addAuditLog(action, 'policy', details)}
+            />
+          )}
+
+          {currentTab === 'shortcuts' && (
+            <>
+              <HomeMerchManager
+                content={homeMerch}
+                categories={categories}
+                loading={loading}
+                loadError={homeMerchError}
+                onRetry={() => loadData(true)}
+                canEdit={can(permissions, 'sections', 'edit')}
+                onSaved={setHomeMerch}
+                onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              />
+              <SearchIdeasManager
+                ideas={searchIdeas}
+                loading={loading}
+                loadError={searchIdeasError}
+                onRetry={() => loadData(true)}
+                canEdit={can(permissions, 'sections', 'edit')}
+                onSaved={setSearchIdeas}
+                onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              />
+              <DealsManager
+                content={deals}
+                categories={categories}
+                loading={loading}
+                loadError={dealsError}
+                onRetry={() => loadData(true)}
+                canEdit={can(permissions, 'sections', 'edit')}
+                onSaved={setDeals}
+                onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              />
+            </>
+          )}
+
+          {currentTab === 'sections' && (
+            <>
+              <SectionLayoutManager
+                sections={sections}
+                loading={loading}
+                loadError={loadErrors.sections ?? null}
+                loaded={loaded.sections}
+                onRetry={() => loadData(true)}
+                onToggleSection={handleToggleSection}
+                onReorderSection={handleReorderSection}
+                canEdit={can(permissions, 'sections', 'edit')}
+                canDelete={can(permissions, 'sections', 'delete')}
+                onResetDefaultOrder={handleResetSections}
+              />
+              <TrustStripManager
+                content={trustClaims}
+                loading={loading}
+                loadError={trustError}
+                onRetry={() => loadData(true)}
+                canEdit={can(permissions, 'sections', 'edit')}
+                onSaved={setTrustClaims}
+                onAudit={(action, details) => addAuditLog(action, 'section', details)}
+              />
+            </>
           )}
 
           {currentTab === 'api' && <ApiExplorer />}

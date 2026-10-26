@@ -21,7 +21,8 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
 import { useStoreLayout } from '@/hooks/useStoreLayout';
 import { getErrorMessage } from '@/services/apiClient';
-import { getHomepageSections } from '@/services/cmsApi';
+import { isApiConfigured } from '@/services/apiConfig';
+import { getDeals, getHelpContent, getHomeContent, getHomepageSections, getSearchIdeas, getTrustClaims } from '@/services/cmsApi';
 import { getOrders } from '@/services/orderApi';
 import { getCategories, getFeaturedProducts, getProductById } from '@/services/productApi';
 import { clearRecentlyViewed, useRecentlyViewedIds } from '@/state/recentlyViewedStore';
@@ -83,6 +84,11 @@ export default function HomeScreen() {
   const cmsSections = useAsyncData(`home-sections-${refreshKey}`, getHomepageSections, {
     keepPreviousData: true,
   });
+  const homeLists = useAsyncData(`home-lists-${refreshKey}`, getHomeContent, { keepPreviousData: true });
+  const searchIdeas = useAsyncData(`home-ideas-${refreshKey}`, getSearchIdeas, { keepPreviousData: true });
+  const trust = useAsyncData(`home-trust-${refreshKey}`, getTrustClaims, { keepPreviousData: true });
+  const deals = useAsyncData(`home-deals-${refreshKey}`, getDeals, { keepPreviousData: true });
+  const help = useAsyncData(`home-help-${refreshKey}`, getHelpContent, { keepPreviousData: true });
   const recentIds = useRecentlyViewedIds();
   const recent = useAsyncData(`home-recent-${recentIds.join(',')}`, () => loadProducts(recentIds), {
     keepPreviousData: true,
@@ -92,7 +98,15 @@ export default function HomeScreen() {
   const categoryList = categories.data?.data ?? [];
   const isDemo = categories.data?.source === 'demo' || featured.data?.source === 'demo';
   const isRefreshing =
-    categories.isRefreshing || orderAgain.isUpdating || featured.isUpdating || cmsSections.isUpdating;
+    categories.isRefreshing ||
+    orderAgain.isUpdating ||
+    featured.isUpdating ||
+    cmsSections.isUpdating ||
+    homeLists.isUpdating ||
+    searchIdeas.isUpdating ||
+    trust.isUpdating ||
+    deals.isUpdating ||
+    help.isUpdating;
 
   const orderedSections = useMemo(() => {
     const live = cmsSections.data?.sections ?? [];
@@ -103,6 +117,11 @@ export default function HomeScreen() {
   const refreshAll = () => {
     categories.refresh();
     cmsSections.refresh();
+    homeLists.refresh();
+    searchIdeas.refresh();
+    trust.refresh();
+    deals.refresh();
+    help.refresh();
     setRefreshKey((key) => key + 1);
   };
 
@@ -123,12 +142,33 @@ export default function HomeScreen() {
 
   const openAllCategories = () => router.navigate('/categories');
 
+  const waiting = (status: string, hasData: boolean) => isApiConfigured && status === 'loading' && !hasData;
+  const liveShortcuts = homeLists.data?.source === 'live' ? homeLists.data.data.shortcuts : undefined;
+  const liveProjects = homeLists.data?.source === 'live' ? homeLists.data.data.projects : undefined;
+  const liveIdeas = searchIdeas.data?.source === 'live' ? searchIdeas.data.data : undefined;
+  const liveClaims = trust.data?.source === 'live' ? trust.data.data : undefined;
+  const liveDeals = deals.data?.source === 'live' ? deals.data.data : undefined;
+  const helpPhone = help.data?.source === 'live' ? help.data.data : undefined;
+
   const renderSection = (code: string, title: string, key: string) => {
     switch (code) {
       case 'hero_banners':
       case 'hero_carousel':
         return <HeroCarousel key={key} width={layout.contentWidth} refreshKey={refreshKey} />;
       case 'category_shortcuts':
+        if (homeLists.status === 'error') {
+          return (
+            <StateView
+              key={key}
+              variant="error"
+              compact
+              title="Couldn't load shortcuts"
+              message={getErrorMessage(homeLists.error)}
+              actionLabel="Try Again"
+              onAction={homeLists.reload}
+            />
+          );
+        }
         return categories.status === 'error' ? (
           <StateView
             key={key}
@@ -143,21 +183,58 @@ export default function HomeScreen() {
           <CategoryShortcuts
             key={key}
             categories={categoryList}
-            loading={categories.status === 'loading'}
+            loading={categories.status === 'loading' || waiting(homeLists.status, Boolean(homeLists.data))}
+            published={liveShortcuts}
             onOpenCategory={openCategory}
             onViewAll={openAllCategories}
           />
         );
       case 'trust_strip':
-        return <TrustStrip key={key} />;
+        if (trust.status === 'error') {
+          return (
+            <StateView
+              key={key}
+              variant="error"
+              compact
+              title="Couldn't load the trust strip"
+              message={getErrorMessage(trust.error)}
+              actionLabel="Try Again"
+              onAction={trust.reload}
+            />
+          );
+        }
+        if (waiting(trust.status, Boolean(trust.data))) return null;
+        return (
+          <TrustStrip
+            key={key}
+            published={liveClaims}
+            phone={helpPhone?.phone}
+            phoneLabel={helpPhone?.phoneLabel || helpPhone?.phone}
+          />
+        );
       case 'bulk_enquiry':
         return <QuickTools key={key} />;
       case 'offer_tiles':
+        if (deals.status === 'error') {
+          return (
+            <StateView
+              key={key}
+              variant="error"
+              compact
+              title="Couldn't load deals"
+              message={getErrorMessage(deals.error)}
+              actionLabel="Try Again"
+              onAction={deals.reload}
+            />
+          );
+        }
+        if (waiting(deals.status, Boolean(deals.data))) return null;
         return (
           <ProjectDeals
             key={key}
             categories={categoryList}
-            showSampleOffers={isDemo}
+            showSampleOffers={isDemo && !liveDeals}
+            published={liveDeals}
             onOpenCategory={openCategory}
             onViewAll={openAllCategories}
           />
@@ -176,7 +253,21 @@ export default function HomeScreen() {
           />
         );
       case 'category_grid':
-        return <ShopByProject key={key} />;
+        if (homeLists.status === 'error') {
+          return (
+            <StateView
+              key={key}
+              variant="error"
+              compact
+              title="Couldn't load projects"
+              message={getErrorMessage(homeLists.error)}
+              actionLabel="Try Again"
+              onAction={homeLists.reload}
+            />
+          );
+        }
+        if (waiting(homeLists.status, Boolean(homeLists.data))) return null;
+        return <ShopByProject key={key} published={liveProjects} />;
       case 'featured_products':
       case 'product_rail':
         return (
@@ -216,7 +307,18 @@ export default function HomeScreen() {
       <StoreHeader />
 
       <View style={styles.body}>
-        <SearchSuggestions />
+        {searchIdeas.status === 'error' ? (
+          <StateView
+            variant="error"
+            compact
+            title="Couldn't load search ideas"
+            message={getErrorMessage(searchIdeas.error)}
+            actionLabel="Try Again"
+            onAction={searchIdeas.reload}
+          />
+        ) : waiting(searchIdeas.status, Boolean(searchIdeas.data)) ? null : (
+          <SearchSuggestions published={liveIdeas} />
+        )}
 
         {orderedSections.map((section, i) => renderSection(section.type, section.title, `${section.type}-${i}`))}
 

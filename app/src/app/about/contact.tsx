@@ -2,9 +2,14 @@ import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { SettingsRow } from '@/components/ui/SettingsRow';
+import { StateView } from '@/components/ui/StateView';
 import { BRAND, COMPANY, SUPPORT } from '@/constants/brand';
 import { MAX_CONTENT_WIDTH, SCREEN_PADDING, colors, fonts, spacing } from '@/constants/theme';
+import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
+import { getErrorMessage } from '@/services/apiClient';
+import { isApiConfigured } from '@/services/apiConfig';
+import { getHelpContent } from '@/services/cmsApi';
 
 const MAPS_URL = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
   `${COMPANY.legalName}, ${COMPANY.address}`,
@@ -12,6 +17,28 @@ const MAPS_URL = `https://www.google.com/maps/search/?api=1&query=${encodeURICom
 
 export default function ContactUsScreen() {
   useStatusBarStyle('dark');
+  const help = useAsyncData('cms-help', getHelpContent);
+  const live = help.data?.source === 'live' ? help.data.data : null;
+  const phone = live ? live.phone : SUPPORT.phone;
+  const phoneLabel = live ? live.phoneLabel || live.phone : SUPPORT.phoneLabel;
+  const email = live ? live.email : SUPPORT.email;
+  const hours = live ? live.hours : SUPPORT.hours;
+  const whatsappDigits = (live?.whatsapp ?? '').replace(/[^\d]/g, '');
+
+  if (isApiConfigured && help.status === 'loading' && !help.data) {
+    return <StateView variant="loading" message="Loading contact details" />;
+  }
+  if (help.status === 'error') {
+    return (
+      <StateView
+        variant="error"
+        title="Couldn't load contact details"
+        message={getErrorMessage(help.error)}
+        actionLabel="Try Again"
+        onAction={help.reload}
+      />
+    );
+  }
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -21,19 +48,31 @@ export default function ContactUsScreen() {
       </Text>
 
       <View>
-        <SettingsRow
-          icon="call-outline"
-          label="Call"
-          value={SUPPORT.phoneLabel}
-          onPress={() => Linking.openURL(`tel:${SUPPORT.phone}`)}
-        />
-        <SettingsRow
-          icon="mail-outline"
-          label="Email"
-          value={SUPPORT.email}
-          onPress={() => Linking.openURL(`mailto:${SUPPORT.email}`)}
-        />
-        <SettingsRow icon="time-outline" label="Working hours" value={SUPPORT.hours} />
+        {phone ? (
+          <SettingsRow
+            icon="call-outline"
+            label="Call"
+            value={phoneLabel || phone}
+            onPress={() => Linking.openURL(`tel:${phone}`)}
+          />
+        ) : null}
+        {whatsappDigits ? (
+          <SettingsRow
+            icon="logo-whatsapp"
+            label="WhatsApp"
+            value={live?.whatsapp}
+            onPress={() => Linking.openURL(`https://wa.me/${whatsappDigits}`)}
+          />
+        ) : null}
+        {email ? (
+          <SettingsRow
+            icon="mail-outline"
+            label="Email"
+            value={email}
+            onPress={() => Linking.openURL(`mailto:${email}`)}
+          />
+        ) : null}
+        {hours ? <SettingsRow icon="time-outline" label="Working hours" value={hours} /> : null}
         <SettingsRow
           icon="globe-outline"
           label="Website"

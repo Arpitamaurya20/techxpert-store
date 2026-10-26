@@ -25,6 +25,36 @@ export type HelpContent = {
   hours: string;
   faqs: HelpFaq[];
 };
+export type AboutFact = { value: string; label: string; position: number };
+export type AboutValue = { icon: string; title: string; body: string; position: number };
+export type AboutContent = {
+  missionTitle: string;
+  missionBody: string;
+  facts: AboutFact[];
+  values: AboutValue[];
+};
+export type PolicyBlock = string | string[];
+export type PolicyDocument = {
+  id: string;
+  title: string;
+  lastUpdated: string;
+  sourceUrl: string;
+  intro: string[];
+  sections: { heading: string; blocks: PolicyBlock[] }[];
+};
+export type PoliciesContent = { policies: PolicyDocument[] };
+export type PolicyDraft = {
+  lastUpdated: string;
+  sourceUrl: string;
+  intro: string[];
+  sections: { heading: string; blocks: PolicyBlock[] }[];
+};
+export type AboutDraft = {
+  missionTitle: string;
+  missionBody: string;
+  facts: { value: string; label: string }[];
+  values: { icon: string; title: string; body: string }[];
+};
 export type HelpDraft = {
   phone: string;
   phoneLabel: string;
@@ -50,6 +80,81 @@ export type HomeProject = {
   categories: { categoryId: number; name: string; available: boolean }[];
 };
 export type HomeContent = { shortcuts: HomeShortcut[]; projects: HomeProject[] };
+export type SearchIdeas = { suggestions: string[] };
+export type HomeDeal = {
+  categoryId: number;
+  name: string;
+  available: boolean;
+  title: string;
+  highlight: string;
+  tagline: string;
+  tone: string;
+  imageUrl: string;
+  position: number;
+};
+export type DealsContent = { deals: HomeDeal[] };
+export type DealDraft = {
+  categoryId: number;
+  title: string;
+  highlight: string;
+  tagline: string;
+  tone: string;
+  imageUrl: string;
+};
+export type TalkLine = {
+  productId: string;
+  variantId: number;
+  name: string;
+  variantName: string | null;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  stockAtRequest: number;
+  note: string | null;
+};
+export type TalkRequest = {
+  id: string;
+  name: string;
+  phone: string;
+  pincode: string;
+  storeId: number;
+  storeName: string | null;
+  note: string | null;
+  status: 'new' | 'closed';
+  placedAt: string;
+  totals: { subtotal: number; tax: number; delivery: number; grandTotal: number };
+  lines: TalkLine[];
+  message: string | null;
+};
+export type StaffAlert = {
+  id: number;
+  kind: 'order' | 'request' | 'problem';
+  subjectId: number;
+  headline: string;
+  detail: string;
+  arrivedAt: string;
+};
+export type ShopRule = { enabled: boolean; amount: number | null };
+export type OrderNotice = 'off' | 'sms' | 'whatsapp';
+export type OrderConfirmation = {
+  channel: 'sms' | 'whatsapp';
+  status: 'sent' | 'failed';
+  detail: string;
+};
+export type DeliveryDays = { enabled: boolean; days: number | null };
+export type ShopSettings = {
+  largeOrderValue: ShopRule;
+  largeOrderQuantity: ShopRule;
+  codLimit: ShopRule;
+  freeDeliveryFrom: ShopRule;
+  deliveryFee: ShopRule;
+  gstPercent: ShopRule;
+  orderNotice: OrderNotice;
+  deliveryDays: DeliveryDays;
+};
+export type TrustClaim = { label: string; icon: string; action: string; position: number };
+export type TrustContent = { claims: TrustClaim[] };
+export type TrustDraft = { label: string; icon: string; action: string };
 export type HomeDraft = {
   shortcuts: { categoryId: number; label: string }[];
   projects: { title: string; subtitle: string; imageUrl: string; calculator: string; categoryIds: number[] }[];
@@ -284,13 +389,36 @@ export const api = {
     fetchApi<any>('/catalog/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: string, data: any) =>
     fetchApi<any>(`/catalog/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getProductStoreStock: (id: string) =>
+    fetchApi<{
+      variants: {
+        variantId: number;
+        name: string;
+        companyStock: number;
+        stores: { storeId: number; name: string; quantity: number | null }[];
+      }[];
+    }>(`/catalog/products/${id}/store-stock`),
   deleteProduct: (id: string) =>
     fetchApi<{ success: boolean }>(`/catalog/products/${id}`, { method: 'DELETE' }),
 
   // Orders
   getOrders: () => fetchApi<any[]>('/orders?all=true'),
+  placeStaffOrder: (body: unknown) =>
+    fetchApi<{ id: string | number; orderNumber: string; source?: string | null }>('/orders/staff', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   updateOrderStatus: (id: string, status: string) =>
     fetchApi<any>(`/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  sendOrderConfirmation: (id: string | number) =>
+    fetchApi<OrderConfirmation>(`/orders/${id}/confirmation`, { method: 'POST', body: '{}' }),
+  closeOrderProblem: (id: string | number) =>
+    fetchApi<{ status: 'closed'; note: string }>(`/orders/${id}/problem`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'closed' }),
+    }),
+  agreeOrderPrice: (id: string | number, body: { delivery?: number; lines?: { itemId: number; unitPrice: number }[] }) =>
+    fetchApi<any>(`/orders/${id}/price`, { method: 'PUT', body: JSON.stringify(body) }),
 
   // Banners
   getBanners: () => fetchApi<any[]>('/cms/banners'),
@@ -339,6 +467,30 @@ export const api = {
   getHome: () => fetchApi<HomeContent>('/cms/home'),
   saveHome: (body: HomeDraft) =>
     fetchApi<HomeContent>('/cms/home', { method: 'PUT', body: JSON.stringify(body) }),
+  getSearchSuggestions: () => fetchApi<SearchIdeas>('/cms/search-suggestions'),
+  saveSearchSuggestions: (suggestions: string[]) =>
+    fetchApi<SearchIdeas>('/cms/search-suggestions', { method: 'PUT', body: JSON.stringify({ suggestions }) }),
+  getDeals: () => fetchApi<DealsContent>('/cms/deals'),
+  saveDeals: (deals: DealDraft[]) =>
+    fetchApi<DealsContent>('/cms/deals', { method: 'PUT', body: JSON.stringify({ deals }) }),
+  getTrustClaims: () => fetchApi<TrustContent>('/cms/trust'),
+  saveTrustClaims: (claims: TrustDraft[]) =>
+    fetchApi<TrustContent>('/cms/trust', { method: 'PUT', body: JSON.stringify({ claims }) }),
+  getPolicies: () => fetchApi<PoliciesContent>('/cms/policies'),
+  savePolicy: (id: string, body: PolicyDraft) =>
+    fetchApi<PoliciesContent>(`/cms/policies/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  getAbout: () => fetchApi<AboutContent>('/cms/about'),
+  saveAbout: (body: AboutDraft) =>
+    fetchApi<AboutContent>('/cms/about', { method: 'PUT', body: JSON.stringify(body) }),
+  getTalkRequests: () => fetchApi<TalkRequest[]>('/shop/requests'),
+  getAlerts: () => fetchApi<StaffAlert[]>('/shop/alerts'),
+  seeAlert: (id: number) =>
+    fetchApi<{ id: number; seen: true }>(`/shop/alerts/${id}`, { method: 'PUT', body: JSON.stringify({ seen: true }) }),
+  setTalkRequestStatus: (id: string, status: 'new' | 'closed') =>
+    fetchApi<TalkRequest>(`/shop/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  getShopSettings: () => fetchApi<ShopSettings>('/shop/settings'),
+  saveShopSettings: (body: ShopSettings) =>
+    fetchApi<ShopSettings>('/shop/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getHelp: () => fetchApi<HelpContent>('/cms/help'),
   saveHelp: (body: HelpDraft) =>
     fetchApi<HelpContent>('/cms/help', { method: 'PUT', body: JSON.stringify(body) }),

@@ -7,13 +7,39 @@ import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { SettingsRow } from '@/components/ui/SettingsRow';
 import { BRAND, COMPANY } from '@/constants/brand';
 import { MAX_CONTENT_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/theme';
+import { StateView } from '@/components/ui/StateView';
 import { COMPANY_FACTS, COMPANY_MISSION, COMPANY_VALUES } from '@/data/companyProfile';
+import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
+import { getErrorMessage } from '@/services/apiClient';
+import { isApiConfigured } from '@/services/apiConfig';
+import { getAboutPage } from '@/services/cmsApi';
 
 const APP_VERSION = Constants.expoConfig?.version;
 
 export default function AboutUsScreen() {
   useStatusBarStyle('dark');
+  const about = useAsyncData('cms-about', getAboutPage);
+  const published = about.data?.source === 'live' ? about.data.data : undefined;
+  const missionTitle = published ? published.missionTitle : COMPANY_MISSION.title;
+  const missionBody = published ? published.missionBody : COMPANY_MISSION.body;
+  const facts = published ? published.facts : COMPANY_FACTS;
+  const values = published ? published.values : COMPANY_VALUES;
+
+  if (isApiConfigured && about.status === 'loading' && !about.data) {
+    return <StateView variant="loading" message="Loading About us" />;
+  }
+  if (about.status === 'error') {
+    return (
+      <StateView
+        variant="error"
+        title="Couldn't load About us"
+        message={getErrorMessage(about.error)}
+        actionLabel="Try Again"
+        onAction={about.reload}
+      />
+    );
+  }
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -24,29 +50,36 @@ export default function AboutUsScreen() {
         <Text style={styles.slogan}>{COMPANY.slogan}</Text>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.heading} accessibilityRole="header">
-          {COMPANY_MISSION.title}
-        </Text>
-        <Text style={styles.body}>{COMPANY_MISSION.body}</Text>
-      </View>
+      {missionTitle || missionBody ? (
+        <View style={styles.section}>
+          {missionTitle ? (
+            <Text style={styles.heading} accessibilityRole="header">
+              {missionTitle}
+            </Text>
+          ) : null}
+          {missionBody ? <Text style={styles.body}>{missionBody}</Text> : null}
+        </View>
+      ) : null}
 
-      <View style={styles.facts}>
-        {COMPANY_FACTS.map((fact) => (
-          <View key={fact.label} style={styles.fact}>
-            <Text style={styles.factValue}>{fact.value}</Text>
-            <Text style={styles.factLabel}>{fact.label}</Text>
-          </View>
-        ))}
-      </View>
+      {facts.length > 0 ? (
+        <View style={styles.facts}>
+          {facts.map((fact) => (
+            <View key={fact.label} style={styles.fact}>
+              <Text style={styles.factValue}>{fact.value}</Text>
+              <Text style={styles.factLabel}>{fact.label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
+      {values.length > 0 ? (
       <View style={styles.section}>
         <Text style={styles.heading} accessibilityRole="header">
           Our Core Values
         </Text>
-        <Text style={styles.body}>These principles guide everything we do at Techxpert</Text>
+        {published ? null : <Text style={styles.body}>These principles guide everything we do at Techxpert</Text>}
         <View style={styles.values}>
-          {COMPANY_VALUES.map((value) => (
+          {values.map((value) => (
             <View key={value.title} style={styles.value}>
               <View style={styles.valueIcon}>
                 <Ionicons name={value.icon} size={20} color={colors.accent} />
@@ -59,6 +92,7 @@ export default function AboutUsScreen() {
           ))}
         </View>
       </View>
+      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.heading} accessibilityRole="header">

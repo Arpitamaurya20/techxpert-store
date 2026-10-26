@@ -10,6 +10,8 @@ import {
   LayoutDashboard,
   LayoutGrid,
   LayoutList,
+  Building2,
+  ScrollText,
   LifeBuoy,
   FolderTree,
   MapPin,
@@ -17,6 +19,8 @@ import {
   Store,
   KeyRound,
   LogOut,
+  SlidersHorizontal,
+  MessageSquare,
 } from 'lucide-react';
 
 export type TabId =
@@ -24,6 +28,7 @@ export type TabId =
   | 'catalog'
   | 'categories'
   | 'orders'
+  | 'requests'
   | 'delivery'
   | 'stores'
   | 'users'
@@ -32,6 +37,9 @@ export type TabId =
   | 'sections'
   | 'shortcuts'
   | 'help'
+  | 'about'
+  | 'policies'
+  | 'settings'
   | 'api'
   | 'audit'
   | 'access';
@@ -40,6 +48,7 @@ interface SidebarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   ordersCount?: number;
+  requestsCount?: number;
   productsCount?: number;
   usersCount?: number;
   adminName?: string;
@@ -54,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onTabChange,
   ordersCount,
+  requestsCount,
   productsCount,
   usersCount,
   adminName = 'Staff',
@@ -75,6 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
         { id: 'orders', label: 'Orders', icon: <ShoppingBag size={18} />, badge: ordersCount?.toLocaleString('en-IN') },
+        { id: 'requests', label: 'Talk to us', icon: <MessageSquare size={18} />, badge: requestsCount ? requestsCount.toLocaleString('en-IN') : undefined },
         { id: 'users', label: 'Customers', icon: <Users size={18} />, badge: usersCount?.toLocaleString('en-IN') },
         { id: 'delivery', label: 'Delivery pincodes', icon: <MapPin size={18} /> },
       ],
@@ -94,11 +105,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'sections', label: 'Home screen sections', icon: <LayoutList size={18} /> },
         { id: 'shortcuts', label: 'Shortcuts & projects', icon: <LayoutGrid size={18} /> },
         { id: 'help', label: 'Help & support', icon: <LifeBuoy size={18} /> },
+        { id: 'about', label: 'About the company', icon: <Building2 size={18} /> },
+        { id: 'policies', label: 'Policies', icon: <ScrollText size={18} /> },
       ],
     },
     {
       label: 'Admin',
       items: [
+        { id: 'settings', label: 'Shop settings', icon: <SlidersHorizontal size={18} /> },
         { id: 'stores', label: 'Stores & groups', icon: <Store size={18} /> },
         { id: 'access', label: 'Roles & access', icon: <ShieldCheck size={18} /> },
         { id: 'audit', label: 'Audit trail', icon: <History size={18} /> },

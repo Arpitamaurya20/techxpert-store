@@ -70,11 +70,30 @@ export interface Product {
   originalPrice?: number;
   stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock';
   stockQuantity: number;
+  /** 1 means any quantity. 6 means 6, then 12, then 18. */
+  quantityStep?: number;
   /** How many options the product has. More than one means each has its own stock. */
   variantCount?: number;
   variants?: ProductVariant[];
   featured?: boolean;
   description: string;
+  /** Short points on the product page. Empty until staff fill them. */
+  highlights?: string[];
+  /** Name-and-value rows on the product page. Empty until staff fill them. */
+  specifications?: { label: string; value: string }[];
+  /** Sent only when this save changes a stock quantity. */
+  stockReason?: 'received' | 'counted' | 'damaged';
+  /**
+   * Staff only. Empty quantity means that store sells the company stock.
+   * A number is only what that store can sell.
+   */
+  storeStock?: {
+    variantId: number;
+    variantName: string;
+    storeId: number;
+    storeName: string;
+    quantity: number | null;
+  }[];
 }
 
 export interface ProductVariant {
@@ -114,7 +133,7 @@ export interface Subcategory {
 export interface AuditLog {
   id: string;
   action: string;
-  entity: 'banner' | 'section' | 'bulk_tier' | 'product' | 'publish' | 'order' | 'category' | 'delivery' | 'access' | 'store' | 'help';
+  entity: 'banner' | 'section' | 'bulk_tier' | 'product' | 'publish' | 'order' | 'category' | 'delivery' | 'access' | 'store' | 'help' | 'about' | 'policy' | 'setting' | 'request';
   details: string;
   user: string;
   /** ISO timestamp from API (viewer formats for display) */

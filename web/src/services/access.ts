@@ -6,6 +6,8 @@ export type ModuleKey =
   | 'products'
   | 'categories'
   | 'orders'
+  | 'agreed'
+  | 'requests'
   | 'delivery'
   | 'stores'
   | 'customers'
@@ -13,6 +15,9 @@ export type ModuleKey =
   | 'banners'
   | 'sections'
   | 'help'
+  | 'about'
+  | 'policies'
+  | 'settings'
   | 'audit'
   | 'access';
 
@@ -29,6 +34,7 @@ const TAB_MODULE: Record<Exclude<TabId, 'dashboard' | 'api'>, ModuleKey> = {
   catalog: 'products',
   categories: 'categories',
   orders: 'orders',
+  requests: 'requests',
   delivery: 'delivery',
   stores: 'stores',
   users: 'customers',
@@ -37,6 +43,9 @@ const TAB_MODULE: Record<Exclude<TabId, 'dashboard' | 'api'>, ModuleKey> = {
   sections: 'sections',
   shortcuts: 'sections',
   help: 'help',
+  about: 'about',
+  policies: 'policies',
+  settings: 'settings',
   audit: 'audit',
   access: 'access',
 };
@@ -46,6 +55,7 @@ export const TAB_ORDER: TabId[] = [
   'catalog',
   'categories',
   'orders',
+  'requests',
   'delivery',
   'stores',
   'users',
@@ -54,6 +64,9 @@ export const TAB_ORDER: TabId[] = [
   'sections',
   'shortcuts',
   'help',
+  'about',
+  'policies',
+  'settings',
   'api',
   'audit',
   'access',

@@ -2,7 +2,7 @@
 
 For whoever builds the customer app (`app/`). It covers getting the API running on your own machine, pointing the app at it, and every app flow with the exact calls, real request and response examples, and the refusals each one can give.
 
-Everything below was checked against a local API on 23 Oct 2026. Example values come from the shared local database; the personal details in the signed-in examples are placeholders.
+Everything below was checked against a local API on 26 Oct 2026, including sign-in, the priced product list, the cart, and cash checkout. Example values come from the shared local database; the personal details in the signed-in examples are placeholders.
 
 ---
 
@@ -100,7 +100,7 @@ The API answers on both `/api/...` and `/...`. This guide writes paths without t
 | 403 | Signed in, but this isn't yours |
 | 404 | Not found |
 | 409 | The request is fine, but the shop refuses it right now: over a limit, out of stock, changed prices, an area not served |
-| 503 | The database is down |
+| 503 | The database is down, or the sign-in text could not be sent |
 
 **Signed-in calls** send `Authorization: Bearer <token>`. The customer token lasts 30 days.
 
@@ -133,9 +133,9 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 
 | What | Value |
 |---|---|
-| Priced, in-stock products | **5** "9W LED Bulb": ₹149, MRP ₹199, maximum 50 per order. **3** 48" Ceiling Fan: ₹1,999, maximum 10 per order |
+| Priced, in-stock products | **5** "9W LED Bulb": ₹149, MRP ₹199, maximum 50 per order. **3** 48" Ceiling Fan: product price ₹1,999, maximum 10, pack size 1. White (option 3) is ₹199 with stock 68. Brown (4) and Black (5) use ₹1,999, with stock 60 and 50 |
 | Bulk prices on product 5 | 10% off for 25–99 units; 18% off for 100 or more (but the order maximum is 50) |
-| Most other products | No price, so they show as unavailable and can't be added to the cart. Only a handful of the 110,106 active products have a price; give more of them prices in the portal |
+| Most other products | No price. A customer list leaves them out. Opening one by id still returns it with `price: null`, and Add to cart is refused. Staff still see them in the portal. Give more of them prices there |
 | A served pincode | `201301` (Sector-62) |
 | An unserved pincode | `110001` |
 | Free delivery | From ₹2,000 subtotal. Below that delivery is ₹99. GST is 18% of the subtotal |
@@ -152,6 +152,8 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 |---|---|
 | `GET /cms/sections` | The home blocks the app should draw, in order, each with `enabled` |
 | `GET /cms/home` | The category shortcut row and the project tiles (use case 14). Empty until staff fill them |
+| `GET /cms/search-suggestions` | The "Try searching" chips (use case 15). Empty until staff fill them |
+| `GET /cms/trust` | The trust-strip claims (use case 16). Empty until staff fill them |
 | `GET /cms/banners` | Only the banners live right now, in order |
 | `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
 | `GET /catalog/categories` | Category tiles |
@@ -222,7 +224,7 @@ A brand's `id` is its name. Pass it as `brandId` when listing products.
 
 ### UC-3 Search and product lists
 
-**Call, public:** `GET /catalog/products`. All filters are optional and can be combined:
+**Call, public:** `GET /catalog/products`. A customer sees products that have an active selling price. A staff token sees the unpriced ones too, so the portal can still price them. All filters are optional and can be combined:
 
 | Query | Meaning |
 |---|---|
@@ -238,29 +240,33 @@ GET /catalog/products?search=bulb&limit=2 → 200
 { "success": true,
   "data": [ { "id": 5, "sku": "LIGHT001", "name": "9W LED Bulb", "description": "9W LED bulb equivalent to 60W …",
     "categoryId": 4, "categoryName": "Lighting", "subcategoryId": 10, "brandName": "BrightLED",
-    "imageUrl": "store/assets/catalog/…", "stockStatus": "in_stock", "minOrderQuantity": 1, "maxOrderQuantity": 50,
+    "imageUrl": "store/assets/catalog/…", "stockStatus": "in_stock", "minOrderQuantity": 1, "maxOrderQuantity": 50, "quantityStep": 1,
     "featured": 1, "createdAt": "2026-01-16T18:30:00.000Z", "price": "149.00", "originalPrice": "199.00",
     "unit": "unit", "stockQuantity": 500 } ],
   "meta": { "page": 1, "limit": 2, "total": 2720, "totalPages": 1360 } }
 ```
 
 **App rules:**
+- A customer list contains only products with an active selling price. An unpriced product is missing from search and category lists. Opening it by id still returns it.
 - `price: null` means the product can't be bought. Show it as unavailable and block Add to cart.
 - `stockStatus: "out_of_stock"` or `stockQuantity: 0` means it can't be added either.
 
 ### UC-4 Product detail and the price for a quantity
 
 **Calls, all public:**
-- `GET /catalog/products/:id`. This is the same product, plus `gallery`, its active `bulkTiers`, and `variants`. Each variant is one option: `id`, `name`, `sku`, `stockQuantity`, `stockStatus`, `price`, `available`. The first option is the one a cart call uses when it does not send `variantId`. `price` on the product is still the lowest price stored against the product. An option with no price of its own uses that. On the 48" ceiling fan, White (id 3) has its own price of ₹199, so a cart that leaves `variantId` out sells White at ₹199. Brown and Black use the product price of ₹1,999. `available` is false when the option is switched off, unpriced, or out of stock.
+- `GET /catalog/products/:id`. This is the same product, plus `gallery`, its active `bulkTiers`, `variants`, `highlights` and `specifications`. `quantityStep` is the pack size. `1` means any whole number from `minOrderQuantity`. `6` means 6, then 12, then 18, and the first pack is the higher of the minimum and 6. The cart refuses any other quantity. Each variant is one option: `id`, `name`, `sku`, `stockQuantity`, `stockStatus`, `price`, `available`. The first option is the one a cart call uses when it does not send `variantId`. `price` on the product is still the lowest price stored against the product. An option with no price of its own uses that. On the 48" ceiling fan, White (id 3) has its own price of ₹199, so a cart that leaves `variantId` out sells White at ₹199. Brown and Black use the product price of ₹1,999. `available` is false when the option is switched off, unpriced, or out of stock. `stockQuantity` on the product and on each option is the company figure. The phone does not send a store, so the product page and the cart keep showing that figure. When staff have set a quantity for the store that serves the checkout pincode, checkout sells only that quantity, and never more than the company figure. A store with no quantity of its own sells the company figure. Empty on the product screen means company stock. `0` means that store has none. The stores together cannot hold more than the company figure. `highlights` is a list of short points. `specifications` is a list of `{ "label", "value" }`. Both start empty until staff fill them on the product screen. Draw nothing when a list is empty. A product can have 8 highlights of 160 characters, and 16 specifications (name 80, value 160).
 - `GET /pricing/calculate?productId=&quantity=` gives the exact price for a quantity, worked out from the product's own price.
+- Staff change stock with `PUT /catalog/products/:id`. The app does not call it. When a company quantity or a store quantity changes, the body includes `stockReason`: `received`, `counted`, or `damaged`. The same quantities need no reason. A missing or unknown reason is refused and nothing is saved. The audit line names the product, the reason, and the old and new quantities.
 
 ```json
 GET /catalog/products/5 → 200
 { "success": true, "data": { "id": 5, "name": "9W LED Bulb", "price": "149.00", "originalPrice": "199.00",
-  "minOrderQuantity": 1, "maxOrderQuantity": 50, "stockQuantity": 500, "unit": "unit", "gallery": "",
+  "minOrderQuantity": 1, "maxOrderQuantity": 50, "quantityStep": 1, "stockQuantity": 500, "unit": "unit", "gallery": "",
   "variants": [
     { "id": 6, "name": "Warm White", "sku": null, "stockQuantity": 500, "stockStatus": "in_stock", "price": 149, "available": true },
     { "id": 7, "name": "Cool White", "sku": null, "stockQuantity": 400, "stockStatus": "in_stock", "price": 149, "available": true } ],
+  "highlights": [],
+  "specifications": [],
   "bulkTiers": [ { "id": 4, "minQty": 25, "maxQty": 99, "discountType": "percentage", "discountValue": "10.00",
                    "terms": "Contractor box pack rate." } ] } }
 
@@ -303,10 +309,10 @@ Checkout checks the pincode again, so this is for showing the customer early.
 The cart lives on the server for guests and signed-in customers alike. Its totals are what checkout charges.
 
 1. **Get the cart.** `GET /cart` with no token and no `x-session-id` creates a guest cart and returns its `sessionId`. Save it on the device. Every cart call after that sends `x-session-id: <sessionId>`.
-2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`. Add `"variantId": 7` to sell that option. Leave `variantId` out and the server uses the product's first option, so an app that does not choose yet keeps working.
+2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`. Add `"variantId": 7` to sell that option. Leave `variantId` out and the server uses the product's first option, so an app that does not choose yet keeps working. Each option is its own line. Send that line's `variantId` on the next quantity change, or the update lands on the first option.
    - This sets the exact quantity; it doesn't add to it.
    - `0` with no `variantId` removes every option of that product. `0` with a `variantId` removes only that option.
-   - A line includes `variantId` and `variantName`. `limits.stock` is that option's stock.
+   - A line includes `variantId` and `variantName`. `limits` is `{ min, max, stock, step }`. `step` is the pack size, the same number as `quantityStep` on the product. The cart stepper should use `step`.
    - Every answer is the whole priced cart.
 3. **Empty the cart.** `DELETE /cart`.
 
@@ -340,7 +346,7 @@ PUT /cart/items/5  { "quantity": 30 }  → 200
 **A line's `problem`:** a line already in the cart can go bad after a price or stock change.
 - `problem` is then `price_unavailable`, `out_of_stock` or `over_limit`, and the line is left out of `totals`.
 - `canCheckout` is false until the customer fixes or removes it.
-- Show `limits` so they can.
+- Show `limits`, including `limits.step` and `limits.min`. Send `variantId` back on the next quantity change for that line. Leaving it out still sells the first option.
 
 ### UC-7 Sign in with a one-time code
 
@@ -364,13 +370,16 @@ POST /auth/verify-otp → 200
 **Notes:**
 - A code lasts 10 minutes.
 - Verifying a new phone number creates the customer.
-- `devOtp` only exists locally.
+- `devOtp` only exists locally. Locally the code is not texted.
+- In production the same call uses the sign-in text template (`PRP_SMS_TEMPLATE_NAME`, Homecare's OTP template), never the order template. When that text is not configured the answer is `503` "The sign-in code could not be sent. Ask for a new one."
+- Verifying creates the customer when the phone is new, and marks that phone verified. An existing phone keeps its name unless the stored name is still a placeholder. An email already on another account is `409` "That email is already on another account." with `"code": "EMAIL_TAKEN"`.
 - The local-only shortcut `POST /auth/login` with `{ "identifier": "9876543210" }` returns the same `{ token, user }` for an existing customer, with no code.
+- `deliveryLocation` is null when the customer has no saved address. Do not invent one.
 
 **Profile:** `GET /auth/me` (signed in) returns:
 
 ```json
-{ "id", "name", "email", "mobile", "createdAt", "deliveryLocation": { "pincode", "city" } }
+{ "id", "name", "email", "mobile", "createdAt", "deliveryLocation": { "pincode", "city" } | null }
 ```
 
 ### UC-8 Move the guest cart into the account after sign-in
@@ -401,6 +410,10 @@ GET /auth/addresses → 200
 
 `POST /cart/checkout` with the cart's headers (Bearer token, or `x-session-id` for guests).
 
+The cart still shows the company stock, because a pincode is not known yet. Checkout uses the store that serves the pincode. If staff have set a quantity for that store, the order can take only that many, and never more than the company figure. The same "only N are in stock" refusal covers it. Cancelling the order puts the quantity back on that store as well as on the company stock.
+
+`GET /shop/rules` is public. `deliveryFee`, `freeDeliveryFrom` and `gstPercent` are the numbers the cart uses. A null value means that rule is switched off. `largeOrderValue` and `largeOrderQuantity` are the amounts at which checkout places the order as `pending` and holds the stock. `codLimit` is the cash total above which checkout refuses the order. Null means that rule is off. `arrivesInDays` is the number of days a new order promises, or null when staff have not switched that on. The cart total is still the amount to charge. Do not add the fee or the tax again on the phone.
+
 | Field | Required | Notes |
 |---|---|---|
 | `expectedTotal` | **yes** | The `totals.grandTotal` the customer saw. A mismatch is refused, so they never pay a total they didn't see |
@@ -408,7 +421,8 @@ GET /auth/addresses → 200
 | `addressId` | signed in | A saved address ID (use case 9) |
 | `shippingAddress` + `pincode` | guests, or no saved address | The full address text and its 6-digit pincode |
 | `guestName`, `guestPhone`, `guestEmail` | guests | Stored on the order |
-| `paymentMethod` | no | Only `"COD"`, which is the default |
+| `paymentMethod` | no | Only `"COD"`, which is the default. PayU comes later, on this order |
+| `channel` | no | `store_app` (the default) or `homecare_app`. Staff orders are neither |
 | `notes` | no | Free text |
 
 ```json
@@ -437,11 +451,15 @@ POST /cart/checkout
 | 409 | `Prices changed since you opened checkout. Check the new total and place the order again.` | Reload the cart, show the new total, ask again |
 | 409 | `We don't deliver to 110001 yet.` | Ask for another address |
 | 409 | A line's limit or stock sentence, as in use case 6 | Back to the cart |
+| 409 | `Cash on delivery stops at ₹…. This order is ₹….` | The cash limit is on and this total is above it. Nothing is ordered |
 | 409 | `This cart was moved to your account. Open the cart again.` | Reload the cart with the token |
 | 503 | `We couldn't place your order. Your cart is unchanged.` | Offer a retry with the same `cartId` |
 
 **Effects:**
-- An order takes its stock at once and starts as `confirmed`.
+- An order takes its stock at once. It starts as `confirmed`, unless it is at or above a switched-on large-order value or a switched-on quantity on one line. Then `status` is `pending`, `awaitingStaff` is true, and `message` says staff still have to confirm it. The goods stay held. Staff confirm it in the portal, or cancel it to put the stock back. `GET /shop/rules` shows the thresholds; null means that rule is off. The receipt includes `arrivesInDays`, the promise copied from shop settings at that moment, or null when no promise is on. When staff have switched on a text or WhatsApp confirmation, the server tells the customer the order number and the total once the order is confirmed. The app does not send that message and does not read the staff list of whether it went.
+- A signed-in customer reports a problem with `POST /orders/:id/problem` and `{ "note": "The fan did not arrive." }`. The note is required, at most 400 characters. The response says staff will look at it and the order is unchanged. A second report while one is still open is `409`. Someone else's order is `403`. Unsigned is `401`. `GET /orders` and `GET /orders/:id` include `problem`: `{ "status": "new" or "closed", "note" }`, or null. Staff close it. The app does not close it.
+- `source` is `app` for an order the customer placed, `request` when staff placed it from Talk to us, and `staff` when staff placed it themselves. Show the status. The tag is for staff.
+- Staff can change the delivery charge or a line price on a pending order, or on an order they placed, until it is being prepared. The next read of the order shows the new totals and tax. Stock is unchanged. Show the totals from the order, not a total stored at checkout.
 - **Guests:** if `guestPhone` is a 10-digit number with no account, a new customer is created for it. If the number already has an account, the order stays a guest order and the account isn't touched.
 
 ### UC-11 My orders
@@ -535,9 +553,37 @@ POST /wishlist/merge  { "sessionId": "…", "productIds": [8155, 5] } → 200
 
 The second example is shortened to the fields that decide what the screen shows. The socket has stock but no price, so it stays saved and is not for sale.
 
+### UC-20 Talk to us
+
+**Call, public:** `POST /shop/requests`. The customer asks staff to look at a cart. Nothing is ordered and no stock is held. The same price, GST, delivery fee and pincode rules as checkout apply. A quantity above the stock, or above the shelf limit, is accepted and staff see why. A missing price, a broken pack and an area we don't deliver to are refused with the same sentences as the cart.
+
+```json
+POST /shop/requests
+{ "name": "Ravi Kumar", "phone": "9999999999", "pincode": "201301",
+  "note": "Need this next week",
+  "lines": [ { "productId": 3, "variantId": 3, "quantity": 100 } ] }
+```
+
+`variantId` may be left out. That sells the first option, as the cart does. Two lines for the same option are added together. Up to 30 products.
+
+```json
+200 → { "success": true, "data": {
+  "id": "1", "status": "new",
+  "message": "Staff will call this number. Nothing is ordered, and no stock is held.",
+  "totals": { "subtotal": 0, "tax": 0, "delivery": 0, "grandTotal": 0 } } }
+```
+
+The totals in a real answer are the priced cart. Show `message`. Do not take the customer to an order screen. Staff see a portal alert for the request. The app does not read that list.
+
+| Status | `error` |
+|---|---|
+| 400 | `Enter the customer's name.` / `Enter a 10-digit mobile number.` / `Add a 6-digit pincode.` / `Add at least one product.` |
+| 409 | `We don't deliver to 110001 yet.` or a pack, price or catalogue sentence |
+| 503 | `We couldn't send that request. Nothing was saved.` |
+
 ### UC-13 Help and support
 
-**Call, public:** `GET /cms/help`. The phone number, WhatsApp number, email, working hours and questions. All of them are blank until staff fill them in on the portal (Help & support). The app can keep its current copy until it switches to this call.
+**Call, public:** `GET /cms/help`. The phone number, WhatsApp number, email, working hours and questions. All of them are blank until staff fill them in on the portal (Help & support). The app reads this call. A blank number or an empty question list draws nothing. The app's own copy is used only when the server address is not set.
 
 ```json
 GET /cms/help → 200
@@ -549,7 +595,7 @@ When a question is published it has `id`, `question`, `answer` and `position` (1
 
 ### UC-14 Home shortcuts and projects
 
-**Call, public:** `GET /cms/home`. The category row under the header, and the Shop by project tiles. Both lists are empty until staff fill them on the portal (Shortcuts & projects, same access as Home screen sections). The app can keep its own lists until it switches to this call. Match `categoryId` to `id` from `GET /catalog/categories` by comparing them as text, because the catalogue id arrives as a number.
+**Call, public:** `GET /cms/home`. The category row under the header, and the Shop by project tiles. Both lists are empty until staff fill them on the portal (Shortcuts & projects, same access as Home screen sections). The app reads this call. An empty list draws nothing. The app's own lists are used only when the server address is not set. Match `categoryId` to `id` from `GET /catalog/categories` by comparing them as text, because the catalogue id arrives as a number.
 
 The app still draws **More** as the last shortcut. This call never includes it, and it holds at most 7 shortcuts.
 
@@ -561,6 +607,89 @@ A project opens its own page. `categories` is the list for that job, in the orde
 GET /cms/home → 200
 { "success": true, "data": { "shortcuts": [], "projects": [] } }
 ```
+
+### UC-15 Search ideas
+
+**Call, public:** `GET /cms/search-suggestions`. The chips under the home search box, in the order staff set. The list is empty until staff fill it on the portal (Shortcuts & projects, same access as Home screen sections). The app reads this call. Draw nothing extra when the list is empty. The app's own list is used only when the server address is not set. Eight ideas, each 40 characters. The same idea cannot appear twice.
+
+```json
+GET /cms/search-suggestions → 200
+{ "success": true, "data": { "suggestions": [] } }
+```
+
+A published idea is one string, such as `"LED bulbs"`. Saving replaces the whole list. Leaving `suggestions` out of the save is refused, so an empty body cannot clear the list by accident. An empty list does clear it.
+
+### UC-16 Trust strip
+
+**Call, public:** `GET /cms/trust`. The claims under the banners, in the order staff set. The list is empty until staff fill it on the portal (Home screen sections, same access as the layout). The app reads this call. Draw nothing when the list is empty. The app's own four claims are used only when the server address is not set. Four claims, each 32 characters. The same words cannot appear twice.
+
+```json
+GET /cms/trust → 200
+{ "success": true, "data": { "claims": [] } }
+```
+
+A published claim has `label`, `icon`, `action` and `position` (1 is first). `icon` is `truck-fast-outline`, `shield-check-outline`, `tag-outline` or `headset`. `action` is what a tap opens:
+
+- `delivery`: the delivery location screen.
+- `about`: About us.
+- `help`: Help and support.
+- `phone`: call the number from `GET /cms/help`. When that number is blank, open Help.
+
+Saving replaces the whole list. Leaving `claims` out of the save is refused, so an empty body cannot clear the strip by accident. An empty list does clear it.
+
+### UC-17 About the company
+
+**Call, public:** `GET /cms/about`. The mission, facts and values on About us. The page is empty until staff fill it on the portal (About the company). The app reads this call. Draw a heading only when `missionTitle` has words, a paragraph only when `missionBody` has words, and nothing for an empty list. The app's own mission, facts and values are used only when the server address is not set. The company name, certification and website stay the app's own copy.
+
+```json
+GET /cms/about → 200
+{
+  "success": true,
+  "data": { "missionTitle": "", "missionBody": "", "facts": [], "values": [] }
+}
+```
+
+A fact has `value`, `label` and `position` (1 is first). Four facts fill the row. A figure is 16 characters, a name 32. The same name cannot appear twice.
+
+A value has `icon`, `title`, `body` and `position`. Six is the most. A title is 40 characters, a description 240. `icon` is `ribbon-outline`, `bulb-outline`, `heart-outline`, `shield-checkmark-outline`, `people-outline` or `leaf-outline`. The same title cannot appear twice.
+
+The mission heading is 80 characters, the paragraph 600. Saving replaces the whole page. An empty body clears it. A fact row needs both a figure and a name; a value row needs a title, a description and one of those symbols.
+
+### UC-18 Policies
+
+**Call, public:** `GET /cms/policies`. Privacy, terms, cancellation and shipping, in that order. Each page is empty until staff paste the published text on the portal (Policies). The app reads this call. When `intro` and `sections` are both empty, show the same "being prepared" notice, and do not invent text. The app's own privacy and terms are used only when the server address is not set. Draw "Last updated" only when `lastUpdated` has words. Draw "View on website" only when `sourceUrl` has a link.
+
+```json
+GET /cms/policies → 200
+{
+  "success": true,
+  "data": {
+    "policies": [
+      { "id": "privacy", "title": "Privacy policy", "lastUpdated": "", "sourceUrl": "", "intro": [], "sections": [] },
+      { "id": "terms", "title": "Terms & Conditions", "lastUpdated": "", "sourceUrl": "", "intro": [], "sections": [] },
+      { "id": "cancellation", "title": "Cancellation & Refunds", "lastUpdated": "", "sourceUrl": "", "intro": [], "sections": [] },
+      { "id": "shipping", "title": "Shipping & Delivery", "lastUpdated": "", "sourceUrl": "", "intro": [], "sections": [] }
+    ]
+  }
+}
+```
+
+`id` is `privacy`, `terms`, `cancellation` or `shipping`. `title` is fixed. A section has `heading` and `blocks`. A block is a paragraph (a string) or a list of points (an array of strings), which is the same shape the policy screen already draws. Six opening paragraphs, 24 sections, 16 blocks in a section, 20 points in a list. A paragraph is 800 characters, a point 400, a heading 120.
+
+Saving one policy replaces that policy only. `intro` and `sections` must both be sent, so an empty body cannot clear a page by accident. Sending both as empty lists does clear that page. The other three stay as they were.
+
+### UC-19 Deals tiles
+
+**Call, public:** `GET /cms/deals`. The two tiles under Deals for You, in the order staff set. The list is empty until staff pick categories on the portal (Shortcuts & projects, same access as the home layout). The app reads this call. Draw nothing when the list is empty. The app's own two tiles are used only when the server address is not set. Skip a tile with `available: false`.
+
+```json
+GET /cms/deals → 200
+{ "success": true, "data": { "deals": [] } }
+```
+
+A tile has `categoryId`, `name`, `available`, `title`, `highlight`, `tagline`, `tone`, `imageUrl` and `position` (1 is first). Tapping it opens that category. `tone` is `peach` or `navy`. Draw `highlight` only when it has words. `tagline` is the short line under the title. There is no discount on this tile; do not invent one. `imageUrl` is the picture staff set. When it is blank, use the category's own picture. Two tiles fill the row. The same category cannot appear twice.
+
+Saving replaces this row only. Leaving `deals` out of the save is refused, so an empty body cannot clear the row by accident. An empty list does clear it. The shortcut row, project tiles and search ideas are separate calls.
 
 ---
 
@@ -577,10 +706,11 @@ GET /cms/home → 200
 Each item was found while writing this guide. They are for the app team unless marked as server.
 
 - **Sign-in:** the app signs in with `POST /auth/login`, which production refuses. Move it to use case 7 (send and verify a code).
-- **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
+- **Sign-in texts:** locally the code is `123456` and nothing is texted. Production uses Homecare's sign-in template (`PRP_SMS_TEMPLATE_NAME`). It needs `OTP_SMS_PROVIDER` (or `SMS_PROVIDER`) set to `prp` and `PRP_SMS_API_KEY`. Do not point it at `PRP_ORDER_TEMPLATE_NAME`.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Home:** the app still uses its own shortcut and project lists, whose category ids are not in this catalogue, so those blocks stay empty until it reads `GET /cms/home` (use case 14). Banners can't open outside links yet (use case 1).
+- **Store stock:** the product page and the cart show the company figure. Checkout already applies a store quantity when staff have set one for the pincode's store. The phone does not need a new field for that.
+- **Home:** the app reads the published lists (use cases 13 to 19). They are empty until staff fill them, and an empty list draws nothing. Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
 
 ## 11. Troubleshooting
@@ -591,6 +721,6 @@ Each item was found while writing this guide. They are for the app team unless m
 | Requests time out from a phone | It used `localhost`; use the computer's LAN IP, same Wi-Fi, and allow Node through the firewall |
 | `/health` returns 503 or `"degraded"` | MySQL is stopped, the password in `server/.env` is wrong, or a database is missing |
 | `Database unavailable (…)` errors | Same as above |
-| Every product shows "unavailable" | It has no price. Give it one in the portal (Products → Edit) |
+| The product list looks empty | A customer list hides products with no price. Give one a price in the portal (Products → Edit), or open a known priced id such as 3 or 5 |
 | Checkout says "We don't deliver to …" | Add the pincode in the portal (Delivery pincodes) and link it to a store (Stores & groups) |
 | Sign-in token refused after restarting the API | `JWT_SECRET` changed. Sign in again |

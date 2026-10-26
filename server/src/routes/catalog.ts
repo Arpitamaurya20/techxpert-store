@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { CatalogService } from '../services/catalogService.js';
+import { StoreStockService } from '../services/storeStockService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
-import { requireAdmin, requirePermission } from '../middleware/auth.js';
+import { accessActor, isActiveStaff, optionalAuth, requireAdmin, requirePermission } from '../middleware/auth.js';
 import { validateProductCreateBody, validateProductUpdateBody } from '../utils/validate.js';
 
 const router = Router();
@@ -102,8 +103,10 @@ router.get(
 // GET /catalog/products
 router.get(
   '/products',
+  optionalAuth,
   asyncHandler(async (req, res) => {
     const { search, categoryId, subcategoryId, brandId, featured, page, limit } = req.query;
+    const staff = await isActiveStaff(req);
     const result = await CatalogService.getProducts({
       search: search ? String(search) : undefined,
       categoryId: categoryId ? String(categoryId) : undefined,
@@ -112,6 +115,7 @@ router.get(
       featured: featured !== undefined ? featured === 'true' : undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
+      pricedOnly: !staff,
     });
     return sendSuccess(res, result.products, undefined, 200, result.meta);
   })
@@ -139,6 +143,18 @@ router.post(
   })
 );
 
+// GET /catalog/products/:id/store-stock — staff only. The shop still shows the company figure.
+router.get(
+  '/products/:id/store-stock',
+  requireAdmin,
+  requirePermission('products', 'view'),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return sendError(res, 404, 'Product not found');
+    return sendSuccess(res, await StoreStockService.forProduct(id));
+  })
+);
+
 // PUT /catalog/products/:id
 router.put(
   '/products/:id',
@@ -146,7 +162,7 @@ router.put(
   requirePermission('products', 'edit'),
   asyncHandler(async (req, res) => {
     const body = validateProductUpdateBody(req.body);
-    const updated = await CatalogService.updateProduct(req.params.id, body);
+    const updated = await CatalogService.updateProduct(req.params.id, body, accessActor(req).name);
     if (!updated) return sendError(res, 404, 'Product not found');
     return sendSuccess(res, updated, 'Product updated successfully');
   })

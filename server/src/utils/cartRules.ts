@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-export type CartLimits = { min: number; max: number | null; stock: number };
+export type CartLimits = { min: number; max: number | null; stock: number; step: number };
 export type LineProblem = 'out_of_stock' | 'price_unavailable' | 'over_limit' | null;
 export type CartTotals = {
   subtotal: number;
@@ -21,11 +21,48 @@ function wholeOrNull(value: unknown): number | null {
   return value != null && Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }
 
-export function lineLimits(row: { minOrderQuantity?: unknown; maxOrderQuantity?: unknown; stock?: unknown }): CartLimits {
+/** A missing or blank pack size means the customer can buy any whole number from the minimum. */
+function packStep(limits: { step?: number }): number {
+  const step = Number(limits.step);
+  return Number.isInteger(step) && step > 0 ? step : 1;
+}
+
+function packFloor(limits: { min: number; step?: number }): number {
+  return Math.max(limits.min, packStep(limits));
+}
+
+/** Largest pack that does not go past `atMost`, or null when even one pack does not fit. */
+function largestPack(atMost: number, limits: CartLimits): number | null {
+  const step = packStep(limits);
+  const floor = packFloor(limits);
+  if (atMost < floor) return null;
+  return floor + Math.floor((atMost - floor) / step) * step;
+}
+
+function onPackStep(quantity: number, limits: CartLimits): boolean {
+  const step = packStep(limits);
+  const floor = packFloor(limits);
+  return Number.isInteger(quantity) && quantity >= floor && (quantity - floor) % step === 0;
+}
+
+function packRefusal(name: string, limits: CartLimits): string {
+  const step = packStep(limits);
+  const floor = packFloor(limits);
+  if (floor === step) return `"${name}" is sold in multiples of ${step}.`;
+  return `"${name}" is sold in multiples of ${step}, starting at ${floor}.`;
+}
+
+export function lineLimits(row: {
+  minOrderQuantity?: unknown;
+  maxOrderQuantity?: unknown;
+  quantityStep?: unknown;
+  stock?: unknown;
+}): CartLimits {
   return {
     min: wholeOrNull(row.minOrderQuantity) ?? 1,
     max: wholeOrNull(row.maxOrderQuantity),
     stock: wholeOrNull(row.stock) ?? 0,
+    step: wholeOrNull(row.quantityStep) ?? 1,
   };
 }
 
@@ -36,10 +73,15 @@ function hasPrice(price: unknown): boolean {
 
 /** Why this quantity cannot be put in the cart, or null when it can. */
 export function quantityRefusal(name: string, quantity: number, limits: CartLimits, price: unknown): string | null {
+  const step = packStep(limits);
+  const floor = packFloor(limits);
   if (!Number.isInteger(quantity) || quantity < 1) return 'Quantity must be a whole number of at least 1.';
   if (!hasPrice(price)) return `"${name}" is not available to order right now.`;
   if (limits.stock <= 0) return `"${name}" is out of stock.`;
-  if (quantity < limits.min) return `"${name}" must be ordered in quantities of at least ${limits.min}.`;
+  if (quantity < floor || (quantity - floor) % step !== 0) {
+    if (step === 1) return `"${name}" must be ordered in quantities of at least ${limits.min}.`;
+    return packRefusal(name, limits);
+  }
   if (limits.max != null && quantity > limits.max) return `You can order up to ${limits.max} of "${name}".`;
   if (quantity > limits.stock) return `Only ${limits.stock} of "${name}" are in stock.`;
   return null;
@@ -63,14 +105,18 @@ export function reorderTarget(
   if (!Number.isInteger(orderedQty) || orderedQty < 1) {
     return { reason: `"${name}" has no quantity to add.` };
   }
-  const blocked = quantityRefusal(name, limits.min, limits, price);
+  const floor = packFloor(limits);
+  const blocked = quantityRefusal(name, floor, limits, price);
   if (blocked) return { reason: blocked };
 
   const cap = Math.min(limits.max ?? limits.stock, limits.stock);
   if (already >= cap) return { reason: `You already have the most of "${name}" you can order.` };
 
   const wanted = already + orderedQty;
-  const setTo = Math.min(Math.max(wanted, limits.min), cap);
+  const setTo = largestPack(Math.min(Math.max(wanted, floor), cap), limits);
+  if (setTo == null || setTo <= already) {
+    return { reason: quantityRefusal(name, Math.max(wanted, floor), limits, price) ?? `You already have the most of "${name}" you can order.` };
+  }
   const note = setTo === wanted ? null : quantityRefusal(name, wanted, limits, price);
   return { setTo, note };
 }
@@ -80,14 +126,17 @@ export function lineProblem(quantity: number, limits: CartLimits, price: unknown
   if (!hasPrice(price)) return 'price_unavailable';
   if (limits.stock <= 0) return 'out_of_stock';
   if (quantity > limits.stock || (limits.max != null && quantity > limits.max)) return 'over_limit';
+  if (packStep(limits) > 1 && !onPackStep(quantity, limits)) return 'over_limit';
   return null;
 }
 
 /** Guest and account carts both hold the product: keep the larger, not the sum. */
 export function mergeQuantity(account: number | undefined, guest: number | undefined, limits: CartLimits): number {
+  const floor = packFloor(limits);
   const wanted = Math.max(account ?? 0, guest ?? 0);
   const cap = Math.min(limits.max ?? Infinity, limits.stock);
-  return cap >= limits.min ? Math.min(wanted, cap) : wanted;
+  if (cap < floor) return wanted;
+  return largestPack(Math.min(wanted, cap), limits) ?? wanted;
 }
 
 export type BulkPrice = { unitPrice: unknown; totalSavings: unknown; appliedTier: unknown };
@@ -129,7 +178,10 @@ export function sameMoney(a: unknown, b: unknown): boolean {
   return Number.isFinite(x) && Number.isFinite(y) && Math.round(x * 100) === Math.round(y * 100);
 }
 
-export function cartTotals(lines: { lineTotal: number; savings: number; problem: LineProblem }[]): CartTotals {
+export function cartTotals(
+  lines: { lineTotal: number; savings: number; problem: LineProblem }[],
+  rules?: { taxRate?: number; freeDeliveryFrom?: number | null; deliveryCharge?: number }
+): CartTotals {
   let subtotal = 0;
   let bulkSavings = 0;
   for (const line of lines) {
@@ -138,8 +190,12 @@ export function cartTotals(lines: { lineTotal: number; savings: number; problem:
     bulkSavings += line.savings;
   }
   subtotal = money(subtotal);
-  const delivery = subtotal === 0 || subtotal >= FREE_DELIVERY_FROM ? 0 : DELIVERY_CHARGE;
-  const tax = money(subtotal * TAX_RATE);
+  const taxRate = rules?.taxRate ?? TAX_RATE;
+  const freeFrom = rules && 'freeDeliveryFrom' in rules ? rules.freeDeliveryFrom : FREE_DELIVERY_FROM;
+  const charge = rules?.deliveryCharge ?? DELIVERY_CHARGE;
+  const delivery =
+    subtotal === 0 || charge === 0 || (freeFrom != null && subtotal >= freeFrom) ? 0 : charge;
+  const tax = money(subtotal * taxRate);
   return {
     subtotal,
     bulkSavings: money(bulkSavings),
