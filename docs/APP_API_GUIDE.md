@@ -2,7 +2,7 @@
 
 For whoever builds the customer app (`app/`). It covers getting the API running on your own machine, pointing the app at it, and every app flow with the exact calls, real request and response examples, and the refusals each one can give.
 
-Everything below was checked against a local API on 23 Oct 2026. Example values come from the shared local database; the personal details in the signed-in examples are placeholders.
+Everything below was checked against a local API on 26 Oct 2026, including sign-in, the priced product list, the cart, and cash checkout. Example values come from the shared local database; the personal details in the signed-in examples are placeholders.
 
 ---
 
@@ -100,7 +100,7 @@ The API answers on both `/api/...` and `/...`. This guide writes paths without t
 | 403 | Signed in, but this isn't yours |
 | 404 | Not found |
 | 409 | The request is fine, but the shop refuses it right now: over a limit, out of stock, changed prices, an area not served |
-| 503 | The database is down |
+| 503 | The database is down, or the sign-in text could not be sent |
 
 **Signed-in calls** send `Authorization: Bearer <token>`. The customer token lasts 30 days.
 
@@ -133,9 +133,9 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 
 | What | Value |
 |---|---|
-| Priced, in-stock products | **5** "9W LED Bulb": ₹149, MRP ₹199, maximum 50 per order. **3** 48" Ceiling Fan: ₹1,999, maximum 10 per order |
+| Priced, in-stock products | **5** "9W LED Bulb": ₹149, MRP ₹199, maximum 50 per order. **3** 48" Ceiling Fan: product price ₹1,999, maximum 10, pack size 1. White (option 3) is ₹199 with stock 68. Brown (4) and Black (5) use ₹1,999, with stock 60 and 50 |
 | Bulk prices on product 5 | 10% off for 25–99 units; 18% off for 100 or more (but the order maximum is 50) |
-| Most other products | No price, so they show as unavailable and can't be added to the cart. Only a handful of the 110,106 active products have a price; give more of them prices in the portal |
+| Most other products | No price. A customer list leaves them out. Opening one by id still returns it with `price: null`, and Add to cart is refused. Staff still see them in the portal. Give more of them prices there |
 | A served pincode | `201301` (Sector-62) |
 | An unserved pincode | `110001` |
 | Free delivery | From ₹2,000 subtotal. Below that delivery is ₹99. GST is 18% of the subtotal |
@@ -247,6 +247,7 @@ GET /catalog/products?search=bulb&limit=2 → 200
 ```
 
 **App rules:**
+- A customer list contains only products with an active selling price. An unpriced product is missing from search and category lists. Opening it by id still returns it.
 - `price: null` means the product can't be bought. Show it as unavailable and block Add to cart.
 - `stockStatus: "out_of_stock"` or `stockQuantity: 0` means it can't be added either.
 
@@ -308,7 +309,7 @@ Checkout checks the pincode again, so this is for showing the customer early.
 The cart lives on the server for guests and signed-in customers alike. Its totals are what checkout charges.
 
 1. **Get the cart.** `GET /cart` with no token and no `x-session-id` creates a guest cart and returns its `sessionId`. Save it on the device. Every cart call after that sends `x-session-id: <sessionId>`.
-2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`. Add `"variantId": 7` to sell that option. Leave `variantId` out and the server uses the product's first option, so an app that does not choose yet keeps working.
+2. **Set a quantity.** `PUT /cart/items/:productId` with `{ "quantity": 30 }`. Add `"variantId": 7` to sell that option. Leave `variantId` out and the server uses the product's first option, so an app that does not choose yet keeps working. Each option is its own line. Send that line's `variantId` on the next quantity change, or the update lands on the first option.
    - This sets the exact quantity; it doesn't add to it.
    - `0` with no `variantId` removes every option of that product. `0` with a `variantId` removes only that option.
    - A line includes `variantId` and `variantName`. `limits` is `{ min, max, stock, step }`. `step` is the pack size, the same number as `quantityStep` on the product. The cart stepper should use `step`.
@@ -705,10 +706,9 @@ Saving replaces this row only. Leaving `deals` out of the save is refused, so an
 Each item was found while writing this guide. They are for the app team unless marked as server.
 
 - **Sign-in:** the app signs in with `POST /auth/login`, which production refuses. Move it to use case 7 (send and verify a code).
-- **Server: no SMS is sent.** In production the code is random but nothing delivers it yet, so an SMS provider has to be added to `AuthService.sendOtp` before launch.
+- **Sign-in texts:** locally the code is `123456` and nothing is texted. Production uses Homecare's sign-in template (`PRP_SMS_TEMPLATE_NAME`). It needs `OTP_SMS_PROVIDER` (or `SMS_PROVIDER`) set to `prp` and `PRP_SMS_API_KEY`. Do not point it at `PRP_ORDER_TEMPLATE_NAME`.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
 - **Images:** product and category images are relative paths that no server hosts (section 5).
-- **Pack size on the cart screen:** product detail already reads `quantityStep`. The cart screen still keeps the step it stored when the line was added, which is 1 until it reads `limits.step`.
 - **Store stock:** the product page and the cart show the company figure. Checkout already applies a store quantity when staff have set one for the pincode's store. The phone does not need a new field for that.
 - **Home:** the app reads the published lists (use cases 13 to 19). They are empty until staff fill them, and an empty list draws nothing. Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
@@ -721,6 +721,6 @@ Each item was found while writing this guide. They are for the app team unless m
 | Requests time out from a phone | It used `localhost`; use the computer's LAN IP, same Wi-Fi, and allow Node through the firewall |
 | `/health` returns 503 or `"degraded"` | MySQL is stopped, the password in `server/.env` is wrong, or a database is missing |
 | `Database unavailable (…)` errors | Same as above |
-| Every product shows "unavailable" | It has no price. Give it one in the portal (Products → Edit) |
+| The product list looks empty | A customer list hides products with no price. Give one a price in the portal (Products → Edit), or open a known priced id such as 3 or 5 |
 | Checkout says "We don't deliver to …" | Add the pincode in the portal (Delivery pincodes) and link it to a store (Stores & groups) |
 | Sign-in token refused after restarting the API | `JWT_SECRET` changed. Sign in again |
