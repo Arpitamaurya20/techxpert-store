@@ -1,69 +1,123 @@
-# Put the store API on a Linux VPS (FileZilla + Apache)
+# Put the store API on the VPS (FileZilla + Apache)
 
-No CI pipeline. You upload files, then run a few commands on the server. Product pictures stay on the VPS; they are not in GitHub.
+Your other Node apps live under `/var/www/node-projects/`. This project gets its own folder there. The phone app (`app/`) stays on developer machines only — it is **not** uploaded.
 
-## What lives where
+Product pictures are **not** in GitHub. They live only on the VPS next to the API.
 
-| On the VPS | Purpose |
+## Intent
+
+| Goal | How |
 |---|---|
-| `/var/www/techxpert-store/server/` | API code (`dist/`, `package.json`, `.env`) |
-| `/var/www/techxpert-store/server/catalog/catalog/` | Product pictures (from the old VPS / your laptop) |
-| `/var/www/techxpert-store/server/uploads/` | Banner uploads from the portal |
-| `/var/www/techxpert-store/web/dist/` | Built portal (static files) |
-| MySQL | `techxpertstore` + `homecare` only |
+| Portal + API reachable on the internet | Upload `web` + `server` builds; Apache (or nginx) fronts Node |
+| Product images load in portal and apps | Copy `server/catalog/catalog/` onto the VPS; set `PUBLIC_API_ORIGIN` |
+| App team keeps developing | They point Expo at `https://api.…`; they do not need the image folder |
 
-GitHub holds code and `server/sql/`. It never holds `catalog/catalog/`.
+## Layout on the VPS
 
-## 1. One-time on the VPS
-
-```bash
-sudo apt update
-sudo apt install -y nginx   # or apache2 — examples below use Apache
-# Node 20+:
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-sudo apt install -y mysql-server apache2
-sudo a2enmod proxy proxy_http headers ssl rewrite
+```text
+/var/www/node-projects/techxpert-store/
+├── server/                          # API only
+│   ├── dist/                        # built JS (from laptop: npm run build)
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── .env                         # secrets — create on VPS, never upload from laptop casually
+│   ├── sql/                         # migration scripts
+│   ├── catalog/
+│   │   └── catalog/                 # THE PICTURES (large; FileZilla once)
+│   │       ├── Amazon.in _ …/
+│   │       ├── Fans/
+│   │       └── staff/               # portal uploads later
+│   └── uploads/                     # banner images (created at runtime)
+└── web/
+    └── dist/                        # built portal (static files)
 ```
 
-Create a user and folders:
+Do **not** upload: `app/`, `.git/`, `node_modules/`, `server/src/` (use `dist/` instead), `server/catalog.zip` unless you prefer unzipping on the server.
+
+DB paths look like `store/assets/catalog/<folder>/<file>`.  
+Files on disk must be `server/catalog/catalog/<folder>/<file>`.
+
+---
+
+## Step A — Create the folder on the VPS (SSH / terminal)
 
 ```bash
-sudo useradd -r -m -d /var/www/techxpert-store -s /bin/bash techxpert || true
-sudo mkdir -p /var/www/techxpert-store/server/catalog
-sudo mkdir -p /var/www/techxpert-store/web
-sudo chown -R techxpert:techxpert /var/www/techxpert-store
+sudo mkdir -p /var/www/node-projects/techxpert-store/server/catalog
+sudo mkdir -p /var/www/node-projects/techxpert-store/web
+sudo chown -R "$USER":"$USER" /var/www/node-projects/techxpert-store
 ```
 
-## 2. Upload with FileZilla
+In FileZilla remote pane: open `/` → `var` → `www` → `node-projects` → you should see `techxpert-store`.
 
-Connect as a user that can write `/var/www/techxpert-store`.
+---
 
-**Code (from your laptop after `git pull` on develop):**
-
-1. On the laptop, in `server/`: `npm ci && npm run build`
-2. On the laptop, in `web/`: `VITE_API_BASE_URL=https://api.YOURDOMAIN npm ci && npm run build`
-3. Upload `server/package.json`, `server/package-lock.json`, `server/dist/`, `server/sql/` into `/var/www/techxpert-store/server/`
-4. Upload `web/dist/` into `/var/www/techxpert-store/web/dist/`
-
-**Pictures (once, then only when the library changes):**
-
-1. Upload the whole `catalog/catalog` folder to `/var/www/techxpert-store/server/catalog/catalog/`
-2. Or upload `catalog.zip` and on the VPS:
+## Step B — Build on the laptop (before upload)
 
 ```bash
-cd /var/www/techxpert-store/server
+cd /Users/satwik/Desktop/techxpert-store
+
+cd server
+npm ci
+npm run build          # creates server/dist/
+
+cd ../web
+npm ci
+VITE_API_BASE_URL=https://api.YOURDOMAIN npm run build   # creates web/dist/
+```
+
+Replace `https://api.YOURDOMAIN` with the real public API URL you will use.
+
+---
+
+## Step C — FileZilla: what to upload
+
+Local left: `/Users/satwik/Desktop/techxpert-store`  
+Remote right: `/var/www/node-projects/techxpert-store`
+
+### C1 — API code (small)
+
+Upload into remote `techxpert-store/server/`:
+
+| From laptop | To VPS |
+|---|---|
+| `server/dist/` | `server/dist/` |
+| `server/package.json` | `server/package.json` |
+| `server/package-lock.json` | `server/package-lock.json` |
+| `server/sql/` | `server/sql/` |
+| `server/deploy/` | `server/deploy/` (optional samples) |
+
+Skip `server/node_modules`, `server/src`, `server/.env` (create `.env` on the VPS).
+
+### C2 — Portal (small)
+
+Upload laptop `web/dist/` → remote `techxpert-store/web/dist/`.
+
+### C3 — Product pictures (large, once)
+
+**Option 1 — folder:**  
+Laptop `server/catalog/catalog/` → remote `techxpert-store/server/catalog/catalog/`  
+(so you see folders like `Amazon.in _ ceiling fans` inside `catalog/catalog`).
+
+**Option 2 — zip (often faster):**  
+Upload `server/catalog.zip` to `techxpert-store/server/`, then on SSH:
+
+```bash
+cd /var/www/node-projects/techxpert-store/server
 unzip -o catalog.zip -d catalog
-# Result must be: server/catalog/catalog/<folder>/<file>
-# matching DB paths store/assets/catalog/<folder>/<file>
+# Confirm:
 ls catalog/catalog | head
+# Must list category folders, NOT a nested extra "catalog" only by mistake
 ```
 
-Do **not** overwrite `server/.env` or `server/catalog/catalog/` on later code-only uploads.
+If unzip creates `catalog/catalog/catalog/…`, move one level up so paths match the DB.
 
-## 3. API settings on the VPS
+---
 
-Create `/var/www/techxpert-store/server/.env` (never commit it):
+## Step D — MySQL and `.env` on the VPS
+
+Databases used: **`techxpertstore`** + **`homecare`** only (not `techxpert_commerce`).
+
+Create `/var/www/node-projects/techxpert-store/server/.env`:
 
 ```bash
 NODE_ENV=production
@@ -72,7 +126,7 @@ HOST=127.0.0.1
 
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
-MYSQL_USER=techxpert
+MYSQL_USER=<db-user>
 MYSQL_PASSWORD=<secret>
 
 DB_USERS=homecare
@@ -83,96 +137,61 @@ CORS_ORIGINS=https://admin.YOURDOMAIN
 PUBLIC_API_ORIGIN=https://api.YOURDOMAIN
 ```
 
-`PUBLIC_API_ORIGIN` is required in production so product and banner pictures become full `https://` addresses.
-
-On the VPS:
+`PUBLIC_API_ORIGIN` is what makes product `imageUrl` values full `https://…` links.
 
 ```bash
-cd /var/www/techxpert-store/server
-sudo -u techxpert npm ci --omit=dev
-# SQL for any scripts they do not have yet — see server/sql/README.md and docs/ROLLOUT.md
+cd /var/www/node-projects/techxpert-store/server
+npm ci --omit=dev
+# If this DB is older than develop, run missing scripts from sql/README.md
 ```
 
-## 4. Keep the API running
+---
 
-`/etc/systemd/system/techxpert-api.service`:
+## Step E — Run the API
 
-```ini
-[Unit]
-Description=Techxpert Store API
-After=network.target mysql.service
+Copy `server/deploy/techxpert-api.service`, edit paths to:
 
-[Service]
-Type=simple
-User=techxpert
-Group=techxpert
-WorkingDirectory=/var/www/techxpert-store/server
-EnvironmentFile=/var/www/techxpert-store/server/.env
-ExecStart=/usr/bin/node dist/index.js
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-```
+`WorkingDirectory=/var/www/node-projects/techxpert-store/server`
 
 ```bash
+sudo cp /var/www/node-projects/techxpert-store/server/deploy/techxpert-api.service /etc/systemd/system/
+# edit User= to a user that owns the files, if not "techxpert"
 sudo systemctl daemon-reload
 sudo systemctl enable --now techxpert-api
-sudo systemctl status techxpert-api
 curl -s http://127.0.0.1:5001/health
 ```
 
-## 5. Apache in front (HTTPS → Node)
+---
 
-API vhost (`/etc/apache2/sites-available/techxpert-api.conf`):
+## Step F — Apache (or your existing reverse proxy)
 
-```apache
-<VirtualHost *:80>
-    ServerName api.YOURDOMAIN
-    Redirect permanent / https://api.YOURDOMAIN/
-</VirtualHost>
+Point `api.YOURDOMAIN` at `http://127.0.0.1:5001` (sample in `server/deploy/apache-api.conf`).  
+That must include `/store/assets/catalog/…` — a full `ProxyPass /` covers it.
 
-<VirtualHost *:443>
-    ServerName api.YOURDOMAIN
-    SSLEngine on
-    SSLCertificateFile /etc/letsencrypt/live/api.YOURDOMAIN/fullchain.pem
-    SSLCertificateKeyFile /etc/letsencrypt/live/api.YOURDOMAIN/privkey.pem
+Point `admin.YOURDOMAIN` at `/var/www/node-projects/techxpert-store/web/dist`.
 
-    ProxyPreserveHost On
-    RequestHeader set X-Forwarded-Proto "https"
-    # Proxies /api, /catalog, /store/assets/catalog, /uploads, /health, …
-    ProxyPass / http://127.0.0.1:5001/
-    ProxyPassReverse / http://127.0.0.1:5001/
-</VirtualHost>
-```
+---
 
-Portal vhost serves `/var/www/techxpert-store/web/dist` as `admin.YOURDOMAIN`.
+## Step G — Prove images
 
-```bash
-sudo a2ensite techxpert-api
-sudo systemctl reload apache2
-```
+1. `curl -s https://api.YOURDOMAIN/catalog/products/3` → `imageUrl` starts with `https://api.YOURDOMAIN/store/assets/catalog/`
+2. Open that URL in a browser → picture loads
+3. Portal Products list shows thumbnails
 
-TLS: `sudo certbot --apache -d api.YOURDOMAIN -d admin.YOURDOMAIN`
+---
 
-## 6. Checks
+## Later updates
 
-- [ ] `GET https://api.YOURDOMAIN/health` → both DBs `ok`
-- [ ] `GET https://api.YOURDOMAIN/catalog/products/3` → `imageUrl` starts with `https://api.YOURDOMAIN/store/assets/catalog/`
-- [ ] Open that `imageUrl` in a browser → JPEG/WebP, not 404
-- [ ] Portal Products list shows thumbnails
-- [ ] Upload a cover in Edit product → file appears under `server/catalog/catalog/staff/<id>/`
-
-## 7. Later updates
-
-| Change | What to upload |
+| Change | Action |
 |---|---|
-| New API/portal code | Rebuild locally, upload `server/dist` + `web/dist`, `systemctl restart techxpert-api` |
-| New SQL feature | Run the new file from `server/sql/` on MySQL |
-| New / replaced catalogue pictures | Sync only `server/catalog/catalog/` (rsync or FileZilla) |
-| Staff uploads | Already on the VPS; include `catalog/catalog/staff/` in backups |
+| New code | Rebuild locally; re-upload `server/dist` + `web/dist`; `systemctl restart techxpert-api` |
+| New SQL | Run file from `server/sql/` on MySQL |
+| New pictures | Sync only `server/catalog/catalog/` |
+| Staff portal uploads | Already written under `catalog/catalog/staff/` on the VPS — back that up |
 
-## Rollback
+## Do not
 
-Keep the previous `server/dist` and `web/dist` folders renamed (`dist.bak`). Point them back and restart the service. Picture files are independent of the Node build.
+- Upload `app/` to the VPS  
+- Commit or upload `catalog/catalog` into GitHub  
+- Point `DB_STORE` at `techxpert_commerce`  
+- Overwrite `.env` or wipe `catalog/catalog` on a code-only deploy  
