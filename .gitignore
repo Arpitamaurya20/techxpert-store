@@ -56,5 +56,7 @@ app/android/
 *.tsbuildinfo
 
 # Product picture files and local catalog dumps (served from disk; too large for git)
+server/catalog.zip
 server/catalog/**
 !server/catalog/README.md
+server/src/scripts/comprehensiveWalkthrough.ts
