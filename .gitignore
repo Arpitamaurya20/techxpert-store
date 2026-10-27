@@ -54,3 +54,7 @@ app/android/
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Product picture files and local catalog dumps (served from disk; too large for git)
+server/catalog/**
+!server/catalog/README.md

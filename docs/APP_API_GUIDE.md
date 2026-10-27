@@ -111,7 +111,7 @@ The API answers on both `/api/...` and `/...`. This guide writes paths without t
 - In catalogue answers, `price` and `originalPrice` are strings such as `"149.00"`, so convert them before doing maths.
 - Never work out totals in the app. Show the server's numbers.
 
-**Images:** `imageUrl` on products and categories is a path such as `store/assets/catalog/...` that no server hosts yet, so it won't load. Banner `imageUrl` values are full addresses.
+**Images:** product and category `imageUrl` values are full addresses from the API when the picture files are present under `server/catalog/catalog/` (the database still stores `store/assets/catalog/...`). Banner `imageUrl` values are also full addresses. A product with no matching file still returns an address; the image request then 404s and the app shows its fallback.
 
 ## 6. Local shortcuts (never in production)
 
@@ -708,7 +708,7 @@ Each item was found while writing this guide. They are for the app team unless m
 - **Sign-in:** the app signs in with `POST /auth/login`, which production refuses. Move it to use case 7 (send and verify a code).
 - **Sign-in texts:** locally the code is `123456` and nothing is texted. Production uses Homecare's sign-in template (`PRP_SMS_TEMPLATE_NAME`). It needs `OTP_SMS_PROVIDER` (or `SMS_PROVIDER`) set to `prp` and `PRP_SMS_API_KEY`. Do not point it at `PRP_ORDER_TEMPLATE_NAME`.
 - **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
-- **Images:** product and category images are relative paths that no server hosts (section 5).
+- **Images:** the API serves files from `server/catalog/catalog/` at `/store/assets/catalog/…`. Keep that folder on the machine that runs the API; it is not in git. Staff can change a product's cover in the portal (upload or paste a `store/assets/catalog/…` path). Uploads are stored under `store/assets/catalog/staff/<productId>/`.
 - **Store stock:** the product page and the cart show the company figure. Checkout already applies a store quantity when staff have set one for the pincode's store. The phone does not need a new field for that.
 - **Home:** the app reads the published lists (use cases 13 to 19). They are empty until staff fill them, and an empty list draws nothing. Banners can't open outside links yet (use case 1).
 - **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.

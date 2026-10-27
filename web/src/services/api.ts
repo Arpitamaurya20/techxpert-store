@@ -313,10 +313,31 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
   return (json.data !== undefined ? json.data : json) as T;
 }
 
-/** Campaign uploads are served by the API. Other relative paths stay on this portal. */
+/** Campaign and product pictures on the API become full addresses for the portal. */
 export function resolvePortalAsset(url: string): string {
   const raw = url.trim();
+  if (!raw) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
   if (raw.startsWith('/uploads/')) return `${API_BASE_URL}${raw}`;
+  if (raw.startsWith('/store/assets/catalog/')) return `${API_BASE_URL}${encodeURI(raw)}`;
+  if (raw.startsWith('store/assets/catalog/')) return `${API_BASE_URL}${encodeURI(`/${raw}`)}`;
+  return raw;
+}
+
+/** Turn an API image address back into the value stored on the product. */
+export function toStoredProductImage(url: string): string {
+  const raw = url.trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const path = decodeURIComponent(new URL(raw).pathname);
+      if (path.startsWith('/store/assets/catalog/')) return path.slice(1);
+    } catch {
+      return raw;
+    }
+    return raw;
+  }
+  if (raw.startsWith('/store/assets/catalog/')) return raw.slice(1);
   return raw;
 }
 
@@ -389,6 +410,30 @@ export const api = {
     fetchApi<any>('/catalog/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: string, data: any) =>
     fetchApi<any>(`/catalog/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  uploadProductImage: async (productId: string, file: File) => {
+    const token = getToken();
+    const body = new FormData();
+    body.append('file', file);
+    const res = await reach(`${API_BASE_URL}/catalog/products/${encodeURIComponent(productId)}/media`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'x-client': 'portal',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body,
+    });
+    const json = (await res.json().catch(() => ({}))) as ApiEnvelope<{ imageUrl?: string }>;
+    if (res.status === 401) {
+      clearSession();
+      onUnauthorized?.();
+      throw new Error(json.error || 'Session expired — please sign in again');
+    }
+    if (!res.ok || !json.data?.imageUrl) {
+      throw new Error(json.error || 'Could not store that image');
+    }
+    return { imageUrl: json.data.imageUrl };
+  },
   getProductStoreStock: (id: string) =>
     fetchApi<{
       variants: {

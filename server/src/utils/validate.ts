@@ -1,3 +1,4 @@
+import { normalizeProductImageForDb } from './catalogMedia.js';
 import { readStockReason } from './stockReason.js';
 
 /** Lightweight request-body guards for merchandising writes (L4). */
@@ -103,6 +104,7 @@ export function validateProductUpdateBody(body: any) {
   if (body?.description !== undefined) optionalString(body.description, 'description', { max: 5000 });
   if (body?.quantityStep !== undefined) next.quantityStep = quantityStepValue(body.quantityStep);
   if (body?.stockReason !== undefined) next.stockReason = readStockReason(body.stockReason);
+  if (body?.imageUrl !== undefined) next.imageUrl = normalizeProductImageForDb(body.imageUrl);
   return next;
 }
 

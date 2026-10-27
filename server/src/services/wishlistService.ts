@@ -3,6 +3,7 @@ import { storePool } from '../db/mysql.js';
 import { orderRefusal } from '../utils/checkoutPricing.js';
 import { isUsableSessionId, newSessionId } from '../utils/cartRules.js';
 import { mergeSavedIds, savedAvailability, savedProductIds, WISHLIST_MAX } from '../utils/wishlist.js';
+import { resolveCatalogImageUrl } from '../utils/catalogMedia.js';
 
 export type WishlistAccess = { userId?: number; sessionId?: string };
 
@@ -55,7 +56,7 @@ function toItem(row: any): SavedItem {
     productId: Number(row.productId),
     name: String(row.name || 'Construction Material'),
     sku: row.sku == null ? null : String(row.sku),
-    imageUrl: row.imageUrl == null || row.imageUrl === '' ? null : String(row.imageUrl),
+    imageUrl: resolveCatalogImageUrl(row.imageUrl),
     categoryId: row.categoryId == null ? null : Number(row.categoryId),
     brandName: row.brandName == null || row.brandName === '' ? null : String(row.brandName),
     unit: String(row.unit || 'unit'),

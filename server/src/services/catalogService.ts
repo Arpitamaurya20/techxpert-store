@@ -8,6 +8,7 @@ import { changedStock, stockChangeDetails, stockChangeRefusal, type StockFigure,
 import { productPageUpdates } from '../utils/productPage.js';
 import { variantStockUpdates } from '../utils/variants.js';
 import { badRequest } from '../utils/validate.js';
+import { resolveCatalogGallery, resolveCatalogImageUrl } from '../utils/catalogMedia.js';
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 
@@ -123,6 +124,9 @@ export class CatalogService {
          WHERE c.IsActive = 1
          ORDER BY c.DisplayOrder ASC`
       );
+      for (const row of rows) {
+        row.imageUrl = resolveCatalogImageUrl(row.imageUrl) ?? '';
+      }
       return rows;
     } catch (err) {
       return mysqlOrFileStore('catalog.getCategories', err, () => store.getCategories());
@@ -145,6 +149,9 @@ export class CatalogService {
       }
       query += ` ORDER BY DisplayOrder ASC`;
       const [rows] = await storePool.query<any[]>(query, params);
+      for (const row of rows) {
+        row.imageUrl = resolveCatalogImageUrl(row.imageUrl) ?? '';
+      }
       return rows;
     } catch (err) {
       return mysqlOrFileStore('catalog.getSubcategories', err, () =>
@@ -487,6 +494,9 @@ export class CatalogService {
       `;
 
       const [rows] = await storePool.query<any[]>(dataQuery, [...queryParams, limit, offset]);
+      for (const row of rows) {
+        row.imageUrl = resolveCatalogImageUrl(row.imageUrl) ?? '';
+      }
 
       return {
         products: rows,
@@ -585,6 +595,8 @@ export class CatalogService {
         const page = await CatalogService.readProductPage(Number(prod.id));
         prod.highlights = page.highlights;
         prod.specifications = page.specifications;
+        prod.imageUrl = resolveCatalogImageUrl(prod.imageUrl) ?? '';
+        prod.gallery = resolveCatalogGallery(prod.gallery);
         return prod;
       }
       return null;
@@ -730,7 +742,7 @@ export class CatalogService {
 
   /** `data` comes from `validateProductUpdateBody`: `price: null` removes the price, `brandName: null` clears it. */
   static async updateProduct(id: string | number, data: any, actorName = 'Staff') {
-    const { name, price, stockQuantity, description, brandName, unit, quantityStep } = data;
+    const { name, price, stockQuantity, description, brandName, unit, quantityStep, imageUrl } = data;
     const hasNewPrice = typeof price === 'number';
 
     try {
@@ -757,6 +769,7 @@ export class CatalogService {
              ProductName = COALESCE(?, ProductName),
              ProductDescription = COALESCE(?, ProductDescription),
              Brand = IF(? = 1, ?, Brand),
+             ProductImage = IF(? = 1, ?, ProductImage),
              StockStatus = COALESCE(?, StockStatus),
              MeasurementUnitID = COALESCE(?, MeasurementUnitID),
              QuantityStep = IF(? = 1, ?, QuantityStep),
@@ -768,6 +781,8 @@ export class CatalogService {
             description !== undefined ? description : null,
             brandName !== undefined ? 1 : 0,
             brandName ?? null,
+            imageUrl !== undefined ? 1 : 0,
+            imageUrl ?? '',
             stockStatus,
             measurementUnitId,
             quantityStep !== undefined ? 1 : 0,

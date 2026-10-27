@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { bannerUploadRoot } from './utils/bannerMedia.js';
+import { catalogImageRoot } from './utils/catalogMedia.js';
 import catalogRouter from './routes/catalog.js';
 import authRouter from './routes/auth.js';
 import ordersRouter from './routes/orders.js';
@@ -25,6 +26,8 @@ getJwtSecret();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
+// Empty locally. On the VPS set HOST=127.0.0.1 so only Apache on this machine reaches Node.
+const HOST = process.env.HOST?.trim() || undefined;
 
 // Middleware — CORS allowlist required in production (see getCorsOptions)
 app.use(cors(getCorsOptions()));
@@ -33,6 +36,20 @@ app.use(cors(getCorsOptions()));
 app.use(
   '/uploads',
   express.static(path.join(bannerUploadRoot), {
+    index: false,
+    dotfiles: 'deny',
+    fallthrough: false,
+    setHeaders(res) {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    },
+  })
+);
+
+// Product pictures. DB paths are store/assets/catalog/...; files live in server/catalog/catalog/.
+app.use(
+  '/store/assets/catalog',
+  express.static(catalogImageRoot, {
     index: false,
     dotfiles: 'deny',
     fallthrough: false,
@@ -133,8 +150,8 @@ app.get('/', (_req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Techxpert Backend API running on http://localhost:${PORT}`);
+const onListen = () => {
+  console.log(`🚀 Techxpert Backend API running on http://${HOST || 'localhost'}:${PORT}`);
   console.log(
     `📡 Ready for Expo Mobile App connection via EXPO_PUBLIC_API_BASE_URL=http://localhost:${PORT}`
   );
@@ -142,6 +159,8 @@ app.listen(PORT, () => {
   testDbConnections()
     .then(logDbBootStatus)
     .catch((e) => console.warn('[DB] boot probe failed', e));
-});
+};
+if (HOST) app.listen(Number(PORT), HOST, onListen);
+else app.listen(Number(PORT), onListen);
 
 export default app;
