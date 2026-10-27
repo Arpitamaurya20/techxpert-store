@@ -62,4 +62,13 @@ describe('validateProductUpdateBody', () => {
     assert.equal(validateProductUpdateBody({ stockReason: '' }).stockReason, null);
     refusal(() => validateProductUpdateBody({ stockReason: 'stolen' }), /received, counted, or damaged/);
   });
+
+  it('normalises the product picture path', () => {
+    assert.equal(
+      validateProductUpdateBody({ imageUrl: '/store/assets/catalog/Fans/fan.jpg' }).imageUrl,
+      'store/assets/catalog/Fans/fan.jpg'
+    );
+    assert.equal(validateProductUpdateBody({ imageUrl: '' }).imageUrl, '');
+    refusal(() => validateProductUpdateBody({ imageUrl: 'images/fan.jpg' }), /store\/assets\/catalog/);
+  });
 });

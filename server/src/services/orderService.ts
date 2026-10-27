@@ -18,6 +18,7 @@ import { orderSource, type OrderSource } from '../utils/staffOrder.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { deliveryPromise } from '../utils/deliveryPromise.js';
 import { checkoutPlacement } from '../utils/shopSettings.js';
+import { resolveCatalogImageUrl } from '../utils/catalogMedia.js';
 import { StaffAlertService } from './staffAlertService.js';
 import { OrderNoticeService } from './orderNoticeService.js';
 import { OrderProblemService } from './orderProblemService.js';
@@ -304,7 +305,7 @@ export class OrderService {
         productId: Number(row.productId),
         name: String(row.name || 'Construction Material'),
         sku: row.sku == null ? null : String(row.sku),
-        imageUrl: row.imageUrl == null || row.imageUrl === '' ? null : String(row.imageUrl),
+        imageUrl: resolveCatalogImageUrl(row.imageUrl),
         categoryId: row.categoryId == null ? null : Number(row.categoryId),
         unit: String(row.unit || 'unit'),
         active: Number(row.active) === 1,

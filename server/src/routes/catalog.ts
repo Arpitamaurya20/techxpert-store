@@ -4,6 +4,8 @@ import { StoreStockService } from '../services/storeStockService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { accessActor, isActiveStaff, optionalAuth, requireAdmin, requirePermission } from '../middleware/auth.js';
 import { validateProductCreateBody, validateProductUpdateBody } from '../utils/validate.js';
+import { readBannerUpload } from '../utils/bannerMedia.js';
+import { storeProductImage } from '../utils/catalogMedia.js';
 
 const router = Router();
 
@@ -152,6 +154,22 @@ router.get(
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return sendError(res, 404, 'Product not found');
     return sendSuccess(res, await StoreStockService.forProduct(id));
+  })
+);
+
+// POST /catalog/products/:id/media — store a JPEG, PNG, or WebP up to 2 MB for this product
+router.post(
+  '/products/:id/media',
+  requireAdmin,
+  requirePermission('products', 'edit'),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return sendError(res, 404, 'Product not found');
+    const existing = await CatalogService.getProductById(id);
+    if (!existing) return sendError(res, 404, 'Product not found');
+    const bytes = await readBannerUpload(req);
+    const stored = await storeProductImage(id, bytes);
+    return sendSuccess(res, stored, 'Product image stored', 201);
   })
 );
 

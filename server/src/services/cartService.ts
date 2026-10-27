@@ -18,6 +18,7 @@ import {
   type LineProblem,
 } from '../utils/cartRules.js';
 import { ShopSettingsService } from './shopSettingsService.js';
+import { resolveCatalogImageUrl } from '../utils/catalogMedia.js';
 
 export type CartAccess = { userId?: number; sessionId?: string };
 
@@ -171,7 +172,7 @@ export class CartService {
         name: String(row.name),
         brandName: row.brandName ?? null,
         categoryId: row.categoryId != null ? String(row.categoryId) : null,
-        imageUrl: row.imageUrl ?? null,
+        imageUrl: resolveCatalogImageUrl(row.imageUrl),
         unit: String(row.unit),
         quantity,
         basePrice: priced.basePrice,

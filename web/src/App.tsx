@@ -546,6 +546,7 @@ function PortalApp({
       stockQuantity: Number(saved?.stockQuantity ?? updated.stockQuantity),
       stockStatus: saved?.stockStatus ?? updated.stockStatus,
       unit: saved?.unit ?? updated.unit,
+      imageUrl: saved?.imageUrl ?? updated.imageUrl,
     };
     setProducts((prev) => prev.map((p) => (p.id === updated.id ? next : p)));
     addAuditLog(

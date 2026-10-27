@@ -78,7 +78,10 @@ Set these for the API process (`NODE_ENV=production`):
 | `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD` | Production MySQL | — |
 | `DB_STORE`, `DB_USERS` | Only if the schemas aren't named `techxpertstore` and `homecare` | — |
 | `PORT` | The API's port | — |
-| `PUBLIC_API_ORIGIN` | The API's public address, e.g. `https://api.example.in` | Banner images uploaded in the portal (`/uploads/…`) are sent to the phone as full addresses |
+| `PUBLIC_API_ORIGIN` | The API's public address, e.g. `https://api.example.in` | Banner and product pictures become full addresses. Required in production |
+| `HOST` | `127.0.0.1` on the VPS | Optional. Keeps Node off the public interface; Apache proxies to it |
+
+**Product pictures:** copy `server/catalog/catalog/` onto the API host (same layout as the DB paths `store/assets/catalog/…`). Not in git. FileZilla steps: [`DEPLOY_VPS.md`](./DEPLOY_VPS.md).
 | `ASSET_BASE_URL` | Where other relative banner images live, if any | Optional |
 
 **Must not be set:** `ALLOW_DEV_ADMIN` and `ALLOW_FILE_STORE`. Both are ignored when `NODE_ENV=production`, but they shouldn't be there.
@@ -104,7 +107,7 @@ The A3 API needs the A3 portal (staff list, first-sign-in screen), so they ship 
    - It shows any active super admins, then offers a new store login (name, email, password typed twice and never shown) or a link to the person's Homecare login.
    - An email that already has a store login, or is already linked, is offered a promotion instead.
 4. [ ] **Go live together:**
-   - Start the API from `server/` with `npm start` (`node dist/index.js`) under your process manager.
+   - Start the API from `server/` with `npm start` (`node dist/index.js`) under your process manager. For FileZilla + Apache + product pictures, follow [`DEPLOY_VPS.md`](./DEPLOY_VPS.md).
    - Publish `web/dist/` as static files. The portal uses `#` routes, so no server rewrites are needed.
    - Everyone signs in again.
 

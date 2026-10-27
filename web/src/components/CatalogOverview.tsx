@@ -15,7 +15,7 @@ import {
   useConfirm,
 } from './ui';
 import type { Column, StatItem } from './ui';
-import { api } from '../services/api';
+import { api, resolvePortalAsset, toStoredProductImage } from '../services/api';
 import { inr } from '../services/format';
 
 export type NewProductInput = {
@@ -69,6 +69,8 @@ interface ProductForm {
   sku: string;
   brandName: string;
   description: string;
+  /** Cover picture as stored: store/assets/catalog/…, https://…, or empty. */
+  imageUrl: string;
   variantStocks: { id: number; name: string; stock: string }[];
   storeStock: { variantId: number; variantName: string; storeId: number; storeName: string; quantity: string }[];
   stockReason: '' | 'received' | 'counted' | 'damaged';
@@ -88,6 +90,7 @@ const formFor = (product: Product | null): ProductForm => ({
   sku: product?.sku ?? '',
   brandName: product?.brandName ?? '',
   description: product?.description ?? '',
+  imageUrl: toStoredProductImage(product?.imageUrl ?? ''),
   variantStocks:
     (product?.variants?.length ?? 0) > 1
       ? product!.variants!.map((variant) => ({
@@ -375,7 +378,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
           <div style={styles.thumb}>
             {p.imageUrl ? (
               <img
-                src={p.imageUrl}
+                src={resolvePortalAsset(p.imageUrl)}
                 alt=""
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 onError={(e) => {
@@ -563,6 +566,7 @@ export const CatalogOverview: React.FC<CatalogOverviewProps> = ({
                 quantityStep: Number(form.quantityStep),
                 brandName: form.brandName.trim(),
                 description: form.description.trim(),
+                imageUrl: form.imageUrl.trim(),
                 highlights: form.highlights.map((row) => row.text.trim()).filter(Boolean),
                 specifications: form.specifications
                   .filter((row) => row.label.trim() || row.value.trim())
@@ -615,6 +619,31 @@ const ProductFormDialog: React.FC<{
   const [form, setForm] = useState<ProductForm>(() => formFor(editing));
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const uploadCover = async (file: File | undefined) => {
+    if (!editing || !file) return;
+    if (file.type && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setUploadError('Use a JPEG, PNG or WebP image.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadError('Use an image of 2 MB or less.');
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const stored = await api.uploadProductImage(editing.id, file);
+      setForm((prev) => ({ ...prev, imageUrl: stored.imageUrl }));
+      if (errors.imageUrl || errors.form) setErrors((prev) => ({ ...prev, imageUrl: undefined, form: undefined }));
+    } catch (err) {
+      setUploadError(`Not uploaded: ${err instanceof Error ? err.message : "the server didn't answer."}`);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const set = (key: keyof ProductForm) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
@@ -697,7 +726,7 @@ const ProductFormDialog: React.FC<{
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" type="submit" form={formId} loading={saving}>
+          <Button size="sm" type="submit" form={formId} loading={saving} disabled={uploading}>
             {editing ? 'Save changes' : 'Add product'}
           </Button>
         </>
@@ -713,6 +742,45 @@ const ProductFormDialog: React.FC<{
             placeholder="UltraTech OPC 53 Grade Cement 50 kg"
           />
         </Field>
+        {editing ? (
+          <>
+            {form.imageUrl ? (
+              <div style={styles.coverPreview}>
+                <img src={resolvePortalAsset(form.imageUrl)} alt="" style={styles.coverImg} />
+              </div>
+            ) : null}
+            <Field
+              id={`${formId}-upload`}
+              label="Upload a cover image"
+              error={uploadError}
+              hint={uploading ? 'Uploading…' : 'JPEG, PNG or WebP, up to 2 MB. Fills in the path below.'}
+            >
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={uploading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  void uploadCover(file);
+                }}
+              />
+            </Field>
+            <Field
+              id={`${formId}-image`}
+              label="Cover image"
+              error={errors.imageUrl}
+              hint="Filled by an upload, or paste store/assets/catalog/… or https://…. Empty clears the picture."
+            >
+              <input
+                value={form.imageUrl}
+                onChange={set('imageUrl')}
+                maxLength={500}
+                placeholder="store/assets/catalog/…"
+              />
+            </Field>
+          </>
+        ) : null}
         {editing ? null : (
           <Field id={`${formId}-category`} label="Category" error={errors.categoryId}>
             <select value={form.categoryId} onChange={set('categoryId')}>
@@ -1000,5 +1068,21 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: '12px',
     alignItems: 'flex-start',
+  },
+  coverPreview: {
+    width: '100%',
+    height: '160px',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--bg-surface-elevated)',
+    border: '1px solid var(--border-subtle)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  coverImg: {
+    maxWidth: '100%',
+    maxHeight: '100%',
+    objectFit: 'contain',
   },
 };
