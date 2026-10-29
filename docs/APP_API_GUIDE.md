@@ -2,7 +2,9 @@
 
 For whoever builds the customer app (`app/`). It covers getting the API running on your own machine, pointing the app at it, and every app flow with the exact calls, real request and response examples, and the refusals each one can give.
 
-Everything below was checked against a local API on 26 Oct 2026, including sign-in, the priced product list, the cart, and cash checkout. Example values come from the shared local database; the personal details in the signed-in examples are placeholders.
+**Start here for production context:** [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) — live host `https://store.jiotechxpert.com`, COD checkout ready, PayU not built, and how to keep the Expo `app/` structure when applying shared UI designs.
+
+Everything below was checked against a local API on 26 Oct 2026, including sign-in, the priced product list, the cart, and cash checkout. Example values come from the shared local database; the personal details in the signed-in examples are placeholders. Against production, set `EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/api` (see the handover).
 
 ---
 
