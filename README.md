@@ -25,6 +25,8 @@ techxpert-store/
 
 All cross-cutting specifications and architectural blueprints reside in the [`docs/`](./docs) directory:
 
+- 📱 [**App team handover**](./docs/APP_TEAM_HANDOVER.md) — Live API URL, what is built through COD checkout (PayU later), Expo `app/` folder structure, and how to apply shared UI designs.
+- 🔌 [**App API guide**](./docs/APP_API_GUIDE.md) — Local API setup and every customer use case with real requests and responses.
 - 📋 [**Software Requirements Specification (SRS)**](./docs/SRS.md) — Comprehensive requirements covering customer mobile workflows, CMS merchandising, bulk pricing models, and acceptance criteria.
 - 🗄️ [**Database Schema Proposal**](./docs/DATABASE_SCHEMA.md) — Relational MySQL 8.0 schema detailing categories, products, bulk price tiers, inventory movements, carts, orders, and CMS banners.
 - 🏛️ [**System Architecture**](./docs/ARCHITECTURE.md) — System boundaries, client-backend interaction, and source-of-truth principles.
