@@ -10,6 +10,7 @@
     "start": "node dist/index.js",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "proof:desk": "tsx src/scripts/deskProof.ts",
+    "proof:cards": "tsx src/scripts/cardParity.ts",
     "staff:bootstrap": "tsx src/scripts/staffBootstrap.ts"
   },
   "dependencies": {

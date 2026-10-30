@@ -6,6 +6,10 @@ import { accessActor, isActiveStaff, optionalAuth, requireAdmin, requirePermissi
 import { validateProductCreateBody, validateProductUpdateBody } from '../utils/validate.js';
 import { readBannerUpload } from '../utils/bannerMedia.js';
 import { storeProductImage } from '../utils/catalogMedia.js';
+import { cardSearchTerm, parseProductListOptions } from '../utils/productList.js';
+
+/** A product list slower than this is logged, so the slow ones show up without a profiler. */
+const SLOW_LIST_MS = 300;
 
 const router = Router();
 
@@ -103,14 +107,20 @@ router.get(
 );
 
 // GET /catalog/products
+// Default answer is the full row, unchanged. `view=card` is the lean phone list (docs/APP_API_GUIDE.md UC-3).
 router.get(
   '/products',
   optionalAuth,
   asyncHandler(async (req, res) => {
+    const started = process.hrtime.bigint();
     const { search, categoryId, subcategoryId, brandId, featured, page, limit } = req.query;
+    const options = parseProductListOptions(req.query as Record<string, unknown>);
+    const card = options.view === 'card';
+    // The card view refuses a one-letter search; the full view keeps accepting anything.
+    const searchText = card ? cardSearchTerm(search) : search ? String(search) : undefined;
     const staff = await isActiveStaff(req);
     const result = await CatalogService.getProducts({
-      search: search ? String(search) : undefined,
+      search: searchText,
       categoryId: categoryId ? String(categoryId) : undefined,
       subcategoryId: subcategoryId ? String(subcategoryId) : undefined,
       brandId: brandId ? String(brandId) : undefined,
@@ -118,7 +128,24 @@ router.get(
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       pricedOnly: !staff,
+      view: options.view,
+      includeTotal: options.includeTotal,
+      after: options.after,
     });
+
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    res.setHeader('Server-Timing', `app;dur=${ms.toFixed(1)}`);
+    if (ms > SLOW_LIST_MS) {
+      console.warn(`[slow] GET /catalog/products ${ms.toFixed(0)}ms view=${options.view} q=${JSON.stringify(req.query)}`);
+    }
+    if (card) {
+      // Customers and guests see the same list, so a phone may reuse it briefly. Staff never.
+      res.vary('Authorization');
+      res.setHeader(
+        'Cache-Control',
+        staff ? 'private, no-store' : 'public, max-age=30, stale-while-revalidate=120'
+      );
+    }
     return sendSuccess(res, result.products, undefined, 200, result.meta);
   })
 );

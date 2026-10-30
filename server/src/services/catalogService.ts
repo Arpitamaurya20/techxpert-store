@@ -11,6 +11,7 @@ import { badRequest } from '../utils/validate.js';
 import { resolveCatalogGallery, resolveCatalogImageUrl } from '../utils/catalogMedia.js';
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
+import { CARD_LIMIT_MAX, FULL_LIMIT_MAX, escapeLike, trimCardPage } from '../utils/productList.js';
 
 function refuseTakenCode(err: any, what: string) {
   if (err?.code === 'ER_DUP_ENTRY') {
@@ -31,6 +32,12 @@ export interface ProductFilterParams {
   limit?: number;
   /** Customer listings hide products with no active selling price. The portal does not. */
   pricedOnly?: boolean;
+  /** `card` is the lean phone list. Anything else is the full row. */
+  view?: 'full' | 'card';
+  /** Card view: false skips the COUNT query. Defaults to true. */
+  includeTotal?: boolean;
+  /** Card view: continue after this product id. */
+  after?: number;
 }
 
 /**
@@ -411,48 +418,60 @@ export class CatalogService {
     }
   }
 
+  /**
+   * WHERE clause shared by the full and the card list, so a filter can never differ between them.
+   * `cardSearch` escapes % and _ in the search text; the full list keeps its old behaviour.
+   */
+  private static productWhere(params: ProductFilterParams, opts: { cardSearch?: boolean } = {}) {
+    let whereClause = `WHERE p.IsActive = 1`;
+    const queryParams: any[] = [];
+
+    if (params.search) {
+      whereClause += ` AND (p.ProductName LIKE ? OR p.ProductCode LIKE ? OR p.Brand LIKE ?)`;
+      const s = `%${opts.cardSearch ? escapeLike(params.search) : params.search}%`;
+      queryParams.push(s, s, s);
+    }
+
+    if (params.categoryId) {
+      whereClause += ` AND p.CategoryID = ?`;
+      queryParams.push(params.categoryId);
+    }
+
+    if (params.subcategoryId) {
+      whereClause += ` AND p.SubCategoryID = ?`;
+      queryParams.push(params.subcategoryId);
+    }
+
+    if (params.brandId) {
+      whereClause += ` AND p.Brand = ?`;
+      queryParams.push(params.brandId);
+    }
+
+    if (params.featured !== undefined) {
+      whereClause += ` AND p.IsFeatured = ?`;
+      queryParams.push(params.featured ? 1 : 0);
+    }
+
+    if (params.pricedOnly) {
+      whereClause += ` AND EXISTS (
+          SELECT 1 FROM product_pricing pr
+          WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+        )`;
+    }
+
+    return { whereClause, queryParams };
+  }
+
   static async getProducts(params: ProductFilterParams) {
+    if (params.view === 'card') return CatalogService.getProductCards(params);
+
     // Portal desk pages; hard cap avoids accidental full-table dumps of 100k+ SKUs
-    const limit = Math.min(Math.max(Number(params.limit) || 50, 1), 200);
+    const limit = Math.min(Math.max(Number(params.limit) || 50, 1), FULL_LIMIT_MAX);
     const page = Math.max(Number(params.page) || 1, 1);
     const offset = (page - 1) * limit;
 
     try {
-      let whereClause = `WHERE p.IsActive = 1`;
-      const queryParams: any[] = [];
-
-      if (params.search) {
-        whereClause += ` AND (p.ProductName LIKE ? OR p.ProductCode LIKE ? OR p.Brand LIKE ?)`;
-        const s = `%${params.search}%`;
-        queryParams.push(s, s, s);
-      }
-
-      if (params.categoryId) {
-        whereClause += ` AND p.CategoryID = ?`;
-        queryParams.push(params.categoryId);
-      }
-
-      if (params.subcategoryId) {
-        whereClause += ` AND p.SubCategoryID = ?`;
-        queryParams.push(params.subcategoryId);
-      }
-
-      if (params.brandId) {
-        whereClause += ` AND p.Brand = ?`;
-        queryParams.push(params.brandId);
-      }
-
-      if (params.featured !== undefined) {
-        whereClause += ` AND p.IsFeatured = ?`;
-        queryParams.push(params.featured ? 1 : 0);
-      }
-
-      if (params.pricedOnly) {
-        whereClause += ` AND EXISTS (
-          SELECT 1 FROM product_pricing pr
-          WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
-        )`;
-      }
+      const { whereClause, queryParams } = CatalogService.productWhere(params);
 
       // Count query for pagination meta
       const [countResult] = await storePool.query<any[]>(
@@ -519,6 +538,96 @@ export class CatalogService {
         return {
           products: fallback,
           meta: { page: 1, limit, total: fallback.length, totalPages: 1 },
+        };
+      });
+    }
+  }
+
+  /**
+   * Phone list (`view=card`). Same filters, same prices and stock rules as the full list, but:
+   * no description, createdAt or variantCount; no COUNT unless `includeTotal`; one extra row
+   * is read to say whether another page exists; `after` continues from a product id.
+   */
+  static async getProductCards(params: ProductFilterParams) {
+    const limit = Math.min(Math.max(Number(params.limit) || 20, 1), CARD_LIMIT_MAX);
+    const hasCursor = params.after !== undefined;
+    const page = hasCursor ? 1 : Math.max(Number(params.page) || 1, 1);
+    const offset = hasCursor ? 0 : (page - 1) * limit;
+
+    try {
+      const { whereClause, queryParams } = CatalogService.productWhere(params, { cardSearch: true });
+      const cursorClause = hasCursor ? ` AND p.ID > ?` : '';
+      const cursorParams = hasCursor ? [params.after] : [];
+
+      let total: number | undefined;
+      if (params.includeTotal !== false) {
+        const [countResult] = await storePool.query<any[]>(
+          `SELECT COUNT(*) as total FROM products p ${whereClause}`,
+          queryParams
+        );
+        total = Number(countResult[0]?.total) || 0;
+      }
+
+      const dataQuery = `
+        SELECT 
+          p.ID as id,
+          p.ProductCode as sku,
+          p.ProductName as name,
+          p.CategoryID as categoryId,
+          c.CategoryName as categoryName,
+          p.SubCategoryID as subcategoryId,
+          p.Brand as brandName,
+          p.ProductImage as imageUrl,
+          ${SHOP_STOCK_STATUS} as stockStatus,
+          p.MinOrderQuantity as minOrderQuantity,
+          p.MaxOrderQuantity as maxOrderQuantity,
+          p.QuantityStep as quantityStep,
+          p.IsFeatured as featured,
+          (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
+          (SELECT MIN(pr.MRP) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
+          COALESCE(mu.UnitName, 'unit') as unit,
+          ${SHOP_STOCK} as stockQuantity
+        FROM products p
+        JOIN categories c ON c.ID = p.CategoryID
+        LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
+        ${whereClause}${cursorClause}
+        ORDER BY p.ID ASC
+        LIMIT ? OFFSET ?
+      `;
+
+      const [fetched] = await storePool.query<any[]>(dataQuery, [
+        ...queryParams,
+        ...cursorParams,
+        limit + 1,
+        offset,
+      ]);
+      const { rows, hasMore, nextAfter } = trimCardPage(fetched, limit);
+      for (const row of rows) {
+        row.imageUrl = resolveCatalogImageUrl(row.imageUrl) ?? '';
+      }
+
+      return {
+        products: rows,
+        meta: {
+          ...(hasCursor ? {} : { page }),
+          limit,
+          hasMore,
+          nextAfter,
+          ...(total !== undefined ? { total, totalPages: Math.ceil(total / limit) } : {}),
+        },
+      };
+    } catch (err) {
+      return mysqlOrFileStore('catalog.getProductCards', err, () => {
+        const fallback = store.getProducts({
+          search: params.search,
+          categoryId: params.categoryId ? String(params.categoryId) : undefined,
+          brandId: params.brandId,
+          featured: params.featured,
+          limit,
+        });
+        return {
+          products: fallback,
+          meta: { page: 1, limit, hasMore: false, nextAfter: null, total: fallback.length, totalPages: 1 },
         };
       });
     }

@@ -230,7 +230,7 @@ A brand's `id` is its name. Pass it as `brandId` when listing products.
 
 | Query | Meaning |
 |---|---|
-| `search` | Text in the name or description |
+| `search` | Text in the product name, code or brand (not description) |
 | `categoryId` | Category ID |
 | `subcategoryId` | Subcategory ID |
 | `brandId` | Brand name from `GET /catalog/brands` |
@@ -247,6 +247,23 @@ GET /catalog/products?search=bulb&limit=2 → 200
     "unit": "unit", "stockQuantity": 500 } ],
   "meta": { "page": 1, "limit": 2, "total": 2720, "totalPages": 1360 } }
 ```
+
+**Lean list for phones.** Add `view=card` to get a smaller row: it leaves out `description`, `createdAt` and `variantCount`. Everything else is the same, including `price` and `originalPrice` as strings.
+
+| Query | Meaning |
+|---|---|
+| `view=card` | Lean rows. `limit` defaults to 20 and stops at 60. |
+| `total=false` | Skips the count. `meta` carries `hasMore` and `nextAfter` instead of `total`. |
+| `after=<id>` | Continue after this product id. Pass the previous page's `meta.nextAfter`. Needs `view=card`. |
+
+With `view=card`, `search` must have at least 2 characters after trimming, otherwise the answer is `400` with "Type at least 2 characters to search." The app should wait for 2 characters before calling. The text matches the product name, code and brand.
+
+```json
+GET /catalog/products?view=card&total=false&limit=20 → 200
+{ "success": true, "data": [ … ], "meta": { "limit": 20, "hasMore": true, "nextAfter": 1840, "page": 1 } }
+```
+
+A customer list may be reused for 30 seconds. Without `view=card`, nothing changes.
 
 **App rules:**
 - A customer list contains only products with an active selling price. An unpriced product is missing from search and category lists. Opening it by id still returns it.
