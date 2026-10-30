@@ -272,12 +272,27 @@ GET /catalog/products?search=bulb&limit=2 → 200
 | `total=false` | Skips the count. `meta` carries `hasMore` and `nextAfter` instead of `total`. |
 | `after=<id>` | Continue after this product id. Pass the previous page's `meta.nextAfter`. Needs `view=card`. |
 
-With `view=card`, `search` must have at least 2 characters after trimming, otherwise the answer is `400` with "Type at least 2 characters to search." The app should wait for 2 characters before calling. The text matches the product name, code and brand.
+With `view=card`, `search` must have at least 2 characters after trimming, otherwise the answer is `400` with "Type at least 2 characters to search." The app should wait for 2 characters before calling. The text matches the product name, code and brand (not description). Card search also expands a small synonym map, ranks exact code → code prefix → name starts-with → relevance, and if that returns nothing for a multi-word query it retries with any-word match (`meta.relaxed: true` when that happens).
 
 ```json
 GET /catalog/products?view=card&total=false&limit=20 → 200
 { "success": true, "data": [ … ], "meta": { "limit": 20, "hasMore": true, "nextAfter": 1840, "page": 1 } }
 ```
+
+**Typeahead.** `GET /catalog/search/suggest?q=` (same 2-character rule; `search` is accepted as an alias for `q`). Returns up to about eight hits in three groups. Cached about 30 seconds on the API. When nothing matches, `didYouMean` may list close category or brand names (bigram help — not products). Staff tokens see unpriced products in the product group; customers do not.
+
+```json
+GET /catalog/search/suggest?q=fan → 200
+{ "success": true,
+  "data": {
+    "categories": [ { "id": 12, "name": "Fans" } ],
+    "brands": [ { "id": "Havells", "name": "Havells" } ],
+    "products": [ { "id": 5, "name": "48\" Ceiling Fan", "brandName": "Havells",
+      "imageUrl": "…", "price": "1999.00" } ]
+  } }
+```
+
+The home "Try searching" chips remain `GET /cms/search-suggestions` (use case 15). They are curated ideas, not live typeahead.
 
 A customer list may be reused for 30 seconds. Without `view=card`, nothing changes.
 
@@ -285,6 +300,7 @@ A customer list may be reused for 30 seconds. Without `view=card`, nothing chang
 - A customer list contains only products with an active selling price. An unpriced product is missing from search and category lists. Opening it by id still returns it.
 - `price: null` means the product can't be bought. Show it as unavailable and block Add to cart.
 - `stockStatus: "out_of_stock"` or `stockQuantity: 0` means it can't be added either.
+- Prefer `view=card` + `suggest` for the phone search UX; keep the full product list for the portal.
 
 ### UC-4 Product detail and the price for a quantity
 

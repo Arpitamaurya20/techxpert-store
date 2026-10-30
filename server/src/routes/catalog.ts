@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { CatalogService } from '../services/catalogService.js';
+import { CatalogSearchService } from '../services/catalogSearchService.js';
 import { StoreStockService } from '../services/storeStockService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { accessActor, isActiveStaff, optionalAuth, requireAdmin, requirePermission } from '../middleware/auth.js';
@@ -106,6 +107,28 @@ router.get(
     const brands = await CatalogService.getBrands();
     res.setHeader('Cache-Control', PUBLIC_LIST_CACHE_CONTROL);
     return sendSuccess(res, brands);
+  })
+);
+
+// GET /catalog/search/suggest?q=
+// Typeahead: categories, brands and products (lean rows). Same 2-character rule as card search.
+router.get(
+  '/search/suggest',
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const started = process.hrtime.bigint();
+    const staff = await isActiveStaff(req);
+    const result = await CatalogSearchService.suggest(req.query.q ?? req.query.search, {
+      pricedOnly: !staff,
+    });
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    res.setHeader('Server-Timing', `app;dur=${ms.toFixed(1)}`);
+    res.vary('Authorization');
+    res.setHeader(
+      'Cache-Control',
+      staff ? 'private, no-store' : 'public, max-age=30, stale-while-revalidate=120'
+    );
+    return sendSuccess(res, result);
   })
 );
 

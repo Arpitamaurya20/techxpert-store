@@ -13,6 +13,11 @@ import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 import { CARD_LIMIT_MAX, FULL_LIMIT_MAX, escapeLike, trimCardPage } from '../utils/productList.js';
 import { brandsCache, categoriesCache, invalidateCatalogListCaches } from '../utils/responseCache.js';
+import {
+  expandSearchTerms,
+  fulltextBooleanQuery,
+  searchWords,
+} from '../utils/catalogSearch.js';
 
 function refuseTakenCode(err: any, what: string) {
   if (err?.code === 'ER_DUP_ENTRY') {
@@ -39,6 +44,28 @@ export interface ProductFilterParams {
   includeTotal?: boolean;
   /** Card view: continue after this product id. */
   after?: number;
+  /** Card search: OR each word (zero-result fallback). */
+  relaxedSearch?: boolean;
+}
+
+/** Cached once per process: whether `ft_products_name_brand` exists. */
+let productsFulltextReady: boolean | null = null;
+
+async function productsHaveFulltext(): Promise<boolean> {
+  if (productsFulltextReady !== null) return productsFulltextReady;
+  try {
+    const [rows] = await storePool.query<any[]>(
+      `SELECT 1 AS ok FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'products'
+         AND INDEX_NAME = 'ft_products_name_brand'
+       LIMIT 1`
+    );
+    productsFulltextReady = rows.length > 0;
+  } catch {
+    productsFulltextReady = false;
+  }
+  return productsFulltextReady;
 }
 
 /**
@@ -437,16 +464,52 @@ export class CatalogService {
 
   /**
    * WHERE clause shared by the full and the card list, so a filter can never differ between them.
-   * `cardSearch` escapes % and _ in the search text; the full list keeps its old behaviour.
+   * Card search: synonyms, code prefix, optional FULLTEXT, escaped LIKE; full list keeps old behaviour.
    */
-  private static productWhere(params: ProductFilterParams, opts: { cardSearch?: boolean } = {}) {
+  private static productWhere(
+    params: ProductFilterParams,
+    opts: { cardSearch?: boolean; useFulltext?: boolean } = {}
+  ) {
     let whereClause = `WHERE p.IsActive = 1`;
     const queryParams: any[] = [];
 
     if (params.search) {
-      whereClause += ` AND (p.ProductName LIKE ? OR p.ProductCode LIKE ? OR p.Brand LIKE ?)`;
-      const s = `%${opts.cardSearch ? escapeLike(params.search) : params.search}%`;
-      queryParams.push(s, s, s);
+      if (opts.cardSearch) {
+        const parts: string[] = [];
+        if (params.relaxedSearch) {
+          for (const word of searchWords(params.search)) {
+            parts.push(`(p.ProductName LIKE ? OR p.ProductCode LIKE ? OR p.Brand LIKE ?)`);
+            const s = `%${escapeLike(word)}%`;
+            queryParams.push(s, s, s);
+          }
+        } else {
+          for (const term of expandSearchTerms(params.search)) {
+            parts.push(`(p.ProductName LIKE ? OR p.ProductCode LIKE ? OR p.Brand LIKE ?)`);
+            const s = `%${escapeLike(term)}%`;
+            queryParams.push(s, s, s);
+          }
+          parts.push(`p.ProductCode LIKE ?`);
+          queryParams.push(`${escapeLike(params.search)}%`);
+          if (opts.useFulltext) {
+            const ft = fulltextBooleanQuery(params.search);
+            if (ft) {
+              parts.push(`MATCH(p.ProductName, p.Brand) AGAINST (? IN BOOLEAN MODE)`);
+              queryParams.push(ft);
+            }
+          }
+        }
+        if (!parts.length) {
+          whereClause += ` AND (p.ProductName LIKE ? OR p.ProductCode LIKE ? OR p.Brand LIKE ?)`;
+          const s = `%${escapeLike(params.search)}%`;
+          queryParams.push(s, s, s);
+        } else {
+          whereClause += ` AND (${parts.join(' OR ')})`;
+        }
+      } else {
+        whereClause += ` AND (p.ProductName LIKE ? OR p.ProductCode LIKE ? OR p.Brand LIKE ?)`;
+        const s = `%${params.search}%`;
+        queryParams.push(s, s, s);
+      }
     }
 
     if (params.categoryId) {
@@ -561,9 +624,49 @@ export class CatalogService {
   }
 
   /**
+   * Ranked ORDER BY for card search: exact code → code prefix → name starts-with → FULLTEXT relevance → id.
+   * Without a search term, keep stable id order for keyset cursors.
+   */
+  private static cardSearchOrder(search: string | undefined, useFulltext: boolean) {
+    if (!search) {
+      return { orderSql: 'ORDER BY p.ID ASC', orderParams: [] as any[] };
+    }
+    const exact = search;
+    const codePrefix = `${escapeLike(search)}%`;
+    const namePrefix = `${escapeLike(search)}%`;
+    const ft = useFulltext ? fulltextBooleanQuery(search) : null;
+    if (ft) {
+      return {
+        orderSql: `ORDER BY
+          CASE
+            WHEN p.ProductCode = ? THEN 0
+            WHEN p.ProductCode LIKE ? THEN 1
+            WHEN p.ProductName LIKE ? THEN 2
+            ELSE 3
+          END ASC,
+          MATCH(p.ProductName, p.Brand) AGAINST (? IN BOOLEAN MODE) DESC,
+          p.ID ASC`,
+        orderParams: [exact, codePrefix, namePrefix, ft],
+      };
+    }
+    return {
+      orderSql: `ORDER BY
+        CASE
+          WHEN p.ProductCode = ? THEN 0
+          WHEN p.ProductCode LIKE ? THEN 1
+          WHEN p.ProductName LIKE ? THEN 2
+          ELSE 3
+        END ASC,
+        p.ID ASC`,
+      orderParams: [exact, codePrefix, namePrefix],
+    };
+  }
+
+  /**
    * Phone list (`view=card`). Same filters, same prices and stock rules as the full list, but:
    * no description, createdAt or variantCount; no COUNT unless `includeTotal`; one extra row
    * is read to say whether another page exists; `after` continues from a product id.
+   * Card search ranks hits and retries with any-word match when the first pass is empty.
    */
   static async getProductCards(params: ProductFilterParams) {
     const limit = Math.min(Math.max(Number(params.limit) || 20, 1), CARD_LIMIT_MAX);
@@ -572,52 +675,76 @@ export class CatalogService {
     const offset = hasCursor ? 0 : (page - 1) * limit;
 
     try {
-      const { whereClause, queryParams } = CatalogService.productWhere(params, { cardSearch: true });
-      const cursorClause = hasCursor ? ` AND p.ID > ?` : '';
-      const cursorParams = hasCursor ? [params.after] : [];
+      const useFulltext = Boolean(params.search) && (await productsHaveFulltext());
+      const run = async (filter: ProductFilterParams) => {
+        const { whereClause, queryParams } = CatalogService.productWhere(filter, {
+          cardSearch: true,
+          useFulltext: useFulltext && !filter.relaxedSearch,
+        });
+        const cursorClause = hasCursor ? ` AND p.ID > ?` : '';
+        const cursorParams = hasCursor ? [params.after] : [];
+        const { orderSql, orderParams } = CatalogService.cardSearchOrder(filter.search, useFulltext && !filter.relaxedSearch);
 
-      let total: number | undefined;
-      if (params.includeTotal !== false) {
-        const [countResult] = await storePool.query<any[]>(
-          `SELECT COUNT(*) as total FROM products p ${whereClause}`,
-          queryParams
-        );
-        total = Number(countResult[0]?.total) || 0;
+        let total: number | undefined;
+        if (params.includeTotal !== false) {
+          const [countResult] = await storePool.query<any[]>(
+            `SELECT COUNT(*) as total FROM products p ${whereClause}`,
+            queryParams
+          );
+          total = Number(countResult[0]?.total) || 0;
+        }
+
+        const dataQuery = `
+          SELECT 
+            p.ID as id,
+            p.ProductCode as sku,
+            p.ProductName as name,
+            p.CategoryID as categoryId,
+            c.CategoryName as categoryName,
+            p.SubCategoryID as subcategoryId,
+            p.Brand as brandName,
+            p.ProductImage as imageUrl,
+            ${SHOP_STOCK_STATUS} as stockStatus,
+            p.MinOrderQuantity as minOrderQuantity,
+            p.MaxOrderQuantity as maxOrderQuantity,
+            p.QuantityStep as quantityStep,
+            p.IsFeatured as featured,
+            (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
+            (SELECT MIN(pr.MRP) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
+            COALESCE(mu.UnitName, 'unit') as unit,
+            ${SHOP_STOCK} as stockQuantity
+          FROM products p
+          JOIN categories c ON c.ID = p.CategoryID
+          LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
+          ${whereClause}${cursorClause}
+          ${orderSql}
+          LIMIT ? OFFSET ?
+        `;
+
+        const [fetched] = await storePool.query<any[]>(dataQuery, [
+          ...queryParams,
+          ...cursorParams,
+          ...orderParams,
+          limit + 1,
+          offset,
+        ]);
+        return { fetched, total };
+      };
+
+      let { fetched, total } = await run(params);
+      let relaxed = false;
+      if (
+        params.search &&
+        !params.relaxedSearch &&
+        !hasCursor &&
+        page === 1 &&
+        fetched.length === 0 &&
+        searchWords(params.search).length > 1
+      ) {
+        ({ fetched, total } = await run({ ...params, relaxedSearch: true }));
+        relaxed = fetched.length > 0;
       }
 
-      const dataQuery = `
-        SELECT 
-          p.ID as id,
-          p.ProductCode as sku,
-          p.ProductName as name,
-          p.CategoryID as categoryId,
-          c.CategoryName as categoryName,
-          p.SubCategoryID as subcategoryId,
-          p.Brand as brandName,
-          p.ProductImage as imageUrl,
-          ${SHOP_STOCK_STATUS} as stockStatus,
-          p.MinOrderQuantity as minOrderQuantity,
-          p.MaxOrderQuantity as maxOrderQuantity,
-          p.QuantityStep as quantityStep,
-          p.IsFeatured as featured,
-          (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
-          (SELECT MIN(pr.MRP) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
-          COALESCE(mu.UnitName, 'unit') as unit,
-          ${SHOP_STOCK} as stockQuantity
-        FROM products p
-        JOIN categories c ON c.ID = p.CategoryID
-        LEFT JOIN measurement_units mu ON mu.ID = p.MeasurementUnitID
-        ${whereClause}${cursorClause}
-        ORDER BY p.ID ASC
-        LIMIT ? OFFSET ?
-      `;
-
-      const [fetched] = await storePool.query<any[]>(dataQuery, [
-        ...queryParams,
-        ...cursorParams,
-        limit + 1,
-        offset,
-      ]);
       const { rows, hasMore, nextAfter } = trimCardPage(fetched, limit);
       for (const row of rows) {
         row.imageUrl = resolveCatalogImageUrl(row.imageUrl) ?? '';
@@ -631,6 +758,7 @@ export class CatalogService {
           hasMore,
           nextAfter,
           ...(total !== undefined ? { total, totalPages: Math.ceil(total / limit) } : {}),
+          ...(relaxed ? { relaxed: true } : {}),
         },
       };
     } catch (err) {

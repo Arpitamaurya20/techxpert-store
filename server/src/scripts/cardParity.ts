@@ -27,13 +27,22 @@ async function compare(label: string, filters: Record<string, unknown>, pricedOn
   });
   const tag = `${label} (${pricedOnly ? 'customer' : 'staff'})`;
   console.log(`${tag}: ${full.products.length} rows`);
+  const searching = Boolean(filters.search);
 
-  if (full.products.length !== card.products.length) {
+  // Card search may return more rows (synonyms / FULLTEXT) and ranks differently from the full list.
+  if (!searching && full.products.length !== card.products.length) {
     fail(`${tag}: ${full.products.length} full rows vs ${card.products.length} card rows`);
     return;
   }
-  full.products.forEach((row: any, i: number) => {
-    const lean: any = card.products[i];
+
+  const fullById = new Map(full.products.map((r: any) => [String(r.id), r]));
+  for (const lean of card.products as any[]) {
+    const row = fullById.get(String(lean.id));
+    if (!row) {
+      // Synonym / FULLTEXT-only hits are allowed on the card path.
+      if (!searching) fail(`${tag}: card has product ${lean.id} missing from full list`);
+      continue;
+    }
     for (const key of SHARED) {
       if (JSON.stringify(row[key]) !== JSON.stringify(lean[key])) {
         fail(`${tag}: product ${row.id} ${key}: ${JSON.stringify(row[key])} vs ${JSON.stringify(lean[key])}`);
@@ -42,10 +51,12 @@ async function compare(label: string, filters: Record<string, unknown>, pricedOn
     for (const key of LEFT_OUT) {
       if (key in lean) fail(`${tag}: product ${row.id} card row still has ${key}`);
     }
-  });
+  }
   if ('total' in (card.meta as any)) fail(`${tag}: card meta has total although total=false`);
 
-  // Cursor: first 10, then continue after the last one; must equal rows 11..20 of the full list.
+  // Cursor proof needs shared ID order; skip when card search ranks hits.
+  if (searching) return;
+
   const first = await CatalogService.getProducts({ ...filters, pricedOnly, limit: 10, view: 'card', includeTotal: false });
   const next = (first.meta as any).nextAfter;
   if (next != null) {

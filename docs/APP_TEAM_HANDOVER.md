@@ -123,7 +123,7 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 |---|---|---|
 | 1 | Home | Banners, sections, shortcuts, projects, deals, trust, search ideas |
 | 2 | Categories / brands | Public catalog lists |
-| 3 | Product list + search | Use **priced** customer list; respect `quantityStep` |
+| 3 | Product list + search | Use **priced** `view=card` list; typeahead `GET /catalog/search/suggest?q=`; respect `quantityStep` |
 | 4 | Product detail | Variants, gallery, bulk tiers, highlights/specs |
 | 5 | Pincode | Check before checkout; server refuses unserved areas |
 | 6 | Cart | Server cart; `PUT` lines with `variantId`; show server totals |
