@@ -9,6 +9,7 @@ import {
   layoutSections,
   type LayoutSection,
 } from '../data/homepageSections.js';
+import { invalidateHomeBootCache } from '../utils/responseCache.js';
 
 function withResolvedAssets<T extends { imageUrl?: string }>(row: T): T {
   if (!row?.imageUrl) return row;
@@ -101,6 +102,7 @@ export class CmsService {
         ]
       );
 
+      invalidateHomeBootCache();
       return withResolvedAssets({
         id: String(insertRes.insertId),
         title,
@@ -180,6 +182,7 @@ export class CmsService {
         ]
       );
 
+      invalidateHomeBootCache();
       const saved = (await CmsService.getBanners()).find((b: any) => String(b.id) === String(id));
       if (!saved) throw Object.assign(new Error('That banner no longer exists.'), { statusCode: 404 });
       return saved;
@@ -196,6 +199,7 @@ export class CmsService {
   static async deleteBanner(id: string | number) {
     try {
       await storePool.query(`DELETE FROM cms_banners WHERE id = ?`, [id]);
+      invalidateHomeBootCache();
       return { success: true };
     } catch (err) {
       return mysqlOrFileStore('cms.deleteBanner', err, () => {
@@ -214,6 +218,7 @@ export class CmsService {
         console.warn('[CmsService] banner order update failed for id', it.id, e);
       }
     }
+    invalidateHomeBootCache();
     return { success: true };
   }
 
@@ -251,12 +256,24 @@ export class CmsService {
   static async getSections(opts?: { audience?: 'admin' | 'customer' }) {
     const audience = opts?.audience ?? 'admin';
     try {
-      let rows = await CmsService.readSectionRows();
-      await CmsService.ensureHomepageSections(rows);
-      rows = await CmsService.readSectionRows();
+      // Read only. Seeding missing section rows is `seedHomepageSections` (boot / reset), not every GET.
+      const rows = await CmsService.readSectionRows();
       return layoutSections(rows, audience);
     } catch (err) {
       return mysqlOrFileStore('cms.getSections', err, () => layoutSections(fallbackSections, audience));
+    }
+  }
+
+  /**
+   * Insert any phone home block that has no stored row yet.
+   * Call from boot or admin reset — never from a customer GET.
+   */
+  static async seedHomepageSections() {
+    try {
+      const rows = await CmsService.readSectionRows();
+      await CmsService.ensureHomepageSections(rows);
+    } catch (err) {
+      console.warn('[CmsService] seedHomepageSections failed', err);
     }
   }
 
@@ -278,6 +295,7 @@ export class CmsService {
           id,
         ]
       );
+      invalidateHomeBootCache();
       const sections = await CmsService.getSections({ audience: 'admin' });
       const updated = sections.find((s) => s.id === String(id));
       if (updated) return updated;
@@ -311,6 +329,7 @@ export class CmsService {
       if (sec) sec.position = it.position;
     }
 
+    invalidateHomeBootCache();
     return { success: true };
   }
 
@@ -330,6 +349,7 @@ export class CmsService {
         );
       }
       fallbackSections.splice(0, fallbackSections.length, ...defaultFallbackSections());
+      invalidateHomeBootCache();
       return CmsService.getSections({ audience: 'admin' });
     } catch (err) {
       return mysqlOrFileStore('cms.resetSections', err, () => {

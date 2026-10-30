@@ -7,6 +7,7 @@ import { validateProductCreateBody, validateProductUpdateBody } from '../utils/v
 import { readBannerUpload } from '../utils/bannerMedia.js';
 import { storeProductImage } from '../utils/catalogMedia.js';
 import { cardSearchTerm, parseProductListOptions } from '../utils/productList.js';
+import { PUBLIC_LIST_CACHE_CONTROL } from '../utils/responseCache.js';
 
 /** A product list slower than this is logged, so the slow ones show up without a profiler. */
 const SLOW_LIST_MS = 300;
@@ -18,6 +19,7 @@ router.get(
   '/categories',
   asyncHandler(async (_req, res) => {
     const categories = await CatalogService.getCategories();
+    res.setHeader('Cache-Control', PUBLIC_LIST_CACHE_CONTROL);
     return sendSuccess(res, categories);
   })
 );
@@ -102,6 +104,7 @@ router.get(
   '/brands',
   asyncHandler(async (_req, res) => {
     const brands = await CatalogService.getBrands();
+    res.setHeader('Cache-Control', PUBLIC_LIST_CACHE_CONTROL);
     return sendSuccess(res, brands);
   })
 );

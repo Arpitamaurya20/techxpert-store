@@ -12,6 +12,7 @@ import { resolveCatalogGallery, resolveCatalogImageUrl } from '../utils/catalogM
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 import { CARD_LIMIT_MAX, FULL_LIMIT_MAX, escapeLike, trimCardPage } from '../utils/productList.js';
+import { brandsCache, categoriesCache, invalidateCatalogListCaches } from '../utils/responseCache.js';
 
 function refuseTakenCode(err: any, what: string) {
   if (err?.code === 'ER_DUP_ENTRY') {
@@ -116,7 +117,10 @@ export class CatalogService {
   }
 
   static async getCategories() {
+    const hit = categoriesCache.get();
+    if (hit) return hit;
     try {
+      // One GROUP BY for counts instead of a correlated COUNT per category.
       const [rows] = await storePool.query<any[]>(
         `SELECT 
            c.ID as id,
@@ -125,15 +129,22 @@ export class CatalogService {
            c.CategoryImage as imageUrl,
            c.CategoryDescription as description,
            c.DisplayOrder as displayOrder,
-           (SELECT COUNT(*) FROM products p WHERE p.CategoryID = c.ID AND p.IsActive = 1) as productCount,
+           COALESCE(pc.productCount, 0) as productCount,
            (c.DisplayOrder <= 5) as featured
          FROM categories c
+         LEFT JOIN (
+           SELECT CategoryID, COUNT(*) as productCount
+           FROM products
+           WHERE IsActive = 1
+           GROUP BY CategoryID
+         ) pc ON pc.CategoryID = c.ID
          WHERE c.IsActive = 1
          ORDER BY c.DisplayOrder ASC`
       );
       for (const row of rows) {
         row.imageUrl = resolveCatalogImageUrl(row.imageUrl) ?? '';
       }
+      categoriesCache.set(rows);
       return rows;
     } catch (err) {
       return mysqlOrFileStore('catalog.getCategories', err, () => store.getCategories());
@@ -192,6 +203,7 @@ export class CatalogService {
          VALUES (?, ?, ?, ?, ?, 1, CURDATE(), CURTIME())`,
         [slug, name, description, imageUrl, displayOrder]
       );
+      invalidateCatalogListCaches();
       return {
         id: insertRes.insertId,
         slug,
@@ -247,6 +259,7 @@ export class CatalogService {
             numId,
           ]
         );
+        invalidateCatalogListCaches();
         const all = await CatalogService.getCategories();
         const updated = all.find((c: any) => String(c.id) === String(id));
         if (updated) return updated;
@@ -272,6 +285,7 @@ export class CatalogService {
       if (!Number.isNaN(numId)) {
         await storePool.query(`UPDATE categories SET IsActive = 0 WHERE ID = ?`, [numId]);
         await storePool.query(`UPDATE sub_categories SET IsActive = 0 WHERE CategoryID = ?`, [numId]);
+        invalidateCatalogListCaches();
         return { success: true };
       }
     } catch (err) {
@@ -403,6 +417,8 @@ export class CatalogService {
   }
 
   static async getBrands() {
+    const hit = brandsCache.get();
+    if (hit) return hit;
     try {
       const [rows] = await storePool.query<any[]>(
         `SELECT Brand as id, Brand as name, COUNT(*) as productCount
@@ -412,6 +428,7 @@ export class CatalogService {
          ORDER BY productCount DESC
          LIMIT 40`
       );
+      brandsCache.set(rows);
       return rows;
     } catch (err) {
       return mysqlOrFileStore('catalog.getBrands', err, () => store.getBrands());
@@ -804,6 +821,7 @@ export class CatalogService {
 
       await conn.query(`SELECT RELEASE_LOCK('tx_product_id_gen')`);
       await conn.commit();
+      invalidateCatalogListCaches();
 
       return {
         id: String(productId),
@@ -949,6 +967,7 @@ export class CatalogService {
       );
     }
 
+    invalidateCatalogListCaches();
     return CatalogService.getProductById(id);
   }
 
@@ -1264,6 +1283,7 @@ export class CatalogService {
     try {
       if (!isNaN(numId)) {
         await storePool.query(`UPDATE products SET IsActive = 0 WHERE ID = ?`, [numId]);
+        invalidateCatalogListCaches();
         return { success: true };
       }
       throw Object.assign(new Error('Product not found'), { statusCode: 404 });

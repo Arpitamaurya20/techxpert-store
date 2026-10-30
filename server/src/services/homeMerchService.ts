@@ -1,6 +1,7 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { storePool } from '../db/mysql.js';
 import { validateHomeBody, type Calculator, type HomeInput } from '../utils/homeMerch.js';
+import { invalidateHomeBootCache } from '../utils/responseCache.js';
 
 export type HomeShortcut = {
   categoryId: number;
@@ -125,6 +126,7 @@ export class HomeMerchService {
         }
       }
       await conn.commit();
+      invalidateHomeBootCache();
     } catch (err) {
       await conn.rollback();
       throw err;

@@ -18,6 +18,7 @@ urls=(
   "/catalog/brands"
   "/cms/sections"
   "/cms/banners"
+  "/cms/home-boot"
   "/catalog/products/5"
 )
 

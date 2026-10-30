@@ -148,18 +148,34 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 
 ### UC-1 Home screen
 
-**Screen:** Home. The first four calls are public. Order Again needs a sign-in.
+**Screen:** Home. Prefer one public boot call; Order Again still needs a sign-in.
 
 | Call | Gives |
 |---|---|
+| `GET /cms/home-boot` | **Preferred.** One payload: `sections`, `home`, `searchSuggestions`, `trust`, `banners`, `deals`, `featured` (card products, up to 10), `categories`. Cached about 60 seconds on the API. Old single endpoints below still work. |
 | `GET /cms/sections` | The home blocks the app should draw, in order, each with `enabled` |
 | `GET /cms/home` | The category shortcut row and the project tiles (use case 14). Empty until staff fill them |
 | `GET /cms/search-suggestions` | The "Try searching" chips (use case 15). Empty until staff fill them |
 | `GET /cms/trust` | The trust-strip claims (use case 16). Empty until staff fill them |
 | `GET /cms/banners` | Only the banners live right now, in order |
-| `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
+| `GET /cms/deals` | Deals-for-you tiles |
+| `GET /catalog/products?view=card&featured=true&limit=10` | A rail of featured products (lean rows) |
 | `GET /catalog/categories` | Category tiles |
 | `GET /orders/again` | Signed in. Products this customer bought, at today's price and stock |
+
+```json
+GET /cms/home-boot → 200
+{ "success": true, "data": {
+  "sections": [ … ],
+  "home": { "shortcuts": [ … ], "projects": [ … ] },
+  "searchSuggestions": { "suggestions": [ … ] },
+  "trust": { "claims": [ … ] },
+  "banners": [ … ],
+  "deals": [ … ],
+  "featured": [ … ],
+  "categories": [ … ]
+} }
+```
 
 ```json
 GET /cms/sections → 200

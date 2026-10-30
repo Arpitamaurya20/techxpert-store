@@ -1,6 +1,7 @@
 import type { RowDataPacket } from 'mysql2/promise';
 import { storePool } from '../db/mysql.js';
 import { validateTrustClaims, type TrustAction, type TrustIcon } from '../utils/trustClaims.js';
+import { invalidateHomeBootCache } from '../utils/responseCache.js';
 
 export type TrustClaim = {
   label: string;
@@ -44,6 +45,7 @@ export class TrustClaimService {
         ]);
       }
       await conn.commit();
+      invalidateHomeBootCache();
     } catch (err) {
       await conn.rollback();
       throw err;

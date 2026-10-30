@@ -18,6 +18,7 @@ import storesRouter from './routes/stores.js';
 import wishlistRouter from './routes/wishlist.js';
 import { getCorsOptions, getJwtSecret } from './config/security.js';
 import { DB_STORE, DB_USERS, logDbBootStatus, testDbConnections } from './db/mysql.js';
+import { CmsService } from './services/cmsService.js';
 
 dotenv.config();
 
@@ -128,6 +129,7 @@ const healthHandler = async (_req: express.Request, res: express.Response) => {
       'GET  /catalog/categories',
       'GET  /catalog/products',
       'GET  /orders',
+      'GET  /cms/home-boot',
       'GET  /cms/banners',
       'GET  /cms/sections',
       'GET  /cms/home',
@@ -158,6 +160,7 @@ const onListen = () => {
   console.log(`[DB] Dual-DB contract: identity=${DB_USERS} | catalog=${DB_STORE}`);
   testDbConnections()
     .then(logDbBootStatus)
+    .then(() => CmsService.seedHomepageSections())
     .catch((e) => console.warn('[DB] boot probe failed', e));
 };
 if (HOST) app.listen(Number(PORT), HOST, onListen);

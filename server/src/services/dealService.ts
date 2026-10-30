@@ -1,6 +1,7 @@
 import type { RowDataPacket } from 'mysql2/promise';
 import { storePool } from '../db/mysql.js';
 import { validateDealsBody, type DealTone } from '../utils/deals.js';
+import { invalidateHomeBootCache } from '../utils/responseCache.js';
 
 export type HomeDeal = {
   categoryId: number;
@@ -70,6 +71,7 @@ export class DealService {
         );
       }
       await conn.commit();
+      invalidateHomeBootCache();
     } catch (err) {
       await conn.rollback();
       throw err;
