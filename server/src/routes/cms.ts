@@ -7,12 +7,24 @@ import { TrustClaimService } from '../services/trustClaimService.js';
 import { DealService } from '../services/dealService.js';
 import { AboutService } from '../services/aboutService.js';
 import { PolicyService } from '../services/policyService.js';
+import { getHomeBoot } from '../services/homeBootService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { requireAdmin, requirePermission, optionalAuth, isActiveStaff } from '../middleware/auth.js';
 import { validateBannerBody } from '../utils/validate.js';
 import { readBannerUpload, storeBannerImage } from '../utils/bannerMedia.js';
+import { PUBLIC_LIST_CACHE_CONTROL } from '../utils/responseCache.js';
 
 const router = Router();
+
+// GET /cms/home-boot — one call for the phone home (not Order Again). Public; ~60 s process cache.
+router.get(
+  '/home-boot',
+  asyncHandler(async (_req, res) => {
+    const boot = await getHomeBoot();
+    res.setHeader('Cache-Control', PUBLIC_LIST_CACHE_CONTROL);
+    return sendSuccess(res, boot);
+  })
+);
 
 // GET /cms/banners
 // - Anonymous / mobile: live campaigns only (published or scheduled, inside the window). Query status is ignored.

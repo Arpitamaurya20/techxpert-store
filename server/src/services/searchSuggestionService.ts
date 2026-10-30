@@ -1,6 +1,7 @@
 import type { RowDataPacket } from 'mysql2/promise';
 import { storePool } from '../db/mysql.js';
 import { validateSearchSuggestions } from '../utils/searchSuggestions.js';
+import { invalidateHomeBootCache } from '../utils/responseCache.js';
 
 export type SearchIdeas = { suggestions: string[] };
 
@@ -23,6 +24,7 @@ export class SearchSuggestionService {
         await conn.query(`INSERT INTO search_suggestions (Phrase, Position) VALUES (?, ?)`, [next[i], i + 1]);
       }
       await conn.commit();
+      invalidateHomeBootCache();
     } catch (err) {
       await conn.rollback();
       throw err;

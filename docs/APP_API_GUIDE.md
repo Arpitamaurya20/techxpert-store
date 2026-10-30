@@ -148,18 +148,34 @@ VITE_API_BASE_URL=http://localhost:5001 npm run dev    # http://localhost:5173
 
 ### UC-1 Home screen
 
-**Screen:** Home. The first four calls are public. Order Again needs a sign-in.
+**Screen:** Home. Prefer one public boot call; Order Again still needs a sign-in.
 
 | Call | Gives |
 |---|---|
+| `GET /cms/home-boot` | **Preferred.** One payload: `sections`, `home`, `searchSuggestions`, `trust`, `banners`, `deals`, `featured` (card products, up to 10), `categories`. Cached about 60 seconds on the API. Old single endpoints below still work. |
 | `GET /cms/sections` | The home blocks the app should draw, in order, each with `enabled` |
 | `GET /cms/home` | The category shortcut row and the project tiles (use case 14). Empty until staff fill them |
 | `GET /cms/search-suggestions` | The "Try searching" chips (use case 15). Empty until staff fill them |
 | `GET /cms/trust` | The trust-strip claims (use case 16). Empty until staff fill them |
 | `GET /cms/banners` | Only the banners live right now, in order |
-| `GET /catalog/products?featured=true&limit=10` | A rail of featured products |
+| `GET /cms/deals` | Deals-for-you tiles |
+| `GET /catalog/products?view=card&featured=true&limit=10` | A rail of featured products (lean rows) |
 | `GET /catalog/categories` | Category tiles |
 | `GET /orders/again` | Signed in. Products this customer bought, at today's price and stock |
+
+```json
+GET /cms/home-boot → 200
+{ "success": true, "data": {
+  "sections": [ … ],
+  "home": { "shortcuts": [ … ], "projects": [ … ] },
+  "searchSuggestions": { "suggestions": [ … ] },
+  "trust": { "claims": [ … ] },
+  "banners": [ … ],
+  "deals": [ … ],
+  "featured": [ … ],
+  "categories": [ … ]
+} }
+```
 
 ```json
 GET /cms/sections → 200
@@ -230,7 +246,7 @@ A brand's `id` is its name. Pass it as `brandId` when listing products.
 
 | Query | Meaning |
 |---|---|
-| `search` | Text in the name or description |
+| `search` | Text in the product name, code or brand (not description) |
 | `categoryId` | Category ID |
 | `subcategoryId` | Subcategory ID |
 | `brandId` | Brand name from `GET /catalog/brands` |
@@ -248,10 +264,43 @@ GET /catalog/products?search=bulb&limit=2 → 200
   "meta": { "page": 1, "limit": 2, "total": 2720, "totalPages": 1360 } }
 ```
 
+**Lean list for phones.** Add `view=card` to get a smaller row: it leaves out `description`, `createdAt` and `variantCount`. Everything else is the same, including `price` and `originalPrice` as strings.
+
+| Query | Meaning |
+|---|---|
+| `view=card` | Lean rows. `limit` defaults to 20 and stops at 60. |
+| `total=false` | Skips the count. `meta` carries `hasMore` and `nextAfter` instead of `total`. |
+| `after=<id>` | Continue after this product id. Pass the previous page's `meta.nextAfter`. Needs `view=card`. |
+
+With `view=card`, `search` must have at least 2 characters after trimming, otherwise the answer is `400` with "Type at least 2 characters to search." The app should wait for 2 characters before calling. The text matches the product name, code and brand (not description). Card search also expands a small synonym map, ranks exact code → code prefix → name starts-with → relevance, and if that returns nothing for a multi-word query it retries with any-word match (`meta.relaxed: true` when that happens).
+
+```json
+GET /catalog/products?view=card&total=false&limit=20 → 200
+{ "success": true, "data": [ … ], "meta": { "limit": 20, "hasMore": true, "nextAfter": 1840, "page": 1 } }
+```
+
+**Typeahead.** `GET /catalog/search/suggest?q=` (same 2-character rule; `search` is accepted as an alias for `q`). Returns up to about eight hits in three groups. Cached about 30 seconds on the API. When nothing matches, `didYouMean` may list close category or brand names (bigram help — not products). Staff tokens see unpriced products in the product group; customers do not.
+
+```json
+GET /catalog/search/suggest?q=fan → 200
+{ "success": true,
+  "data": {
+    "categories": [ { "id": 12, "name": "Fans" } ],
+    "brands": [ { "id": "Havells", "name": "Havells" } ],
+    "products": [ { "id": 5, "name": "48\" Ceiling Fan", "brandName": "Havells",
+      "imageUrl": "…", "price": "1999.00" } ]
+  } }
+```
+
+The home "Try searching" chips remain `GET /cms/search-suggestions` (use case 15). They are curated ideas, not live typeahead.
+
+A customer list may be reused for 30 seconds. Without `view=card`, nothing changes.
+
 **App rules:**
 - A customer list contains only products with an active selling price. An unpriced product is missing from search and category lists. Opening it by id still returns it.
 - `price: null` means the product can't be bought. Show it as unavailable and block Add to cart.
 - `stockStatus: "out_of_stock"` or `stockQuantity: 0` means it can't be added either.
+- Prefer `view=card` + `suggest` for the phone search UX; keep the full product list for the portal.
 
 ### UC-4 Product detail and the price for a quantity
 
