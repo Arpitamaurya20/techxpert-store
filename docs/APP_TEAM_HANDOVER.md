@@ -2,9 +2,37 @@
 
 For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, read this first, then use [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for exact request/response examples.
 
-**Date:** 29 Oct 2026  
+**Date:** 30 Oct 2026  
 **Branch:** `develop`  
 **Live API + staff portal:** `https://store.jiotechxpert.com`
+
+---
+
+## Ack — 30 Oct 2026 (list + search live)
+
+API performance and search are **live on production**. Adopt these for phone browse/search; full shapes are in [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) **UC-1** (`home-boot`) and **UC-3**.
+
+| Use | Call |
+|---|---|
+| Home boot (preferred) | `GET /cms/home-boot` — sections, banners, deals, featured cards, categories in one payload |
+| Product / category / search lists | `GET /catalog/products?view=card&total=false` (+ `search`, `categoryId`, `after`) |
+| Typeahead while typing | `GET /catalog/search/suggest?q=` — wait until **2 characters**; groups: categories, brands, products |
+| Curated “Try searching” chips | `GET /cms/search-suggestions` — unchanged; not live typeahead |
+
+**App rules for UC-3**
+
+- Prefer `view=card` on phones. Do not load the full portal-sized row for grids.
+- With `view=card`, `search` shorter than 2 characters after trim is `400` — debounce in the UI.
+- Page with `meta.nextAfter` + `after=` when `total=false` (skip heavy `COUNT`).
+- Customer lists only include **priced** products. Unpriced SKUs are missing from list/search; open by id still works.
+- Suggest may include `didYouMean` (close category/brand names) when nothing matches. Search results may set `meta.relaxed: true` after an any-word fallback.
+- JSON responses are gzip-compressed on the live host; clients that send `Accept-Encoding: gzip` benefit automatically.
+
+```bash
+curl -s "https://store.jiotechxpert.com/cms/home-boot" | head -c 200; echo
+curl -s "https://store.jiotechxpert.com/catalog/products?view=card&total=false&limit=5" | head -c 200; echo
+curl -s "https://store.jiotechxpert.com/catalog/search/suggest?q=fan" | head -c 200; echo
+```
 
 ---
 
@@ -16,7 +44,8 @@ The store **API and merchandising portal** are deployed on the VPS behind that h
 |---|---|
 | Health / dual DB (`homecare` + `techxpertstore`) | Live |
 | Catalog (categories, products, variants, images) | Live |
-| Home CMS (banners, sections, shortcuts, deals, trust, search ideas) | Live (content may be empty until staff fill the portal) |
+| Lean product list (`view=card`), ranked search, typeahead suggest | Live — see Ack above + UC-3 |
+| Home CMS + `GET /cms/home-boot` | Live (content may be empty until staff fill the portal) |
 | Cart (server-priced, pack size / `quantityStep`, variants) | Live |
 | Delivery pincode check | Live |
 | Customer OTP sign-in (`send-otp` / `verify-otp`) | Live when SMS is configured on the server; local/dev uses the documented test code |
@@ -24,7 +53,6 @@ The store **API and merchandising portal** are deployed on the VPS behind that h
 | Orders list / order again | Live |
 | Wishlist / Talk to us / Help / About / Policies CMS | Live |
 | **Online payment (PayU / UPI / cards)** | **Not built** — do not block COD checkout waiting for it |
-| Performance / CDN tuning | Later — not required to finish app flows through COD |
 
 **Verdict for the app:** you can build and ship the customer journey **through place order (COD)**. Treat PayU as a later slice on the same order record (`paymentMethod` stays `"COD"` until the gateway exists).
 
@@ -32,7 +60,7 @@ Quick checks:
 
 ```bash
 curl -s https://store.jiotechxpert.com/health
-curl -s "https://store.jiotechxpert.com/catalog/products?limit=1"
+curl -s "https://store.jiotechxpert.com/catalog/products?view=card&total=false&limit=1"
 ```
 
 Staff portal (not the customer app): open `https://store.jiotechxpert.com` in a browser. Staff accounts are store `portal_staff` (or linked Homecare admins), not the old PHP store.
@@ -121,9 +149,9 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 
 | # | Flow | Notes |
 |---|---|---|
-| 1 | Home | Banners, sections, shortcuts, projects, deals, trust, search ideas |
-| 2 | Categories / brands | Public catalog lists |
-| 3 | Product list + search | Use **priced** `view=card` list; typeahead `GET /catalog/search/suggest?q=`; respect `quantityStep` |
+| 1 | Home | Prefer `GET /cms/home-boot`; else banners, sections, shortcuts, projects, deals, trust, search ideas |
+| 2 | Categories / brands | Public catalog lists (cached ~30s) |
+| 3 | Product list + search | **UC-3:** priced `view=card` + `total=false` / `after`; typeahead `GET /catalog/search/suggest?q=` (≥2 chars); respect `quantityStep` |
 | 4 | Product detail | Variants, gallery, bulk tiers, highlights/specs |
 | 5 | Pincode | Check before checkout; server refuses unserved areas |
 | 6 | Cart | Server cart; `PUT` lines with `variantId`; show server totals |
@@ -132,7 +160,7 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 | 9 | Orders / order again | After place order |
 | 10 | Wishlist, help, about, policies, talk-to-us | CMS + shop request endpoints |
 
-**Out of scope until named later:** PayU (or any online payment), credit terms, performance redesign of the API.
+**Out of scope until named later:** PayU (or any online payment), credit terms. List/search performance work above is already live — use it.
 
 ---
 
@@ -162,7 +190,8 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 
 1. Clone repo, `git checkout develop`, `cd app && npm install`.
 2. Set `EXPO_PUBLIC_API_BASE_URL` to production (or local API).
-3. Confirm home + product list + one product detail against live JSON.
-4. Wire cart → pincode → checkout COD end-to-end on a device.
-5. Align each screen to the shared UI designs without moving files out of the structure in §3.
-6. Leave payment UI as “cash on delivery” only until PayU is scheduled.
+3. Confirm `home-boot` + `view=card` list + `search/suggest?q=fan` + one product detail against live JSON.
+4. Wire search UI: 2-char minimum, suggest while typing, results page via `view=card`.
+5. Wire cart → pincode → checkout COD end-to-end on a device.
+6. Align each screen to the shared UI designs without moving files out of the structure in §3.
+7. Leave payment UI as “cash on delivery” only until PayU is scheduled.
