@@ -92,6 +92,10 @@ After any change: `npx expo start -c`.
 
 `app/src/services/apiConfig.ts` reads that env. Screens and feature code should call the thin clients under `app/src/services/` (`productApi`, `cartApi`, `orderApi`, `cmsApi`, `authService`, …), not hard-code hosts.
 
+**API URL:** always `https://store.jiotechxpert.com/api` in `.env.local` — never a localhost API.
+
+**How to run:** Expo Go / iOS / Android call `https://store.jiotechxpert.com/api` directly. Expo web is enabled; Metro `/api-proxy` forwards browser calls to that same live API so CORS does not block CMS/catalog/login.
+
 ---
 
 ## 3. What is already in `app/` (structure — keep it)

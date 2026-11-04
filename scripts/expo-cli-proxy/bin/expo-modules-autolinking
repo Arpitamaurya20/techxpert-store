@@ -1,0 +1,22 @@
+#!/usr/bin/env node
+'use strict';
+
+const { spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const appDir = path.resolve(__dirname, '..', '..', '..', 'app');
+const bin = path.join(appDir, 'node_modules', 'expo', 'bin', 'autolinking');
+
+if (!fs.existsSync(bin)) {
+  console.error('expo autolinking not found in app/. Run: cd app && npm install');
+  process.exit(1);
+}
+
+const result = spawnSync(process.execPath, [bin, ...process.argv.slice(2)], {
+  cwd: appDir,
+  stdio: 'inherit',
+  env: process.env,
+});
+
+process.exit(result.status === null ? 1 : result.status);

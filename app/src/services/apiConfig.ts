@@ -1,7 +1,9 @@
 /**
- * The backend URL is read from the `EXPO_PUBLIC_API_BASE_URL` environment
- * variable (see `.env.example`). Values prefixed with `EXPO_PUBLIC_` are
- * bundled into the app and visible to anyone, so never put secrets here.
+ * Live store API (docs/APP_TEAM_HANDOVER.md):
+ *   EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/api
+ *
+ * Every platform calls this host directly. Expo web in a browser also needs
+ * the API's CORS_ORIGINS to include the page origin.
  */
 const rawBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
 

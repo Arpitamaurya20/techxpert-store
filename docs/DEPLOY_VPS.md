@@ -133,7 +133,9 @@ DB_USERS=homecare
 DB_STORE=techxpertstore
 
 JWT_SECRET=<24+ random characters>
-CORS_ORIGINS=https://admin.YOURDOMAIN
+CORS_ORIGINS=https://store.jiotechxpert.com,http://localhost:8081,http://127.0.0.1:8081
+# Include every browser origin that calls the API (portal host + Expo web ports).
+# After editing: restart the API process (systemd/pm2). No app proxy — clients call this host directly.
 PUBLIC_API_ORIGIN=https://api.YOURDOMAIN
 ```
 

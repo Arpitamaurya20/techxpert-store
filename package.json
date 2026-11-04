@@ -1,0 +1,19 @@
+{
+  "name": "techxpert-store-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Monorepo root. npx expo is proxied into app/.",
+  "scripts": {
+    "start": "expo start",
+    "app": "expo start",
+    "app:web": "expo start --web",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "server": "npm --prefix ./server run dev --",
+    "web": "npm --prefix ./web run dev --",
+    "install:all": "npm install --prefix ./app && npm install --prefix ./server && npm install --prefix ./web"
+  },
+  "dependencies": {
+    "expo": "file:./scripts/expo-cli-proxy"
+  }
+}

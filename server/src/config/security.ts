@@ -59,29 +59,66 @@ export function isFileStoreAllowed(): boolean {
   return process.env.ALLOW_FILE_STORE === '1';
 }
 
-export function getCorsOptions(): { origin: string[] | boolean; credentials?: boolean } {
-  const raw = process.env.CORS_ORIGINS?.trim();
+/** Expo web / Vite / local tools — browsers send these as Origin on cross-origin API calls. */
+const LOCAL_DEV_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 
-  if (isProduction()) {
-    if (!raw) {
-      throw new Error(
-        'FATAL: CORS_ORIGINS must be set in production (comma-separated allowlist, e.g. https://admin.example.com)'
-      );
-    }
-    const origins = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    if (origins.length === 0) {
-      throw new Error('FATAL: CORS_ORIGINS is empty after parsing');
-    }
-    return { origin: origins, credentials: true };
+const CORS_ALLOWED_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'Accept',
+  'X-Session-Id',
+  'x-session-id',
+];
+
+export type AppCorsOptions = {
+  origin: boolean | string[] | ((origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => void);
+  credentials: true;
+  allowedHeaders: string[];
+  methods: string[];
+  maxAge: number;
+};
+
+/**
+ * CORS for every API route (mounted once in index.ts).
+ * Production still requires CORS_ORIGINS for real hosts; localhost / 127.0.0.1
+ * (any port) are also allowed so Expo web and the Vite portal can call the API.
+ */
+export function getCorsOptions(): AppCorsOptions {
+  const raw = process.env.CORS_ORIGINS?.trim();
+  const fromEnv = raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : [];
+
+  if (isProduction() && fromEnv.length === 0) {
+    throw new Error(
+      'FATAL: CORS_ORIGINS must be set in production (comma-separated allowlist, e.g. https://store.jiotechxpert.com)'
+    );
   }
 
-  if (!raw) {
-    // Local: permissive (Vite + Expo)
-    return { origin: true, credentials: true };
+  const allowSet = new Set(fromEnv);
+
+  const shared = {
+    credentials: true as const,
+    allowedHeaders: CORS_ALLOWED_HEADERS,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    maxAge: 86400,
+  };
+
+  if (!isProduction() && allowSet.size === 0) {
+    // Local API: reflect any Origin (Expo + Vite).
+    return { ...shared, origin: true };
   }
 
   return {
-    origin: raw.split(',').map((s) => s.trim()).filter(Boolean),
-    credentials: true,
+    ...shared,
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (allowSet.has(origin) || LOCAL_DEV_ORIGIN.test(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
   };
 }
