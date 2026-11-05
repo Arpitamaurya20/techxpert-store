@@ -297,7 +297,7 @@ The home "Try searching" chips remain `GET /cms/search-suggestions` (use case 15
 A customer list may be reused for 30 seconds. Without `view=card`, nothing changes.
 
 **App rules:**
-- A customer list contains only products with an active selling price. An unpriced product is missing from search and category lists. Opening it by id still returns it.
+- A customer list contains only products with an active selling price on the **product or any of its variants** (`product_pricing.ProductID` or `VariantID`). Import rows often price variants only (`ProductID` null); those still count. An unpriced product is missing from search and category lists. Opening it by id still returns it.
 - `price: null` means the product can't be bought. Show it as unavailable and block Add to cart.
 - `stockStatus: "out_of_stock"` or `stockQuantity: 0` means it can't be added either.
 - Prefer `view=card` + `suggest` for the phone search UX; keep the full product list for the portal.

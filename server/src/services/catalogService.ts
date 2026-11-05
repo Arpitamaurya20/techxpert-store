@@ -79,6 +79,38 @@ const SHOP_STOCK_STATUS = `CASE
   WHEN p.StockStatus = 'low_stock' THEN 'low_stock'
   ELSE 'in_stock' END`;
 
+/**
+ * Selling price may sit on the product row (`ProductID`) or only on a variant (`VariantID`,
+ * `ProductID` null — common after catalog import). Lists used to ignore the variant-only
+ * rows, so the app showed almost nothing while detail pages still resolved a price.
+ */
+/** Two index lookups. Do not OR ProductID with VariantID IN (...) — that full-scans pricing per row. */
+const SHOP_PRICE = `COALESCE(
+  (SELECT MIN(pr.SellingPrice) FROM product_pricing pr
+    WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0),
+  (SELECT MIN(pr.SellingPrice) FROM product_variants v
+    INNER JOIN product_pricing pr ON pr.VariantID = v.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+    WHERE v.ProductID = p.ID)
+)`;
+const SHOP_MRP = `COALESCE(
+  (SELECT MIN(pr.MRP) FROM product_pricing pr
+    WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.MRP > 0),
+  (SELECT MIN(pr.MRP) FROM product_variants v
+    INNER JOIN product_pricing pr ON pr.VariantID = v.ID AND pr.IsActive = 1 AND pr.MRP > 0
+    WHERE v.ProductID = p.ID)
+)`;
+const SHOP_HAS_PRICE = `(
+  EXISTS (
+    SELECT 1 FROM product_pricing pr
+    WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+  )
+  OR EXISTS (
+    SELECT 1 FROM product_variants v
+    INNER JOIN product_pricing pr ON pr.VariantID = v.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+    WHERE v.ProductID = p.ID
+  )
+)`;
+
 export class CatalogService {
   /**
    * Resolve packaging label (e.g. "50 kg bag") to measurement_units.ID.
@@ -533,10 +565,7 @@ export class CatalogService {
     }
 
     if (params.pricedOnly) {
-      whereClause += ` AND EXISTS (
-          SELECT 1 FROM product_pricing pr
-          WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
-        )`;
+      whereClause += ` AND ${SHOP_HAS_PRICE}`;
     }
 
     return { whereClause, queryParams };
@@ -578,8 +607,8 @@ export class CatalogService {
           p.QuantityStep as quantityStep,
           p.IsFeatured as featured,
           p.CreatedDate as createdAt,
-          (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
-          (SELECT MIN(pr.MRP) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
+          ${SHOP_PRICE} as price,
+          ${SHOP_MRP} as originalPrice,
           COALESCE(mu.UnitName, 'unit') as unit,
           ${SHOP_STOCK} as stockQuantity,
           (SELECT COUNT(*) FROM product_variants v WHERE v.ProductID = p.ID) as variantCount
@@ -590,6 +619,7 @@ export class CatalogService {
         ${whereClause}
         ORDER BY p.ID ASC
         LIMIT ? OFFSET ?
+
       `;
 
       const [rows] = await storePool.query<any[]>(dataQuery, [...queryParams, limit, offset]);
@@ -709,8 +739,8 @@ export class CatalogService {
             p.MaxOrderQuantity as maxOrderQuantity,
             p.QuantityStep as quantityStep,
             p.IsFeatured as featured,
-            (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
-            (SELECT MIN(pr.MRP) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
+            ${SHOP_PRICE} as price,
+            ${SHOP_MRP} as originalPrice,
             COALESCE(mu.UnitName, 'unit') as unit,
             ${SHOP_STOCK} as stockQuantity
           FROM products p
@@ -798,8 +828,8 @@ export class CatalogService {
            p.QuantityStep as quantityStep,
            p.IsFeatured as featured,
            p.CreatedDate as createdAt,
-           (SELECT MIN(pr.SellingPrice) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as price,
-           (SELECT MIN(pr.MRP) FROM product_pricing pr WHERE pr.ProductID = p.ID AND pr.IsActive = 1) as originalPrice,
+           ${SHOP_PRICE} as price,
+           ${SHOP_MRP} as originalPrice,
            COALESCE(mu.UnitName, 'unit') as unit,
            ${SHOP_STOCK} as stockQuantity
          FROM products p
