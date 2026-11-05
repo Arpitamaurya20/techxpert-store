@@ -84,20 +84,21 @@ const SHOP_STOCK_STATUS = `CASE
  * `ProductID` null — common after catalog import). Lists used to ignore the variant-only
  * rows, so the app showed almost nothing while detail pages still resolved a price.
  */
-const SHOP_PRICE = `COALESCE((
-  SELECT MIN(pr.SellingPrice) FROM product_pricing pr
-  WHERE pr.IsActive = 1 AND pr.SellingPrice > 0 AND (
-    pr.ProductID = p.ID
-    OR pr.VariantID IN (SELECT v.ID FROM product_variants v WHERE v.ProductID = p.ID)
-  )
-), NULL)`;
-const SHOP_MRP = `COALESCE((
-  SELECT MIN(pr.MRP) FROM product_pricing pr
-  WHERE pr.IsActive = 1 AND pr.MRP IS NOT NULL AND pr.MRP > 0 AND (
-    pr.ProductID = p.ID
-    OR pr.VariantID IN (SELECT v.ID FROM product_variants v WHERE v.ProductID = p.ID)
-  )
-), NULL)`;
+/** Two index lookups. Do not OR ProductID with VariantID IN (...) — that full-scans pricing per row. */
+const SHOP_PRICE = `COALESCE(
+  (SELECT MIN(pr.SellingPrice) FROM product_pricing pr
+    WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0),
+  (SELECT MIN(pr.SellingPrice) FROM product_variants v
+    INNER JOIN product_pricing pr ON pr.VariantID = v.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+    WHERE v.ProductID = p.ID)
+)`;
+const SHOP_MRP = `COALESCE(
+  (SELECT MIN(pr.MRP) FROM product_pricing pr
+    WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.MRP > 0),
+  (SELECT MIN(pr.MRP) FROM product_variants v
+    INNER JOIN product_pricing pr ON pr.VariantID = v.ID AND pr.IsActive = 1 AND pr.MRP > 0
+    WHERE v.ProductID = p.ID)
+)`;
 const SHOP_HAS_PRICE = `(
   EXISTS (
     SELECT 1 FROM product_pricing pr
