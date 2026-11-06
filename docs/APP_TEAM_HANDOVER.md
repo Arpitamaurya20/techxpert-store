@@ -2,7 +2,7 @@
 
 For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, read this first, then use [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for exact request/response examples.
 
-**Date:** 30 Oct 2026  
+**Date:** 6 Nov 2026  
 **Branch:** `develop`  
 **Live API + staff portal:** `https://store.jiotechxpert.com`
 
@@ -193,9 +193,11 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 ## 7. Suggested first week for the app team
 
 1. Clone repo, `git checkout develop`, `cd app && npm install`.
-2. Set `EXPO_PUBLIC_API_BASE_URL` to production (or local API).
-3. Confirm `home-boot` + `view=card` list + `search/suggest?q=fan` + one product detail against live JSON.
-4. Wire search UI: 2-char minimum, suggest while typing, results page via `view=card`.
-5. Wire cart → pincode → checkout COD end-to-end on a device.
+2. Set `EXPO_PUBLIC_API_BASE_URL` to production (see `app/.env.example`).
+3. Confirm `home-boot` + `view=card` list + `search/suggest?q=fan` + one product detail against live JSON — services already call these.
+4. Finish search UI polish: typeahead chips from `getSearchSuggestions` while typing (≥2 chars).
+5. Wire cart → pincode → checkout COD end-to-end on a device (COD path exists).
 6. Align each screen to the shared UI designs without moving files out of the structure in §3.
 7. Leave payment UI as “cash on delivery” only until PayU is scheduled.
+
+**Already applied in `app/` (from [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §10):** OTP sign-in (`send-otp` / `verify-otp`), secure session restore, server order statuses, `home-boot` preference, `view=card` lists.

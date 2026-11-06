@@ -60,8 +60,14 @@ export default function ProductListScreen() {
   const [openSheet, setOpenSheet] = useState<'sort' | 'filter' | null>(null);
 
   // Typing is debounced so the API gets one request per pause, but clearing is instant.
+  // Card search needs at least 2 characters (docs UC-3); shorter queries stay local-only.
   const debouncedSearch = useDebouncedValue(searchText.trim(), SEARCH_DEBOUNCE_MS);
-  const activeSearch = searchText.trim() === '' ? '' : debouncedSearch;
+  const activeSearch =
+    searchText.trim() === ''
+      ? ''
+      : debouncedSearch.length >= 2
+        ? debouncedSearch
+        : '';
 
   // Mirror the search in the URL so web refresh and back/forward keep it; the category is never touched.
   useEffect(() => {
@@ -76,6 +82,8 @@ export default function ProductListScreen() {
       categoryId: params.categoryId || undefined,
       brandId: params.brandId || undefined,
       featured: params.featured === 'true',
+      view: 'card',
+      total: false,
     }),
     [activeSearch, params.categoryId, params.brandId, params.featured]
   );

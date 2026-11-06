@@ -13,8 +13,10 @@ import { CartSync } from '@/components/store/CartSync';
 import { ToastProvider } from '@/components/ui/Toast';
 import { BRAND } from '@/constants/brand';
 import { colors, fonts } from '@/constants/theme';
+import { hydrateSession } from '@/state/sessionStore';
 
 SplashScreen.preventAutoHideAsync();
+void hydrateSession();
 
 const SETTINGS_HEADER = {
   headerTitleAlign: 'center',

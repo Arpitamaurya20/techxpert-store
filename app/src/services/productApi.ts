@@ -8,8 +8,10 @@ import type {
   CatalogResult,
   Category,
   Product,
+  ProductListMeta,
   ProductQuery,
   ProductSpecification,
+  SearchSuggestGroup,
   StockStatus,
   Subcategory,
 } from '@/types/catalog';
@@ -278,20 +280,128 @@ export function getCategories(options: { force?: boolean } = {}): Promise<Catalo
   return categoriesRequest;
 }
 
-export async function getProducts(query: ProductQuery = {}): Promise<CatalogResult<Product[]>> {
+export type ProductsPage = CatalogResult<Product[]> & { meta?: ProductListMeta };
+
+function readListMeta(raw: unknown): ProductListMeta | undefined {
+  const record = asRecord(raw);
+  const meta = asRecord(record?.meta);
+  if (!meta) return undefined;
+  return {
+    page: asNumber(meta.page),
+    limit: asNumber(meta.limit),
+    total: asNumber(meta.total),
+    totalPages: asNumber(meta.totalPages),
+    hasMore: meta.hasMore === true,
+    nextAfter: asId(meta.nextAfter) ?? asNumber(meta.nextAfter),
+    relaxed: meta.relaxed === true,
+  };
+}
+
+/**
+ * Customer product list. Phones should use `view=card` (default) with `total=false`
+ * and page via `meta.nextAfter` (docs/APP_API_GUIDE.md UC-3 / handover Ack).
+ * Card search under 2 characters after trim is refused by the API with 400.
+ */
+export async function getProducts(query: ProductQuery = {}): Promise<ProductsPage> {
   if (!isApiConfigured) return { data: queryDemoProducts(query), source: 'demo' };
+
+  const view = query.view ?? 'card';
+  const search = query.search?.trim();
+  if (view === 'card' && search !== undefined && search.length > 0 && search.length < 2) {
+    return { data: [], source: 'api', meta: { hasMore: false, limit: query.limit ?? 20 } };
+  }
+
+  const useTotal = query.total === true;
   const raw = await apiGet('/catalog/products', {
-    search: query.search?.trim(),
+    search: search || undefined,
     categoryId: query.categoryId,
     brandId: query.brandId,
     featured: query.featured ? true : undefined,
     limit: query.limit,
+    view: view === 'card' ? 'card' : undefined,
+    total: view === 'card' && !useTotal ? false : undefined,
+    after: query.after,
   });
-  return { data: normalizeList(raw, normalizeProduct), source: 'api' };
+  return { data: normalizeList(raw, normalizeProduct), source: 'api', meta: readListMeta(raw) };
 }
 
-export function getFeaturedProducts(limit = 8) {
-  return getProducts({ featured: true, limit });
+export async function getFeaturedProducts(limit = 8): Promise<ProductsPage> {
+  if (isApiConfigured) {
+    try {
+      const { getHomeBoot } = await import('./cmsApi');
+      const boot = await getHomeBoot();
+      if (boot.source === 'live' && boot.data.featuredRaw.length > 0) {
+        const products = boot.data.featuredRaw
+          .map(normalizeProduct)
+          .filter((product): product is Product => product !== null)
+          .slice(0, limit);
+        return { data: products, source: 'api' };
+      }
+    } catch {
+      // Fall through to the card list endpoint.
+    }
+  }
+  return getProducts({ featured: true, limit, view: 'card', total: false });
+}
+
+/** Typeahead while typing (min 2 characters). Not the curated CMS chips. */
+export async function getSearchSuggestions(q: string): Promise<CatalogResult<SearchSuggestGroup>> {
+  const query = q.trim();
+  const empty: SearchSuggestGroup = { categories: [], brands: [], products: [] };
+  if (!isApiConfigured) return { data: empty, source: 'demo' };
+  if (query.length < 2) return { data: empty, source: 'api' };
+
+  const raw = await apiGet('/catalog/search/suggest', { q: query });
+  const record = asRecord(raw);
+  const payload = asRecord(record?.data) ?? record;
+  if (!payload) return { data: empty, source: 'api' };
+
+  const categories = Array.isArray(payload.categories)
+    ? payload.categories.flatMap((row) => {
+        const item = asRecord(row);
+        const id = asId(item?.id);
+        const name = asText(item?.name);
+        return id && name ? [{ id, name }] : [];
+      })
+    : [];
+  const brands = Array.isArray(payload.brands)
+    ? payload.brands.flatMap((row) => {
+        const item = asRecord(row);
+        const id = asId(item?.id) ?? asText(item?.name);
+        const name = asText(item?.name) ?? id;
+        return id && name ? [{ id, name }] : [];
+      })
+    : [];
+  const products = Array.isArray(payload.products)
+    ? payload.products.flatMap((row) => {
+        const item = asRecord(row);
+        const id = asId(item?.id);
+        const name = asText(item?.name);
+        if (!id || !name) return [];
+        return [
+          {
+            id,
+            name,
+            brandName: asText(item?.brandName),
+            imageUrl: asText(item?.imageUrl),
+            price: asNumber(item?.price),
+          },
+        ];
+      })
+    : [];
+  const didYouMean = Array.isArray(payload.didYouMean)
+    ? payload.didYouMean.map(asText).filter((text): text is string => !!text)
+    : undefined;
+
+  return {
+    data: {
+      categories,
+      brands,
+      products,
+      ...(didYouMean && didYouMean.length > 0 ? { didYouMean } : {}),
+    },
+    source: 'api',
+  };
 }
 
 /** Resolves to `null` data when the product does not exist. */

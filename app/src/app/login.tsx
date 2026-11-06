@@ -61,7 +61,7 @@ export default function LoginScreen() {
             <View style={[styles.brand, isCompact && styles.brandCompact]}>
               <BrandMark size={isCompact ? 'medium' : 'large'} />
               <Text style={styles.title} accessibilityRole="header">
-                Sign up or Log in
+                Sign in with mobile
               </Text>
             </View>
 

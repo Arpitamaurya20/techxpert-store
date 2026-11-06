@@ -756,13 +756,14 @@ Saving replaces this row only. Leaving `deals` out of the save is refused, so an
 
 Each item was found while writing this guide. They are for the app team unless marked as server.
 
-- **Sign-in:** the app signs in with `POST /auth/login`, which production refuses. Move it to use case 7 (send and verify a code).
-- **Sign-in texts:** locally the code is `123456` and nothing is texted. Production uses Homecare's sign-in template (`PRP_SMS_TEMPLATE_NAME`). It needs `OTP_SMS_PROVIDER` (or `SMS_PROVIDER`) set to `prp` and `PRP_SMS_API_KEY`. Do not point it at `PRP_ORDER_TEMPLATE_NAME`.
-- **Order statuses:** the app's status list (`placed`, `packed`, `out_for_delivery`, `returned`…) doesn't match the server's six (use case 11).
+- **Sign-in:** ~~the app signs in with `POST /auth/login`~~ **Done in `app/`:** phone → `send-otp` → `verify-otp` (use case 7). Do not call `/auth/login` from the app.
+- **Sign-in texts:** locally the code is `123456` and nothing is texted. Production uses Homecare's sign-in template (`PRP_SMS_TEMPLATE_NAME`). It needs `OTP_SMS_PROVIDER` (or `SMS_PROVIDER`) set to `prp` and `PRP_SMS_API_KEY`. Do not point it at `PRP_ORDER_TEMPLATE_NAME`. *(Server config — still required on the live host.)*
+- **Order statuses:** ~~app list mismatched~~ **Done in `app/`:** `pending` | `confirmed` | `processing` | `shipped` | `delivered` | `cancelled` (use case 11).
 - **Images:** the API serves files from `server/catalog/catalog/` at `/store/assets/catalog/…`. Keep that folder on the machine that runs the API; it is not in git. Staff can change a product's cover in the portal (upload or paste a `store/assets/catalog/…` path). Uploads are stored under `store/assets/catalog/staff/<productId>/`.
 - **Store stock:** the product page and the cart show the company figure. Checkout already applies a store quantity when staff have set one for the pincode's store. The phone does not need a new field for that.
-- **Home:** the app reads the published lists (use cases 13 to 19). They are empty until staff fill them, and an empty list draws nothing. Banners can't open outside links yet (use case 1).
-- **Sign-in after an app restart:** the token is held in memory only. Store it securely so the customer stays signed in for its 30 days.
+- **Home:** prefer `GET /cms/home-boot` (wired in `app/`); older CMS calls remain as fallback. Lists are empty until staff fill them. Banners can't open outside links yet (use case 1).
+- **Sign-in after an app restart:** ~~token in memory only~~ **Done in `app/`:** session persisted with `expo-secure-store` and hydrated on launch.
+- **List / search:** prefer `view=card` + `total=false` and typeahead `GET /catalog/search/suggest?q=` (≥2 chars) — wired in `app/` services; search UI should debounce to 2 characters.
 
 ## 11. Troubleshooting
 

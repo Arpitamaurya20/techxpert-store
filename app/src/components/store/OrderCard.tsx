@@ -11,14 +11,12 @@ import { formatPrice } from '@/utils/format';
 const MAX_THUMBS = 4;
 
 const STATUS_STYLE: Record<OrderStatus, { label: string; color: string; background: string }> = {
-  placed: { label: 'Placed', color: '#1D4ED8', background: '#E0EAFF' },
+  pending: { label: 'Pending', color: colors.warning, background: colors.warningSoft },
   confirmed: { label: 'Confirmed', color: '#1D4ED8', background: '#E0EAFF' },
-  packed: { label: 'Packed', color: colors.warning, background: colors.warningSoft },
+  processing: { label: 'Processing', color: colors.warning, background: colors.warningSoft },
   shipped: { label: 'Shipped', color: colors.warning, background: colors.warningSoft },
-  out_for_delivery: { label: 'Out for delivery', color: colors.warning, background: colors.warningSoft },
   delivered: { label: 'Delivered', color: colors.success, background: colors.successSoft },
   cancelled: { label: 'Cancelled', color: colors.error, background: colors.errorSoft },
-  returned: { label: 'Returned', color: colors.textMuted, background: colors.surface },
 };
 
 const dateFormatter = new Intl.DateTimeFormat('en-IN', {

@@ -1,27 +1,14 @@
-import type { IdentifierType } from '@/utils/validation';
-
 import { API_BASE_URL, REQUEST_TIMEOUT_MS, isApiConfigured } from './apiConfig';
+import { asRecord, asText } from './normalize';
 
 /**
- * Authentication API service (placeholder contract).
+ * Customer sign-in (docs/APP_API_GUIDE.md UC-7).
  *
- * The Techxpert authentication API is not available yet. Until it is, every
- * sign-in attempt fails with a `NOT_CONFIGURED` error — there is no fake
- * success. Once the backend exists, set `EXPO_PUBLIC_API_BASE_URL` and make
- * sure the server implements (or this file is adjusted to match):
+ * Production uses OTP only:
+ *   POST /auth/send-otp   { phone }
+ *   POST /auth/verify-otp { phone, otp, name?, email? } → { token, user }
  *
- *   POST {API_BASE_URL}/auth/login
- *   Request body:  { "identifier": "9876543210" | "name@example.com",
- *                    "identifierType": "mobile" | "email",
- *                    "password": "..." }
- *   200 response:  { "token": "<access token>", "user": { "id": "...", "name"?: "...",
- *                    "email"?: "...", "mobile"?: "...",
- *                    "deliveryLocation"?: { "pincode": "560001", "city": "Bengaluru" } } }
- *   400 / 401:     wrong credentials
- *   429:           too many attempts
- *   5xx:           server problem
- *
- * The password is sent once over HTTPS and is never stored or logged by the app.
+ * `POST /auth/login` is a local API shortcut and is refused in production — do not call it from the app.
  */
 
 export type AuthErrorCode =
@@ -30,7 +17,8 @@ export type AuthErrorCode =
   | 'TOO_MANY_ATTEMPTS'
   | 'NETWORK'
   | 'TIMEOUT'
-  | 'SERVER';
+  | 'SERVER'
+  | 'VALIDATION';
 
 export class AuthError extends Error {
   readonly code: AuthErrorCode;
@@ -41,12 +29,6 @@ export class AuthError extends Error {
     this.code = code;
   }
 }
-
-export type SignInRequest = {
-  identifier: string;
-  identifierType: IdentifierType;
-  password: string;
-};
 
 export type AuthUser = {
   id: string;
@@ -62,19 +44,36 @@ export type SignInResponse = {
   user: AuthUser;
 };
 
+export type SendOtpResponse = {
+  phone: string;
+  message: string;
+  /** Present only on a local API; never shown in production UI. */
+  devOtp?: string;
+};
+
 function isSignInResponse(data: unknown): data is SignInResponse {
   if (typeof data !== 'object' || data === null) return false;
   const { token, user } = data as Record<string, unknown>;
-  return (
-    typeof token === 'string' &&
-    token.length > 0 &&
-    typeof user === 'object' &&
-    user !== null &&
-    typeof (user as Record<string, unknown>).id === 'string'
-  );
+  if (typeof token !== 'string' || token.length === 0) return false;
+  if (typeof user !== 'object' || user === null) return false;
+  const id = (user as Record<string, unknown>).id;
+  return typeof id === 'string' || typeof id === 'number';
 }
 
-export async function signIn(request: SignInRequest): Promise<SignInResponse> {
+function normalizeUser(raw: Record<string, unknown>): AuthUser {
+  const location = asRecord(raw.deliveryLocation);
+  const pincode = asText(location?.pincode);
+  const city = asText(location?.city);
+  return {
+    id: String(raw.id),
+    name: asText(raw.name),
+    email: asText(raw.email),
+    mobile: asText(raw.mobile) ?? asText(raw.phone),
+    deliveryLocation: pincode && city ? { pincode, city } : undefined,
+  };
+}
+
+async function authFetch(path: string, body: unknown): Promise<Response> {
   if (!isApiConfigured) {
     throw new AuthError(
       'NOT_CONFIGURED',
@@ -85,12 +84,11 @@ export async function signIn(request: SignInRequest): Promise<SignInResponse> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}/auth/login`, {
+    return await fetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(request),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch {
@@ -104,23 +102,102 @@ export async function signIn(request: SignInRequest): Promise<SignInResponse> {
   } finally {
     clearTimeout(timeoutId);
   }
+}
 
-  if (response.status === 400 || response.status === 401) {
+async function readErrorMessage(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { error?: unknown; message?: unknown };
+    const message = typeof body.error === 'string' ? body.error : body.message;
+    return typeof message === 'string' && message.trim() ? message.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Ask the server to text a one-time code to this 10-digit Indian mobile number. */
+export async function sendOtp(phone: string): Promise<SendOtpResponse> {
+  const response = await authFetch('/auth/send-otp', { phone });
+
+  if (response.status === 400) {
     throw new AuthError(
-      'INVALID_CREDENTIALS',
-      'The mobile number/email or password you entered is incorrect.'
+      'VALIDATION',
+      (await readErrorMessage(response)) ?? 'Enter a valid 10-digit mobile number.'
     );
   }
-
   if (response.status === 429) {
     throw new AuthError(
       'TOO_MANY_ATTEMPTS',
-      'Too many sign-in attempts. Please wait a few minutes and try again.'
+      (await readErrorMessage(response)) ?? 'Too many attempts. Please wait a few minutes and try again.'
+    );
+  }
+  if (response.status === 503) {
+    throw new AuthError(
+      'SERVER',
+      (await readErrorMessage(response)) ??
+        'The sign-in code could not be sent. Ask for a new one.'
+    );
+  }
+  if (!response.ok) {
+    throw new AuthError(
+      'SERVER',
+      (await readErrorMessage(response)) ?? 'Something went wrong on our side. Please try again shortly.'
     );
   }
 
+  const data: unknown = await response.json().catch(() => null);
+  const record = asRecord(data);
+  const payload = asRecord(record?.data) ?? record;
+  const resolvedPhone = asText(payload?.phone) ?? phone;
+  const message =
+    asText(payload?.message) ?? asText(record?.message) ?? 'OTP sent successfully';
+  const devOtp = asText(payload?.devOtp);
+
+  return { phone: resolvedPhone, message, ...(devOtp ? { devOtp } : {}) };
+}
+
+/** Verify the one-time code and return the customer session. */
+export async function verifyOtp(input: {
+  phone: string;
+  otp: string;
+  name?: string;
+  email?: string;
+}): Promise<SignInResponse> {
+  const body: Record<string, string> = { phone: input.phone, otp: input.otp };
+  if (input.name?.trim()) body.name = input.name.trim();
+  if (input.email?.trim()) body.email = input.email.trim();
+
+  const response = await authFetch('/auth/verify-otp', body);
+
+  if (response.status === 400) {
+    throw new AuthError(
+      'VALIDATION',
+      (await readErrorMessage(response)) ?? 'Phone and OTP are required.'
+    );
+  }
+  if (response.status === 401) {
+    throw new AuthError(
+      'INVALID_CREDENTIALS',
+      (await readErrorMessage(response)) ??
+        'That code is wrong or has expired. Ask for a new one.'
+    );
+  }
+  if (response.status === 409) {
+    throw new AuthError(
+      'VALIDATION',
+      (await readErrorMessage(response)) ?? 'That email is already on another account.'
+    );
+  }
+  if (response.status === 429) {
+    throw new AuthError(
+      'TOO_MANY_ATTEMPTS',
+      (await readErrorMessage(response)) ?? 'Too many attempts. Please wait a few minutes and try again.'
+    );
+  }
   if (!response.ok) {
-    throw new AuthError('SERVER', 'Something went wrong on our side. Please try again shortly.');
+    throw new AuthError(
+      'SERVER',
+      (await readErrorMessage(response)) ?? 'Something went wrong on our side. Please try again shortly.'
+    );
   }
 
   const data: unknown = await response.json().catch(() => null);
@@ -128,7 +205,8 @@ export async function signIn(request: SignInRequest): Promise<SignInResponse> {
     throw new AuthError('SERVER', 'We received an unexpected response. Please try again shortly.');
   }
 
-  return data;
+  const userRecord = data.user as unknown as Record<string, unknown>;
+  return { token: data.token, user: normalizeUser(userRecord) };
 }
 
 export function getAuthErrorMessage(error: unknown): string {

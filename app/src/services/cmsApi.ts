@@ -155,6 +155,10 @@ export async function getHeroSlides(): Promise<{ slides: HeroSlide[]; source: 'l
     return { slides: HERO_SLIDES, source: 'demo' };
   }
   try {
+    const boot = await getHomeBoot().catch(() => null);
+    if (boot?.source === 'live' && boot.data.banners.length > 0) {
+      return { slides: boot.data.banners.map(bannerToHeroSlide), source: 'live' };
+    }
     const raw = await apiGet('/cms/banners');
     const banners = normalizeList(raw, normalizeBanner);
     if (banners.length === 0) {
@@ -178,6 +182,10 @@ export async function getHomepageSections(): Promise<{
     return { sections: [], source: 'demo' };
   }
   try {
+    const boot = await getHomeBoot().catch(() => null);
+    if (boot?.source === 'live' && boot.data.sections.length > 0) {
+      return { sections: boot.data.sections, source: 'live' };
+    }
     const raw = await apiGet('/cms/sections');
     const sections = normalizeList(raw, normalizeSection)
       .filter((s) => s.enabled)
@@ -313,79 +321,172 @@ const EMPTY_HOME: HomeContent = { shortcuts: [], projects: [] };
 const EMPTY_ABOUT: AboutContent = { missionTitle: '', missionBody: '', facts: [], values: [] };
 const EMPTY_HELP: HelpContent = { phone: '', phoneLabel: '', whatsapp: '', email: '', hours: '', faqs: [] };
 
-export function getHomeContent(): Promise<CmsBundle<HomeContent>> {
-  return readCms(
-    '/cms/home',
-    (payload) => ({
-      shortcuts: Array.isArray(payload.shortcuts)
-        ? payload.shortcuts.flatMap((row) => {
-            const record = asRecord(row);
-            const categoryId = asId(record?.categoryId);
-            if (!record || !categoryId || record.available === false) return [];
-            const name = asText(record.name) ?? '';
-            const label = asText(record.label) ?? name;
-            if (!label) return [];
-            return [{ categoryId, label, name: name || label, imageUrl: resolveMediaUrl(asText(record.imageUrl) ?? '') }];
-          })
-        : [],
-      projects: Array.isArray(payload.projects)
-        ? payload.projects.flatMap((row) => {
-            const record = asRecord(row);
-            const id = asId(record?.id);
-            const title = asText(record?.title);
-            if (!record || !id || !title) return [];
-            const calculatorText = asText(record.calculator) ?? '';
-            const calculator = CALCULATORS.has(calculatorText as HomeProject['calculator'])
-              ? (calculatorText as HomeProject['calculator'])
-              : '';
-            const categories = Array.isArray(record.categories)
-              ? record.categories.flatMap((category) => {
-                  const item = asRecord(category);
-                  const categoryId = asId(item?.categoryId);
-                  if (!item || !categoryId || item.available === false) return [];
-                  return [{ categoryId, name: asText(item.name) ?? '' }];
-                })
-              : [];
-            return [
-              {
-                id,
-                title,
-                subtitle: asText(record.subtitle) ?? '',
-                imageUrl: resolveMediaUrl(asText(record.imageUrl) ?? ''),
-                calculator,
-                categories,
-              },
-            ];
-          })
-        : [],
-    }),
-    EMPTY_HOME
-  );
+export type HomeBoot = {
+  sections: CmsSection[];
+  home: HomeContent;
+  searchSuggestions: string[];
+  trust: TrustClaim[];
+  banners: CmsBanner[];
+  deals: DealTile[];
+  featuredRaw: unknown[];
+  categoriesRaw: unknown[];
+};
+
+let homeBootRequest: Promise<CmsBundle<HomeBoot>> | null = null;
+
+function mapHomeContent(payload: unknown): HomeContent {
+  const record = asRecord(payload) ?? {};
+  return {
+    shortcuts: Array.isArray(record.shortcuts)
+      ? record.shortcuts.flatMap((row) => {
+          const item = asRecord(row);
+          const categoryId = asId(item?.categoryId);
+          if (!item || !categoryId || item.available === false) return [];
+          const name = asText(item.name) ?? '';
+          const label = asText(item.label) ?? name;
+          if (!label) return [];
+          return [{ categoryId, label, name: name || label, imageUrl: resolveMediaUrl(asText(item.imageUrl) ?? '') }];
+        })
+      : [],
+    projects: Array.isArray(record.projects)
+      ? record.projects.flatMap((row) => {
+          const item = asRecord(row);
+          const id = asId(item?.id);
+          const title = asText(item?.title);
+          if (!item || !id || !title) return [];
+          const calculatorText = asText(item.calculator) ?? '';
+          const calculator = CALCULATORS.has(calculatorText as HomeProject['calculator'])
+            ? (calculatorText as HomeProject['calculator'])
+            : '';
+          const categories = Array.isArray(item.categories)
+            ? item.categories.flatMap((category) => {
+                const cat = asRecord(category);
+                const categoryId = asId(cat?.categoryId);
+                if (!cat || !categoryId || cat.available === false) return [];
+                return [{ categoryId, name: asText(cat.name) ?? '' }];
+              })
+            : [];
+          return [
+            {
+              id,
+              title,
+              subtitle: asText(item.subtitle) ?? '',
+              imageUrl: resolveMediaUrl(asText(item.imageUrl) ?? ''),
+              calculator,
+              categories,
+            },
+          ];
+        })
+      : [],
+  };
 }
 
-export function getSearchIdeas(): Promise<CmsBundle<string[]>> {
+function mapTrustClaims(payload: unknown): TrustClaim[] {
+  const record = asRecord(payload) ?? {};
+  const claims = Array.isArray(record.claims) ? record.claims : [];
+  return claims.flatMap((row) => {
+    const item = asRecord(row);
+    const label = asText(item?.label);
+    const icon = asText(item?.icon);
+    const action = asText(item?.action);
+    if (!item || !label || !icon || !action) return [];
+    if (!TRUST_ICONS.has(icon as TrustClaim['icon']) || !TRUST_ACTIONS.has(action as TrustClaim['action'])) {
+      return [];
+    }
+    return [{ label, icon: icon as TrustClaim['icon'], action: action as TrustClaim['action'] }];
+  });
+}
+
+function mapDeals(payload: unknown): DealTile[] {
+  const record = asRecord(payload) ?? {};
+  const deals = Array.isArray(record.deals) ? record.deals : Array.isArray(payload) ? payload : [];
+  return deals.flatMap((row) => {
+    const item = asRecord(row);
+    const categoryId = asId(item?.categoryId);
+    const title = asText(item?.title);
+    if (!item || !categoryId || !title || item.available === false) return [];
+    const tone = asText(item.tone) === 'navy' ? 'navy' : 'peach';
+    return [
+      {
+        categoryId,
+        name: asText(item.name) ?? title,
+        title,
+        highlight: asText(item.highlight) ?? '',
+        tagline: asText(item.tagline) ?? '',
+        tone,
+        imageUrl: resolveMediaUrl(asText(item.imageUrl) ?? ''),
+      },
+    ];
+  });
+}
+
+/**
+ * Preferred home payload (docs UC-1 / handover): sections, banners, deals,
+ * featured cards, categories, shortcuts, trust and search chips in one call.
+ */
+export function getHomeBoot(options: { force?: boolean } = {}): Promise<CmsBundle<HomeBoot>> {
+  if (!isApiConfigured) {
+    return Promise.resolve({
+      data: {
+        sections: [],
+        home: EMPTY_HOME,
+        searchSuggestions: [],
+        trust: [],
+        banners: [],
+        deals: [],
+        featuredRaw: [],
+        categoriesRaw: [],
+      },
+      source: 'demo',
+    });
+  }
+  if (options.force || !homeBootRequest) {
+    const request = apiGet('/cms/home-boot')
+      .then((raw): CmsBundle<HomeBoot> => {
+        const payload = objectPayload(raw);
+        return {
+          source: 'live',
+          data: {
+            sections: normalizeList(payload.sections ?? [], normalizeSection)
+              .filter((s) => s.enabled)
+              .sort((a, b) => a.position - b.position),
+            home: mapHomeContent(payload.home ?? payload),
+            searchSuggestions: textList(
+              asRecord(payload.searchSuggestions)?.suggestions ?? payload.searchSuggestions
+            ),
+            trust: mapTrustClaims(payload.trust ?? payload),
+            banners: normalizeList(payload.banners ?? [], normalizeBanner),
+            deals: mapDeals(payload.deals ?? payload),
+            featuredRaw: Array.isArray(payload.featured) ? payload.featured : [],
+            categoriesRaw: Array.isArray(payload.categories) ? payload.categories : [],
+          },
+        };
+      })
+      .catch((err) => {
+        if (homeBootRequest === request) homeBootRequest = null;
+        throw err;
+      });
+    homeBootRequest = request;
+  }
+  return homeBootRequest;
+}
+
+export async function getHomeContent(): Promise<CmsBundle<HomeContent>> {
+  const boot = await getHomeBoot().catch(() => null);
+  if (boot?.source === 'live') return { data: boot.data.home, source: 'live' };
+  return readCms('/cms/home', (payload) => mapHomeContent(payload), EMPTY_HOME);
+}
+
+export async function getSearchIdeas(): Promise<CmsBundle<string[]>> {
+  const boot = await getHomeBoot().catch(() => null);
+  if (boot?.source === 'live') return { data: boot.data.searchSuggestions, source: 'live' };
   return readCms('/cms/search-suggestions', (payload) => textList(payload.suggestions), []);
 }
 
-export function getTrustClaims(): Promise<CmsBundle<TrustClaim[]>> {
-  return readCms(
-    '/cms/trust',
-    (payload) =>
-      Array.isArray(payload.claims)
-        ? payload.claims.flatMap((row) => {
-            const record = asRecord(row);
-            const label = asText(record?.label);
-            const icon = asText(record?.icon);
-            const action = asText(record?.action);
-            if (!record || !label || !icon || !action) return [];
-            if (!TRUST_ICONS.has(icon as TrustClaim['icon']) || !TRUST_ACTIONS.has(action as TrustClaim['action'])) {
-              return [];
-            }
-            return [{ label, icon: icon as TrustClaim['icon'], action: action as TrustClaim['action'] }];
-          })
-        : [],
-    []
-  );
+export async function getTrustClaims(): Promise<CmsBundle<TrustClaim[]>> {
+  const boot = await getHomeBoot().catch(() => null);
+  if (boot?.source === 'live') return { data: boot.data.trust, source: 'live' };
+  return readCms('/cms/trust', (payload) => mapTrustClaims(payload), []);
 }
 
 export function getAboutPage(): Promise<CmsBundle<AboutContent>> {
@@ -463,32 +564,10 @@ export function getPolicies(): Promise<CmsBundle<PolicyPage[]>> {
   );
 }
 
-export function getDeals(): Promise<CmsBundle<DealTile[]>> {
-  return readCms(
-    '/cms/deals',
-    (payload) =>
-      Array.isArray(payload.deals)
-        ? payload.deals.flatMap((row) => {
-            const record = asRecord(row);
-            const categoryId = asId(record?.categoryId);
-            const title = asText(record?.title);
-            if (!record || !categoryId || !title || record.available === false) return [];
-            const tone = asText(record.tone) === 'navy' ? 'navy' : 'peach';
-            return [
-              {
-                categoryId,
-                name: asText(record.name) ?? title,
-                title,
-                highlight: asText(record.highlight) ?? '',
-                tagline: asText(record.tagline) ?? '',
-                tone,
-                imageUrl: resolveMediaUrl(asText(record.imageUrl) ?? ''),
-              },
-            ];
-          })
-        : [],
-    []
-  );
+export async function getDeals(): Promise<CmsBundle<DealTile[]>> {
+  const boot = await getHomeBoot().catch(() => null);
+  if (boot?.source === 'live') return { data: boot.data.deals, source: 'live' };
+  return readCms('/cms/deals', (payload) => mapDeals(payload), []);
 }
 
 export function getHelpContent(): Promise<CmsBundle<HelpContent>> {
