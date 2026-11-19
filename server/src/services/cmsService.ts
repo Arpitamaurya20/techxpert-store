@@ -16,6 +16,14 @@ function withResolvedAssets<T extends { imageUrl?: string }>(row: T): T {
   return { ...row, imageUrl: resolveAssetUrl(row.imageUrl) };
 }
 
+/** MySQL DATETIME rejects ISO strings with `T` / `Z` under strict mode. */
+function toMysqlDateTime(value: string | null | undefined): string | null {
+  if (value == null || value === '') return null;
+  const ms = new Date(value).getTime();
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 export class CmsService {
   static async getBanners(
     statusOnly?: string,
@@ -94,8 +102,8 @@ export class CmsService {
           ctaType || 'category',
           ctaTarget || '/category/1',
           status || 'published',
-          startsAt || null,
-          endsAt || null,
+          toMysqlDateTime(startsAt),
+          toMysqlDateTime(endsAt),
           nextOrder,
           termsText || null,
           locationScope || 'All serviceable zones',
@@ -172,9 +180,9 @@ export class CmsService {
           ctaTarget || null,
           status || null,
           setStarts ? 1 : 0,
-          setStarts ? startsAt || null : null,
+          setStarts ? toMysqlDateTime(startsAt) : null,
           setEnds ? 1 : 0,
-          setEnds ? endsAt || null : null,
+          setEnds ? toMysqlDateTime(endsAt) : null,
           position !== undefined ? Number(position) : null,
           termsText || null,
           locationScope || null,
