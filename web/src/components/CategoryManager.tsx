@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Boxes, FolderTree, Plus, Edit2, Trash2 } from 'lucide-react';
-import { api } from '../services/api';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Boxes, FolderTree, Plus, Edit2, Trash2, ImagePlus, Trash } from 'lucide-react';
+import { api, resolvePortalAsset } from '../services/api';
 import type { Category, Subcategory } from '../types';
 import {
   Button,
@@ -55,10 +55,6 @@ function checkGroup(form: GroupForm): GroupErrors {
   const order = Number(form.displayOrder);
   if (form.displayOrder.trim() === '' || !Number.isInteger(order) || order < 0 || order > 9999) {
     errors.displayOrder = 'Enter a whole number from 0 to 9999.';
-  }
-  const image = form.imageUrl.trim();
-  if (image && !image.startsWith('/') && !/^https?:\/\//i.test(image)) {
-    errors.imageUrl = 'Enter a path starting with "/" or a full https:// link.';
   }
   return errors;
 }
@@ -152,7 +148,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     },
   ];
 
-  const saveCategory = async (form: GroupForm, editing: Category | null) => {
+  const saveCategory = async (form: GroupForm, editing: Category | null, pendingFile?: File | null) => {
     const payload = {
       name: form.name.trim(),
       slug: form.slug.trim() || slugify(form.name),
@@ -165,7 +161,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       onAudit?.('Saved category', `Saved category "${payload.name}"`);
       toast.success(`Category "${payload.name}" saved.`);
     } else {
-      const created = await api.createCategory(payload);
+      const created = await api.createCategory({ ...payload, imageUrl: '' });
+      if (pendingFile && created?.id) {
+        const stored = await api.uploadCategoryImage(String(created.id), pendingFile);
+        await api.updateCategory(String(created.id), { imageUrl: stored.imageUrl });
+      }
       onAudit?.('Added category', `Added category "${payload.name}"`);
       toast.success(`Category "${payload.name}" added.`);
       if (created?.id) setSelectedId(String(created.id));
@@ -202,7 +202,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     }
   };
 
-  const saveSubcategory = async (form: GroupForm, editing: Subcategory | null) => {
+  const saveSubcategory = async (form: GroupForm, editing: Subcategory | null, pendingFile?: File | null) => {
     if (!selectedId || !selected) return;
     const payload = {
       name: form.name.trim(),
@@ -216,7 +216,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       onAudit?.('Saved subcategory', `Saved subcategory "${payload.name}" in ${selected.name}`);
       toast.success(`Subcategory "${payload.name}" saved.`);
     } else {
-      await api.createSubcategory(payload);
+      const created = await api.createSubcategory({ ...payload, imageUrl: '' });
+      if (pendingFile && created?.id) {
+        const stored = await api.uploadSubcategoryImage(String(created.id), pendingFile);
+        await api.updateSubcategory(String(created.id), { imageUrl: stored.imageUrl });
+      }
       onAudit?.('Added subcategory', `Added subcategory "${payload.name}" to ${selected.name}`);
       toast.success(`Subcategory "${payload.name}" added to ${selected.name}.`);
     }
@@ -299,11 +303,18 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
                       data-category-row
                       style={styles.selectButton}
                     >
-                      <span style={styles.itemName}>{cat.name}</span>
-                      <span style={styles.itemMeta}>
-                        {count !== undefined && count !== null
-                          ? `${Number(count).toLocaleString('en-IN')} product${Number(count) === 1 ? '' : 's'}`
-                          : 'Product count not available'}
+                      {cat.imageUrl ? (
+                        <img src={resolvePortalAsset(cat.imageUrl)} alt="" style={styles.thumb} />
+                      ) : (
+                        <span style={styles.thumbEmpty} aria-hidden />
+                      )}
+                      <span style={styles.itemCopy}>
+                        <span style={styles.itemName}>{cat.name}</span>
+                        <span style={styles.itemMeta}>
+                          {count !== undefined && count !== null
+                            ? `${Number(count).toLocaleString('en-IN')} product${Number(count) === 1 ? '' : 's'}`
+                            : 'Product count not available'}
+                        </span>
                       </span>
                     </button>
                     <div style={styles.itemActions}>
@@ -366,6 +377,11 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
               <div style={styles.list}>
                 {subsShown.map((sub) => (
                   <div key={sub.id} style={styles.subRow}>
+                    {sub.imageUrl ? (
+                      <img src={resolvePortalAsset(sub.imageUrl)} alt="" style={styles.thumb} />
+                    ) : (
+                      <span style={styles.thumbEmpty} aria-hidden />
+                    )}
                     <span style={{ ...styles.itemName, flex: 1, minWidth: 0 }}>{sub.name}</span>
                     <div style={styles.itemActions}>
                       {canEdit ? (
@@ -403,7 +419,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
           kind="category"
           initial={catDialog.editing}
           onClose={() => setCatDialog(null)}
-          onSave={(form) => saveCategory(form, catDialog.editing)}
+          onSave={(form, pendingFile) => saveCategory(form, catDialog.editing, pendingFile)}
         />
       ) : null}
       {subDialog && selected ? (
@@ -413,7 +429,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
           parentName={selected.name}
           initial={subDialog.editing}
           onClose={() => setSubDialog(null)}
-          onSave={(form) => saveSubcategory(form, subDialog.editing)}
+          onSave={(form, pendingFile) => saveSubcategory(form, subDialog.editing, pendingFile)}
         />
       ) : null}
       {dialog}
@@ -426,7 +442,7 @@ const GroupDialog: React.FC<{
   parentName?: string;
   initial: (Category | Subcategory) | null;
   onClose: () => void;
-  onSave: (form: GroupForm) => Promise<void>;
+  onSave: (form: GroupForm, pendingFile?: File | null) => Promise<void>;
 }> = ({ kind, parentName, initial, onClose, onSave }) => {
   const [form, setForm] = useState<GroupForm>(() => ({
     name: initial?.name ?? '',
@@ -439,6 +455,17 @@ const GroupDialog: React.FC<{
   const [slugTouched, setSlugTouched] = useState(Boolean(initial));
   const [errors, setErrors] = useState<GroupErrors>({});
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    };
+  }, [localPreview]);
 
   const set = (key: keyof GroupForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -451,6 +478,53 @@ const GroupDialog: React.FC<{
     if (errors[key] || errors.form) setErrors((prev) => ({ ...prev, [key]: undefined, form: undefined }));
   };
 
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setUploadError('Use a JPEG, PNG or WebP image.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadError('Use an image of 2 MB or less.');
+      return;
+    }
+    setUploadError(null);
+
+    if (!initial) {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+      setPendingFile(file);
+      setLocalPreview(URL.createObjectURL(file));
+      setForm((prev) => ({ ...prev, imageUrl: '' }));
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const stored =
+        kind === 'category'
+          ? await api.uploadCategoryImage(String(initial.id), file)
+          : await api.uploadSubcategoryImage(String(initial.id), file);
+      if (localPreview) URL.revokeObjectURL(localPreview);
+      setLocalPreview(null);
+      setPendingFile(null);
+      setForm((prev) => ({ ...prev, imageUrl: stored.imageUrl }));
+      if (errors.imageUrl || errors.form) setErrors((prev) => ({ ...prev, imageUrl: undefined, form: undefined }));
+    } catch (err) {
+      setUploadError(`Not uploaded: ${err instanceof Error ? err.message : "the server didn't answer."}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const clearImage = () => {
+    if (localPreview) URL.revokeObjectURL(localPreview);
+    setLocalPreview(null);
+    setPendingFile(null);
+    setForm((prev) => ({ ...prev, imageUrl: '' }));
+    setUploadError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const found = checkGroup(form);
@@ -458,7 +532,7 @@ const GroupDialog: React.FC<{
     if (Object.keys(found).length) return;
     try {
       setSaving(true);
-      await onSave(form);
+      await onSave(form, pendingFile);
     } catch (err) {
       setErrors(serverErrors(err));
     } finally {
@@ -468,6 +542,8 @@ const GroupDialog: React.FC<{
 
   const noun = kind === 'category' ? 'category' : 'subcategory';
   const formId = `${kind}-${initial?.id ?? 'new'}`;
+  const previewSrc = localPreview || (form.imageUrl ? resolvePortalAsset(form.imageUrl) : '');
+  const hasImage = Boolean(previewSrc);
 
   return (
     <Modal
@@ -484,7 +560,7 @@ const GroupDialog: React.FC<{
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" type="submit" form={formId} loading={saving}>
+          <Button size="sm" type="submit" form={formId} loading={saving} disabled={uploading}>
             {initial ? 'Save changes' : `Add ${noun}`}
           </Button>
         </>
@@ -520,14 +596,74 @@ const GroupDialog: React.FC<{
             <input inputMode="numeric" value={form.displayOrder} onChange={set('displayOrder')} />
           </Field>
         </div>
+
         <Field
-          id={`${formId}-image`}
+          id={`${formId}-upload`}
           label="Image"
-          error={errors.imageUrl}
-          hint='A path such as "/images/categories/cement.jpg", or a full https:// link.'
+          error={uploadError || errors.imageUrl}
+          hint={
+            uploading
+              ? 'Uploading…'
+              : 'Choose a JPEG, PNG or WebP from your device (up to 2 MB). No image link needed.'
+          }
         >
-          <input value={form.imageUrl} onChange={set('imageUrl')} maxLength={500} />
+          <div>
+            <input
+              ref={fileInputRef}
+              id={`${formId}-upload`}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={uploading || saving}
+              style={styles.hiddenFile}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                void pickImage(file);
+              }}
+            />
+            {hasImage ? (
+              <div style={styles.coverPreview}>
+                <img src={previewSrc} alt="" style={styles.coverImg} />
+              </div>
+            ) : (
+              <button
+                type="button"
+                style={styles.uploadZone}
+                disabled={uploading || saving}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <ImagePlus size={22} />
+                <span style={styles.uploadZoneTitle}>Upload image</span>
+                <span style={styles.uploadZoneHint}>JPEG, PNG or WebP · max 2 MB</span>
+              </button>
+            )}
+            <div style={styles.uploadActions}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                icon={<ImagePlus size={14} />}
+                disabled={uploading || saving}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {hasImage ? 'Replace image' : 'Choose image'}
+              </Button>
+              {hasImage ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  icon={<Trash size={14} color="var(--danger)" />}
+                  disabled={uploading || saving}
+                  onClick={clearImage}
+                >
+                  Remove
+                </Button>
+              ) : null}
+            </div>
+          </div>
         </Field>
+
         {kind === 'category' ? (
           <Field id={`${formId}-description`} label="Description">
             <textarea value={form.description} onChange={set('description')} maxLength={500} />
@@ -549,6 +685,59 @@ const styles: Record<string, React.CSSProperties> = {
   column: {
     minHeight: '360px',
   },
+  hiddenFile: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: 'hidden',
+    clip: 'rect(0 0 0 0)',
+  },
+  uploadZone: {
+    width: '100%',
+    minHeight: '132px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
+    padding: '20px 16px',
+    borderRadius: 'var(--radius-sm)',
+    border: '1.5px dashed var(--border-strong, var(--border-subtle))',
+    background: 'var(--bg-surface-elevated)',
+    color: 'var(--text-main)',
+    cursor: 'pointer',
+  },
+  uploadZoneTitle: {
+    fontSize: '0.92rem',
+    fontWeight: 600,
+  },
+  uploadZoneHint: {
+    fontSize: '0.78rem',
+    color: 'var(--text-dim)',
+  },
+  uploadActions: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+    marginTop: '10px',
+  },
+  coverPreview: {
+    width: '100%',
+    height: '160px',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--bg-surface-elevated)',
+    border: '1px solid var(--border-subtle)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  coverImg: {
+    maxWidth: '100%',
+    maxHeight: '100%',
+    objectFit: 'contain',
+  },
   list: {
     display: 'flex',
     flexDirection: 'column',
@@ -569,13 +758,38 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--accent-soft)',
     borderColor: 'var(--accent-border)',
   },
-  selectButton: {
+  thumb: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '8px',
+    objectFit: 'cover',
+    background: 'var(--bg-surface-elevated)',
+    border: '1px solid var(--border-subtle)',
+    flexShrink: 0,
+  },
+  thumbEmpty: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '8px',
+    background: 'var(--bg-surface-elevated)',
+    border: '1px solid var(--border-subtle)',
+    flexShrink: 0,
+  },
+  itemCopy: {
     flex: 1,
     minWidth: 0,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-start',
     gap: '2px',
+  },
+  selectButton: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: '10px',
     padding: '6px 8px',
     background: 'transparent',
     border: 'none',

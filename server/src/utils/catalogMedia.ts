@@ -46,10 +46,10 @@ export function normalizeProductImageForDb(value: unknown): string | undefined {
   );
 }
 
-/** Save a staff upload under catalog/catalog/staff/<productId>/ and return the DB path. */
-export async function storeProductImage(productId: number, bytes: Buffer): Promise<{ imageUrl: string }> {
-  if (!Number.isInteger(productId) || productId <= 0) {
-    throw Object.assign(new Error('Product not found'), { statusCode: 404 });
+async function storeStaffCatalogImage(folder: string, id: string, bytes: Buffer): Promise<{ imageUrl: string }> {
+  const safeId = String(id).trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!safeId) {
+    throw Object.assign(new Error('Not found'), { statusCode: 404 });
   }
   const kind = sniffBannerImage(bytes);
   if (!kind) {
@@ -58,11 +58,29 @@ export async function storeProductImage(productId: number, bytes: Buffer): Promi
   if (bytes.length > BANNER_IMAGE_MAX_BYTES) {
     throw Object.assign(new Error('Image must be 2 MB or smaller'), { statusCode: 400 });
   }
-  const dir = path.join(catalogImageRoot, 'staff', String(productId));
+  const dir = path.join(catalogImageRoot, folder, safeId);
   await mkdir(dir, { recursive: true });
   const name = `${randomBytes(16).toString('hex')}.${EXT[kind]}`;
   await writeFile(path.join(dir, name), bytes);
-  return { imageUrl: `store/assets/catalog/staff/${productId}/${name}` };
+  return { imageUrl: `store/assets/catalog/${folder}/${safeId}/${name}` };
+}
+
+/** Save a staff upload under catalog/catalog/staff/<productId>/ and return the DB path. */
+export async function storeProductImage(productId: number, bytes: Buffer): Promise<{ imageUrl: string }> {
+  if (!Number.isInteger(productId) || productId <= 0) {
+    throw Object.assign(new Error('Product not found'), { statusCode: 404 });
+  }
+  return storeStaffCatalogImage('staff', String(productId), bytes);
+}
+
+/** Save a staff upload under catalog/catalog/categories/<id>/ and return the DB path. */
+export async function storeCategoryImage(categoryId: string | number, bytes: Buffer): Promise<{ imageUrl: string }> {
+  return storeStaffCatalogImage('categories', String(categoryId), bytes);
+}
+
+/** Save a staff upload under catalog/catalog/subcategories/<id>/ and return the DB path. */
+export async function storeSubcategoryImage(subcategoryId: string | number, bytes: Buffer): Promise<{ imageUrl: string }> {
+  return storeStaffCatalogImage('subcategories', String(subcategoryId), bytes);
 }
 
 /** Turn a stored product/category path into a URL the portal and phone can load. */

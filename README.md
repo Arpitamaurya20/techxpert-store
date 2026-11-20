@@ -36,6 +36,17 @@ All cross-cutting specifications and architectural blueprints reside in the [`do
 
 ## 🚀 Getting Started
 
+From the **repo root** you can use:
+
+```bash
+npm run app       # Expo mobile app
+npm run server    # API on http://localhost:5001
+npm run web       # Portal on http://localhost:5173
+npm run install:all
+```
+
+Do **not** run bare `npx expo …` in the root — Expo lives in `app/`. Use `npm run app` or `cd app` first.
+
 ### 📱 Customer Mobile App (`app/`)
 
 The mobile client is built using React Native, Expo Router, and TypeScript.

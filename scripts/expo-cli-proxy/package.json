@@ -1,0 +1,11 @@
+{
+  "name": "expo",
+  "version": "57.0.28",
+  "private": true,
+  "description": "Proxy: forwards Expo CLI to app/ so monorepo root commands work",
+  "bin": {
+    "expo": "./bin/expo",
+    "expo-modules-autolinking": "./bin/expo-modules-autolinking"
+  },
+  "main": "./index.js"
+}

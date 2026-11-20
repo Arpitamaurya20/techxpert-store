@@ -10,6 +10,7 @@ import type { Category } from '@/types/catalog';
 import { SectionHeader } from './SectionHeader';
 
 type ProjectDealsProps = {
+  title?: string;
   categories: Category[];
   /** Sample offer text is only shown alongside the sample catalogue. */
   showSampleOffers: boolean;
@@ -19,34 +20,64 @@ type ProjectDealsProps = {
   onViewAll: () => void;
 };
 
-export function ProjectDeals({ categories, showSampleOffers, published, onOpenCategory, onViewAll }: ProjectDealsProps) {
-  const deals = published
-    ? published.flatMap((deal) => {
-        const known = categories.find((item) => item.id === deal.categoryId);
-        const category: Category = { id: deal.categoryId, name: deal.name || deal.title, imageUrl: deal.imageUrl || known?.imageUrl };
-        return [
-          {
-            categoryId: deal.categoryId,
-            title: deal.title,
-            highlight: deal.highlight,
-            sampleOffer: '',
-            tagline: deal.tagline,
-            tone: deal.tone,
-            image: deal.imageUrl || known?.imageUrl ? { uri: deal.imageUrl || known?.imageUrl } : undefined,
-            category,
-          },
-        ];
-      })
-    : PROJECT_DEALS.flatMap((deal) => {
-        const category = categories.find((item) => item.id === deal.categoryId);
-        return category ? [{ ...deal, category }] : [];
-      });
+export function ProjectDeals({
+  title = 'Deals for your projects',
+  categories,
+  showSampleOffers,
+  published,
+  onOpenCategory,
+  onViewAll,
+}: ProjectDealsProps) {
+  const fromPublished = published?.flatMap((deal) => {
+    const known = categories.find((item) => item.id === deal.categoryId);
+    const category: Category = {
+      id: deal.categoryId,
+      name: deal.name || deal.title,
+      imageUrl: deal.imageUrl || known?.imageUrl,
+    };
+    return [
+      {
+        categoryId: deal.categoryId,
+        title: deal.title,
+        highlight: deal.highlight,
+        sampleOffer: '',
+        tagline: deal.tagline,
+        tone: deal.tone,
+        image: deal.imageUrl || known?.imageUrl ? { uri: deal.imageUrl || known?.imageUrl } : undefined,
+        category,
+      },
+    ];
+  });
+  const fromDefaults = PROJECT_DEALS.flatMap((deal) => {
+    const category = categories.find((item) => item.id === deal.categoryId);
+    return category ? [{ ...deal, category }] : [];
+  });
+  /** Live catalogues often use different ids; keep two deal cards from the live list so Home still matches the layout. */
+  const fromCatalogue = categories.slice(0, 2).map((category, index) => {
+    const template = PROJECT_DEALS[index] ?? PROJECT_DEALS[0];
+    return {
+      categoryId: category.id,
+      title: category.name.split(/[&/]/)[0]?.trim() || category.name,
+      highlight: undefined as string | undefined,
+      sampleOffer: '',
+      tagline: 'Browse products in this category',
+      tone: template.tone,
+      image: category.imageUrl ? { uri: category.imageUrl } : template.image,
+      category,
+    };
+  });
+  const deals =
+    fromPublished && fromPublished.length > 0
+      ? fromPublished
+      : fromDefaults.length > 0
+        ? fromDefaults
+        : fromCatalogue;
 
   if (deals.length === 0) return null;
 
   return (
     <View style={styles.section}>
-      <SectionHeader title="Deals for You" actionLabel="View all" onAction={onViewAll} />
+      <SectionHeader title={title} actionLabel="View all" onAction={onViewAll} />
       <View style={styles.row}>
         {deals.map((deal) => {
           const navy = deal.tone === 'navy';
@@ -103,7 +134,7 @@ export function ProjectDeals({ categories, showSampleOffers, published, onOpenCa
 
 const styles = StyleSheet.create({
   section: {
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   row: {
     flexDirection: 'row',
@@ -111,14 +142,14 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    height: 132,
+    height: 148,
     justifyContent: 'space-between',
     padding: spacing.md,
     overflow: 'hidden',
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
   },
   cardPeach: {
-    backgroundColor: '#FDE2CC',
+    backgroundColor: '#F8D7B8',
   },
   cardNavy: {
     backgroundColor: '#1F4FA3',
@@ -128,12 +159,12 @@ const styles = StyleSheet.create({
   },
   art: {
     position: 'absolute',
-    right: 8,
-    bottom: 8,
-    width: 58,
-    height: 58,
+    right: 6,
+    bottom: 10,
+    width: 72,
+    height: 72,
     overflow: 'hidden',
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.white,
   },
   image: {

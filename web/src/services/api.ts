@@ -434,6 +434,54 @@ export const api = {
     }
     return { imageUrl: json.data.imageUrl };
   },
+  uploadCategoryImage: async (categoryId: string, file: File) => {
+    const token = getToken();
+    const body = new FormData();
+    body.append('file', file);
+    const res = await reach(`${API_BASE_URL}/catalog/categories/${encodeURIComponent(categoryId)}/media`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'x-client': 'portal',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body,
+    });
+    const json = (await res.json().catch(() => ({}))) as ApiEnvelope<{ imageUrl?: string }>;
+    if (res.status === 401) {
+      clearSession();
+      onUnauthorized?.();
+      throw new Error(json.error || 'Session expired — please sign in again');
+    }
+    if (!res.ok || !json.data?.imageUrl) {
+      throw new Error(json.error || 'Could not store that image');
+    }
+    return { imageUrl: json.data.imageUrl };
+  },
+  uploadSubcategoryImage: async (subcategoryId: string, file: File) => {
+    const token = getToken();
+    const body = new FormData();
+    body.append('file', file);
+    const res = await reach(`${API_BASE_URL}/catalog/subcategories/${encodeURIComponent(subcategoryId)}/media`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'x-client': 'portal',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body,
+    });
+    const json = (await res.json().catch(() => ({}))) as ApiEnvelope<{ imageUrl?: string }>;
+    if (res.status === 401) {
+      clearSession();
+      onUnauthorized?.();
+      throw new Error(json.error || 'Session expired — please sign in again');
+    }
+    if (!res.ok || !json.data?.imageUrl) {
+      throw new Error(json.error || 'Could not store that image');
+    }
+    return { imageUrl: json.data.imageUrl };
+  },
   getProductStoreStock: (id: string) =>
     fetchApi<{
       variants: {

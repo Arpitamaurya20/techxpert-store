@@ -102,4 +102,27 @@ export type ProductQuery = {
   brandId?: string;
   featured?: boolean;
   limit?: number;
+  /** Lean phone rows (docs UC-3). Default true for list calls. */
+  view?: 'card' | 'full';
+  /** Skip heavy COUNT; use with `after` / `nextAfter`. Default true for card lists. */
+  total?: boolean;
+  /** Cursor from the previous page's `meta.nextAfter` (card lists only). */
+  after?: string | number;
+};
+
+export type ProductListMeta = {
+  page?: number;
+  limit?: number;
+  total?: number;
+  totalPages?: number;
+  hasMore?: boolean;
+  nextAfter?: string | number;
+  relaxed?: boolean;
+};
+
+export type SearchSuggestGroup = {
+  categories: { id: string; name: string }[];
+  brands: { id: string; name: string }[];
+  products: { id: string; name: string; brandName?: string; imageUrl?: string; price?: number }[];
+  didYouMean?: string[];
 };

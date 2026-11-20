@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SUPPORT } from '@/constants/brand';
-import { cardShadow, colors, fonts, radius, spacing } from '@/constants/theme';
+import { colors, fonts, radius, spacing } from '@/constants/theme';
 import type { TrustClaim } from '@/services/cmsApi';
 
 type TrustItem = {
@@ -42,31 +42,31 @@ export function TrustStrip({ published, phone, phoneLabel }: TrustStripProps) {
         onPress: () => open(claim.action),
       }))
     : [
-    {
-      icon: 'truck-fast-outline',
-      label: 'Fast\nDelivery',
-      accessibilityLabel: 'Fast and reliable delivery. Set delivery location',
-      onPress: () => router.push('/delivery-location'),
-    },
-    {
-      icon: 'shield-check-outline',
-      label: '100% Genuine\nProducts',
-      accessibilityLabel: '100% genuine products. About us',
-      onPress: () => router.push('/about/us'),
-    },
-    {
-      icon: 'tag-outline',
-      label: 'Bulk & Project\nPricing',
-      accessibilityLabel: 'Bulk and project pricing. Contact us',
-      onPress: () => router.push('/help'),
-    },
-    {
-      icon: 'headset',
-      label: 'Expert\nSupport',
-      accessibilityLabel: `Expert support. Call ${SUPPORT.phoneLabel}`,
-      onPress: () => Linking.openURL(`tel:${SUPPORT.phone}`).catch(() => router.push('/help')),
-    },
-  ];
+        {
+          icon: 'truck-fast-outline',
+          label: 'Fast\nDelivery',
+          accessibilityLabel: 'Fast and reliable delivery. Set delivery location',
+          onPress: () => router.push('/delivery-location'),
+        },
+        {
+          icon: 'shield-check-outline',
+          label: 'Genuine\nProducts',
+          accessibilityLabel: 'Genuine products. About us',
+          onPress: () => router.push('/about/us'),
+        },
+        {
+          icon: 'tag-outline',
+          label: 'Bulk & Project\nPricing',
+          accessibilityLabel: 'Bulk and project pricing. Contact us',
+          onPress: () => router.push('/help'),
+        },
+        {
+          icon: 'headset',
+          label: 'Expert\nSupport',
+          accessibilityLabel: `Expert support. Call ${SUPPORT.phoneLabel}`,
+          onPress: () => Linking.openURL(`tel:${SUPPORT.phone}`).catch(() => router.push('/help')),
+        },
+      ];
 
   return (
     <View style={styles.strip}>
@@ -78,9 +78,7 @@ export function TrustStrip({ published, phone, phoneLabel }: TrustStripProps) {
           accessibilityLabel={item.accessibilityLabel}
           style={({ pressed }) => [styles.item, pressed && styles.pressed]}
         >
-          <View style={styles.iconCircle}>
-            <MaterialCommunityIcons name={item.icon} size={20} color={colors.navy} />
-          </View>
+          <MaterialCommunityIcons name={item.icon} size={22} color={colors.navy} />
           <Text style={styles.label}>{item.label}</Text>
         </Pressable>
       ))}
@@ -97,30 +95,23 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 92,
     paddingVertical: spacing.md,
-    paddingHorizontal: 2,
-    borderRadius: radius.md,
+    paddingHorizontal: 4,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.cardBorder,
-    backgroundColor: colors.card,
-    ...cardShadow,
+    borderColor: 'rgba(11, 42, 91, 0.06)',
+    backgroundColor: colors.navySoft,
   },
   pressed: {
-    backgroundColor: colors.navySoft,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 18,
-    backgroundColor: colors.navySoft,
+    opacity: 0.85,
   },
   label: {
     fontSize: 10,
     lineHeight: 13,
-    fontFamily: fonts.medium,
+    fontFamily: fonts.semiBold,
     color: colors.navy,
     textAlign: 'center',
   },

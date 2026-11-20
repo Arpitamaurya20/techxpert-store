@@ -32,6 +32,10 @@ import type { Category, Product } from '@/types/catalog';
 const FEATURED_LIMIT = 10;
 const ORDER_AGAIN_LIMIT = 10;
 
+/**
+ * The eight Home blocks from the store portal (Home screen sections),
+ * listed top to bottom as they appear in the app.
+ */
 const DEFAULT_HOME_SECTIONS = [
   { type: 'category_shortcuts', title: 'Category shortcuts' },
   { type: 'hero_carousel', title: 'Campaign hero' },
@@ -111,7 +115,20 @@ export default function HomeScreen() {
   const orderedSections = useMemo(() => {
     const live = cmsSections.data?.sections ?? [];
     if (live.length === 0) return DEFAULT_HOME_SECTIONS.map((section) => ({ ...section }));
-    return live.map((section) => ({ type: section.type, title: section.title || section.type }));
+
+    const preferred = DEFAULT_HOME_SECTIONS.map((section) => section.type);
+    const byType = new Map(live.map((section) => [section.type, section]));
+    // Portal order first so all eight blocks stay in the same sequence as Home screen sections.
+    const ordered = DEFAULT_HOME_SECTIONS.map((fallback) => {
+      const section = byType.get(fallback.type);
+      return section
+        ? { type: section.type, title: section.title || fallback.title }
+        : { type: fallback.type, title: fallback.title };
+    });
+    const extras = live
+      .filter((section) => !preferred.includes(section.type as (typeof preferred)[number]))
+      .map((section) => ({ type: section.type, title: section.title || section.type }));
+    return [...ordered, ...extras];
   }, [cmsSections.data?.sections]);
 
   const refreshAll = () => {
@@ -143,11 +160,19 @@ export default function HomeScreen() {
   const openAllCategories = () => router.navigate('/categories');
 
   const waiting = (status: string, hasData: boolean) => isApiConfigured && status === 'loading' && !hasData;
-  const liveShortcuts = homeLists.data?.source === 'live' ? homeLists.data.data.shortcuts : undefined;
-  const liveProjects = homeLists.data?.source === 'live' ? homeLists.data.data.projects : undefined;
-  const liveIdeas = searchIdeas.data?.source === 'live' ? searchIdeas.data.data : undefined;
-  const liveClaims = trust.data?.source === 'live' ? trust.data.data : undefined;
-  const liveDeals = deals.data?.source === 'live' ? deals.data.data : undefined;
+  /** Empty live lists fall back to the app's own content so Home still matches the store layout. */
+  const liveShortcuts =
+    homeLists.data?.source === 'live' && homeLists.data.data.shortcuts.length > 0
+      ? homeLists.data.data.shortcuts
+      : undefined;
+  const liveProjects =
+    homeLists.data?.source === 'live' && homeLists.data.data.projects.length > 0
+      ? homeLists.data.data.projects
+      : undefined;
+  const liveIdeas =
+    searchIdeas.data?.source === 'live' && searchIdeas.data.data.length > 0 ? searchIdeas.data.data : undefined;
+  const liveClaims = trust.data?.source === 'live' && trust.data.data.length > 0 ? trust.data.data : undefined;
+  const liveDeals = deals.data?.source === 'live' && deals.data.data.length > 0 ? deals.data.data : undefined;
   const helpPhone = help.data?.source === 'live' ? help.data.data : undefined;
 
   const renderSection = (code: string, title: string, key: string) => {
@@ -213,7 +238,7 @@ export default function HomeScreen() {
           />
         );
       case 'bulk_enquiry':
-        return <QuickTools key={key} />;
+        return <QuickTools key={key} title={title || 'Quick tools'} />;
       case 'offer_tiles':
         if (deals.status === 'error') {
           return (
@@ -232,6 +257,7 @@ export default function HomeScreen() {
         return (
           <ProjectDeals
             key={key}
+            title={title || 'Deals for your projects'}
             categories={categoryList}
             showSampleOffers={isDemo && !liveDeals}
             published={liveDeals}
@@ -267,7 +293,7 @@ export default function HomeScreen() {
           );
         }
         if (waiting(homeLists.status, Boolean(homeLists.data))) return null;
-        return <ShopByProject key={key} published={liveProjects} />;
+        return <ShopByProject key={key} title={title || 'Shop by project'} published={liveProjects} />;
       case 'featured_products':
       case 'product_rail':
         return (
@@ -307,6 +333,8 @@ export default function HomeScreen() {
       <StoreHeader />
 
       <View style={styles.body}>
+        {orderedSections.map((section, i) => renderSection(section.type, section.title, `${section.type}-${i}`))}
+
         {searchIdeas.status === 'error' ? (
           <StateView
             variant="error"
@@ -319,8 +347,6 @@ export default function HomeScreen() {
         ) : waiting(searchIdeas.status, Boolean(searchIdeas.data)) ? null : (
           <SearchSuggestions published={liveIdeas} />
         )}
-
-        {orderedSections.map((section, i) => renderSection(section.type, section.title, `${section.type}-${i}`))}
 
         {recentIds.length > 0 ? (
           <FeaturedProductsRail
@@ -346,17 +372,17 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.screen,
   },
   content: {
-    paddingBottom: spacing.xxl,
+    paddingBottom: spacing.xxxl,
   },
   body: {
     width: '100%',
     maxWidth: MAX_STORE_WIDTH,
     alignSelf: 'center',
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: spacing.md,
-    gap: spacing.lg,
+    paddingTop: spacing.lg,
+    gap: spacing.xl,
   },
 });

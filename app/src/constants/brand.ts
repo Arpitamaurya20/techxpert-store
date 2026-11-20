@@ -4,7 +4,7 @@ export const BRAND = {
   name: 'TECHXPERT',
   region: 'INDIA',
   fullName: 'Techxpert India',
-  tagline: 'Construction materials & hardware',
+  tagline: 'Shop Materials & Supplies',
 } as const;
 
 /** Published store contacts, shared by Help and About. */

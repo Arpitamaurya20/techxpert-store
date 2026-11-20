@@ -16,9 +16,8 @@ import { asId, asList, asNumber, asRecord, asText, normalizeList } from './norma
  *       → [{ id, orderNumber?, placedAt? (or createdAt), status?, total?,
  *            items: [{ productId, name, quantity, unitPrice? (or price),
  *                      unit?, imageUrl?, categoryId? }] }]
- *         Newest first. `status` is one of "placed" | "confirmed" | "packed" |
- *         "shipped" | "out_for_delivery" | "delivered" | "cancelled" |
- *         "returned"; any other value is shown to the customer as sent.
+ *         Newest first. `status` is one of "pending" | "confirmed" | "processing" |
+ *         "shipped" | "delivered" | "cancelled"; any other value is shown as sent.
  *
  * There is no demo order history: without a server the app shows the empty
  * "Reordering will be easy" state rather than invented orders.
@@ -30,14 +29,12 @@ export type OrdersResult =
   | { state: 'ready'; orders: Order[] };
 
 const ORDER_STATUSES: OrderStatus[] = [
-  'placed',
+  'pending',
   'confirmed',
-  'packed',
+  'processing',
   'shipped',
-  'out_for_delivery',
   'delivered',
   'cancelled',
-  'returned',
 ];
 
 function normalizeOrderItem(raw: unknown): OrderItem | null {

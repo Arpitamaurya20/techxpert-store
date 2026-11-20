@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandMark } from '@/components/brand/BrandMark';
 import { GLASS_EDGE, GlassBackground, glassSurface } from '@/components/ui/GlassBackground';
+import { BRAND } from '@/constants/brand';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/theme';
 import { useCartCount } from '@/state/cartStore';
 import { useDeliveryLocation } from '@/state/locationStore';
@@ -74,7 +75,7 @@ export function StoreHeader({ search: screenSearch }: { search?: HeaderSearch } 
         <View style={styles.topRow}>
           <View style={styles.brand}>
             <BrandMark size="small" />
-            
+            <Text style={styles.tagline}>{BRAND.tagline}</Text>
           </View>
 
           <HeaderAction
@@ -142,11 +143,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   tagline: {
-    marginTop: -2,
-    fontSize: 10,
-    lineHeight: 13,
+    marginTop: 1,
+    fontSize: 11,
+    lineHeight: 14,
     fontFamily: fonts.medium,
-    color: colors.logoBlue,
+    color: colors.navy,
+    opacity: 0.72,
   },
   location: {
     alignSelf: 'flex-start',

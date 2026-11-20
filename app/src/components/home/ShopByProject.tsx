@@ -8,22 +8,23 @@ import type { HomeProject } from '@/services/cmsApi';
 
 import { SectionHeader } from './SectionHeader';
 
-const CARD_WIDTH = 140;
+const CARD_WIDTH = 148;
 
 type ShopByProjectProps = {
+  title?: string;
   /** Published projects. Leave this out to use the app's own list. An empty list draws nothing. */
   published?: HomeProject[];
 };
 
 /** Swipeable project cards; each opens the list of categories needed for that job. */
-export function ShopByProject({ published }: ShopByProjectProps) {
+export function ShopByProject({ title = 'Shop by project', published }: ShopByProjectProps) {
   const router = useRouter();
   if (published && published.length === 0) return null;
   const projects = published ?? SHOP_PROJECTS;
 
   return (
     <View style={styles.section}>
-      <SectionHeader title="Shop by Project" />
+      <SectionHeader title={title} />
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -86,18 +87,19 @@ const styles = StyleSheet.create({
   },
   image: {
     width: '100%',
-    height: 96,
-    backgroundColor: colors.surface,
+    height: 108,
+    backgroundColor: colors.navySoft,
   },
   text: {
-    gap: 2,
-    padding: spacing.sm,
+    gap: 3,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.md,
   },
   title: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontFamily: fonts.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: fonts.semiBold,
     color: colors.navy,
   },
   subtitle: {

@@ -1,12 +1,11 @@
+/** Server order statuses (docs/APP_API_GUIDE.md UC-11). */
 export type OrderStatus =
-  | 'placed'
+  | 'pending'
   | 'confirmed'
-  | 'packed'
+  | 'processing'
   | 'shipped'
-  | 'out_for_delivery'
   | 'delivered'
-  | 'cancelled'
-  | 'returned';
+  | 'cancelled';
 
 export type OrderItem = {
   productId: string;
