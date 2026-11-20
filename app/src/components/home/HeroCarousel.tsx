@@ -28,6 +28,7 @@ type HeroCarouselProps = {
 function Slide({ slide, width, height }: { slide: HeroSlide; width: number; height: number }) {
   const router = useRouter();
   const dark = slide.tone === 'dark';
+  const yellowCta = !dark;
 
   return (
     <Pressable
@@ -39,14 +40,16 @@ function Slide({ slide, width, height }: { slide: HeroSlide; width: number; heig
       <Image source={slide.image} style={StyleSheet.absoluteFill} contentFit="cover" accessible={false} />
       <View style={[styles.scrim, dark ? styles.scrimDark : styles.scrimLight]} />
       <View style={styles.copy}>
-        <Text style={[styles.eyebrow, !dark && styles.eyebrowLight]}>{slide.eyebrow.toUpperCase()}</Text>
+        {slide.eyebrow ? (
+          <Text style={[styles.eyebrow, !dark && styles.eyebrowLight]}>{slide.eyebrow.toUpperCase()}</Text>
+        ) : null}
         <Text style={[styles.title, !dark && styles.titleLight]}>{slide.title}</Text>
         <Text style={[styles.subtitle, !dark && styles.subtitleLight]} numberOfLines={2}>
           {slide.subtitle}
         </Text>
-        <View style={styles.cta}>
-          <Text style={styles.ctaText}>{slide.cta}</Text>
-          <Ionicons name="arrow-forward" size={16} color={colors.white} />
+        <View style={[styles.cta, yellowCta && styles.ctaYellow]}>
+          <Text style={[styles.ctaText, yellowCta && styles.ctaTextOnYellow]}>{slide.cta}</Text>
+          <Ionicons name="arrow-forward" size={16} color={yellowCta ? colors.navy : colors.white} />
         </View>
       </View>
     </Pressable>
@@ -58,10 +61,16 @@ export function HeroCarousel({ width, refreshKey = 0 }: HeroCarouselProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
-  const height = Math.round(Math.min(Math.max(width * 0.58, 200), 320));
+  const [slideEpoch, setSlideEpoch] = useState(`${refreshKey}:0`);
+  const height = Math.round(Math.min(Math.max(width * 0.52, 190), 280));
 
   const hero = useAsyncData(`home-hero-${refreshKey}`, getHeroSlides, { keepPreviousData: true });
   const slides = hero.data?.slides?.length ? hero.data.slides : HERO_SLIDES;
+  const nextEpoch = `${refreshKey}:${slides.map((slide) => slide.id).join('|')}`;
+  if (nextEpoch !== slideEpoch) {
+    setSlideEpoch(nextEpoch);
+    setIndex(0);
+  }
 
   useEffect(() => {
     AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
@@ -70,9 +79,8 @@ export function HeroCarousel({ width, refreshKey = 0 }: HeroCarouselProps) {
   }, []);
 
   useEffect(() => {
-    setIndex(0);
     scrollRef.current?.scrollTo({ x: 0, animated: false });
-  }, [slides.length, refreshKey]);
+  }, [slideEpoch]);
 
   useEffect(() => {
     if (!autoPlay || width === 0 || slides.length === 0) return;
@@ -152,10 +160,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(7, 28, 61, 0.28)',
   },
   scrimLight: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
   },
   copy: {
-    maxWidth: '68%',
+    maxWidth: '72%',
     paddingHorizontal: spacing.lg,
     alignItems: 'flex-start',
   },
@@ -167,12 +175,13 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.9)',
   },
   eyebrowLight: {
-    color: colors.orange,
+    color: colors.navy,
+    opacity: 0.7,
   },
   title: {
     marginTop: 4,
-    fontSize: 21,
-    lineHeight: 25,
+    fontSize: 24,
+    lineHeight: 30,
     fontFamily: fonts.bold,
     color: colors.white,
   },
@@ -180,9 +189,9 @@ const styles = StyleSheet.create({
     color: colors.navy,
   },
   subtitle: {
-    marginTop: 4,
-    fontSize: 11,
-    lineHeight: 15,
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
     fontFamily: fonts.regular,
     color: 'rgba(255, 255, 255, 0.92)',
   },
@@ -199,11 +208,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     backgroundColor: colors.orange,
   },
+  ctaYellow: {
+    backgroundColor: '#F5C518',
+  },
   ctaText: {
     fontSize: 14,
     lineHeight: 19,
     fontFamily: fonts.semiBold,
     color: colors.white,
+  },
+  ctaTextOnYellow: {
+    color: colors.navy,
   },
   dots: {
     flexDirection: 'row',
@@ -221,6 +236,6 @@ const styles = StyleSheet.create({
   },
   dotActive: {
     width: 18,
-    backgroundColor: colors.orange,
+    backgroundColor: colors.navy,
   },
 });

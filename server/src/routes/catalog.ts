@@ -6,7 +6,7 @@ import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { accessActor, isActiveStaff, optionalAuth, requireAdmin, requirePermission } from '../middleware/auth.js';
 import { validateProductCreateBody, validateProductUpdateBody } from '../utils/validate.js';
 import { readBannerUpload } from '../utils/bannerMedia.js';
-import { storeProductImage } from '../utils/catalogMedia.js';
+import { storeCategoryImage, storeProductImage, storeSubcategoryImage } from '../utils/catalogMedia.js';
 import { cardSearchTerm, parseProductListOptions } from '../utils/productList.js';
 import { PUBLIC_LIST_CACHE_CONTROL } from '../utils/responseCache.js';
 
@@ -58,6 +58,21 @@ router.delete(
   })
 );
 
+// POST /catalog/categories/:id/media — JPEG, PNG or WebP up to 2 MB for this category
+router.post(
+  '/categories/:id/media',
+  requireAdmin,
+  requirePermission('categories', 'edit'),
+  asyncHandler(async (req, res) => {
+    const categories = await CatalogService.getCategories();
+    const existing = categories.find((category: { id: string | number }) => String(category.id) === String(req.params.id));
+    if (!existing) return sendError(res, 404, 'Category not found');
+    const bytes = await readBannerUpload(req);
+    const stored = await storeCategoryImage(req.params.id, bytes);
+    return sendSuccess(res, stored, 'Category image stored', 201);
+  })
+);
+
 // GET /catalog/subcategories
 router.get(
   '/subcategories',
@@ -97,6 +112,23 @@ router.delete(
   asyncHandler(async (req, res) => {
     const result = await CatalogService.deleteSubcategory(req.params.id);
     return sendSuccess(res, result, 'Subcategory removed successfully');
+  })
+);
+
+// POST /catalog/subcategories/:id/media — JPEG, PNG or WebP up to 2 MB for this subcategory
+router.post(
+  '/subcategories/:id/media',
+  requireAdmin,
+  requirePermission('categories', 'edit'),
+  asyncHandler(async (req, res) => {
+    const subcategories = await CatalogService.getSubcategories();
+    const existing = subcategories.find(
+      (subcategory: { id: string | number }) => String(subcategory.id) === String(req.params.id)
+    );
+    if (!existing) return sendError(res, 404, 'Subcategory not found');
+    const bytes = await readBannerUpload(req);
+    const stored = await storeSubcategoryImage(req.params.id, bytes);
+    return sendSuccess(res, stored, 'Subcategory image stored', 201);
   })
 );
 

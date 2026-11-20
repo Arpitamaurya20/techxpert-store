@@ -6,7 +6,7 @@ dotenv.config();
 const MYSQL_HOST = process.env.MYSQL_HOST || 'localhost';
 const MYSQL_PORT = Number(process.env.MYSQL_PORT) || 3306;
 const MYSQL_USER = process.env.MYSQL_USER || 'root';
-const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || 'root123';
+const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || '';
 
 /** Catalog / commerce schema (products, orders, CMS, …) */
 export const DB_STORE = process.env.DB_STORE || process.env.DB_CATALOG || 'techxpertstore';

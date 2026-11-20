@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, fonts, radius } from '@/constants/theme';
+import { colors, fonts } from '@/constants/theme';
 import { getHomeCategoryArt } from '@/data/homeCategoryArt';
 import { CATEGORY_SHORTCUTS } from '@/data/homeContent';
 import type { Category } from '@/types/catalog';
@@ -36,25 +36,35 @@ function ShortcutArt({ category }: { category: Category }) {
   if (localArt) {
     return <Image source={localArt} style={styles.image} contentFit="cover" />;
   }
-  return <MaterialCommunityIcons name={getCategoryIcon(category.id, category.icon)} size={24} color={colors.navy} />;
+  return <MaterialCommunityIcons name={getCategoryIcon(category.id, category.icon)} size={26} color={colors.navy} />;
 }
 
-/** Two rows of four category shortcuts under the header, ending in "More". */
+/** Two rows of four circular category shortcuts under the header, ending in "More". */
 export function CategoryShortcuts({ categories, loading, published, onOpenCategory, onViewAll }: CategoryShortcutsProps) {
-  const shortcuts = published
-    ? published.map((shortcut) => {
-        const known = categories.find((item) => item.id === shortcut.categoryId);
-        const category: Category = {
-          id: shortcut.categoryId,
-          name: shortcut.name,
-          imageUrl: shortcut.imageUrl || known?.imageUrl,
-        };
-        return { category, label: shortcut.label };
-      })
-    : CATEGORY_SHORTCUTS.flatMap(({ categoryId, label }) => {
-        const category = categories.find((item) => item.id === categoryId);
-        return category ? [{ category, label }] : [];
-      });
+  const fromPublished = published?.map((shortcut) => {
+    const known = categories.find((item) => item.id === shortcut.categoryId);
+    const category: Category = {
+      id: shortcut.categoryId,
+      name: shortcut.name,
+      imageUrl: shortcut.imageUrl || known?.imageUrl,
+    };
+    return { category, label: shortcut.label };
+  });
+  const fromDefaults = CATEGORY_SHORTCUTS.flatMap(({ categoryId, label }) => {
+    const category = categories.find((item) => item.id === categoryId);
+    return category ? [{ category, label }] : [];
+  });
+  /** When CMS ids don't match the live catalogue, show the first categories so the grid is never empty. */
+  const fromCatalogue = categories.slice(0, CATEGORY_SHORTCUTS.length).map((category) => ({
+    category,
+    label: category.name.split(/[&/]/)[0]?.trim() || category.name,
+  }));
+  const shortcuts =
+    fromPublished && fromPublished.length > 0
+      ? fromPublished
+      : fromDefaults.length > 0
+        ? fromDefaults
+        : fromCatalogue;
 
   return (
     <View style={styles.row}>
@@ -102,30 +112,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 14,
+    rowGap: 16,
   },
   tile: {
     width: '23%',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   pressed: {
     opacity: 0.8,
   },
   art: {
-    width: '100%',
-    maxWidth: 72,
-    aspectRatio: 1,
+    width: 64,
+    height: 64,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    borderRadius: radius.lg,
+    borderRadius: 32,
     borderWidth: 1,
-    borderColor: colors.cardBorder,
-    backgroundColor: colors.card,
+    borderColor: 'rgba(11, 42, 91, 0.08)',
+    backgroundColor: colors.navySoft,
   },
   moreArt: {
-    borderColor: colors.navySoft,
     backgroundColor: colors.navySoft,
   },
   image: {

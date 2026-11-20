@@ -68,6 +68,9 @@ const CORS_ALLOWED_HEADERS = [
   'Accept',
   'X-Session-Id',
   'x-session-id',
+  /** Portal and app identify themselves; browsers preflight this custom header. */
+  'X-Client',
+  'x-client',
 ];
 
 export type AppCorsOptions = {

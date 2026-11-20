@@ -92,7 +92,7 @@ export function OrderAgainSection({
 
   return (
     <View style={styles.section}>
-      <SectionHeader title="Order Again" actionLabel="View all" onAction={() => router.navigate('/orders')} />
+      <SectionHeader title="Order again" actionLabel="View all" onAction={() => router.navigate('/orders')} />
       {renderBody()}
       {mode === 'sample' && status === 'success' ? (
         <Text style={styles.sampleNote}>Sample items · your own past orders appear here once you sign in.</Text>

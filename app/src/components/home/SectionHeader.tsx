@@ -37,14 +37,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
-    minHeight: 32,
+    minHeight: 28,
   },
   title: {
     flex: 1,
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 17,
+    lineHeight: 23,
     fontFamily: fonts.bold,
     color: colors.navy,
+    letterSpacing: -0.2,
   },
   action: {
     flexDirection: 'row',
