@@ -5,7 +5,10 @@ const BRANDS_TTL_MS = 60_000;
 const HOME_BOOT_TTL_MS = 60_000;
 const SEARCH_SUGGEST_TTL_MS = 30_000;
 
+/** Full active shelves (portal / staff). */
 export const categoriesCache = createTtlCache<any[]>(CATEGORIES_TTL_MS);
+/** Customer shelves: priced productCount > 0 only. */
+export const categoriesCustomerCache = createTtlCache<any[]>(CATEGORIES_TTL_MS);
 export const brandsCache = createTtlCache<any[]>(BRANDS_TTL_MS);
 export const homeBootCache = createTtlCache<Record<string, unknown>>(HOME_BOOT_TTL_MS);
 
@@ -37,6 +40,7 @@ export function clearSearchSuggestCache() {
 /** Category or product changes can move counts on both lists. */
 export function invalidateCatalogListCaches() {
   categoriesCache.clear();
+  categoriesCustomerCache.clear();
   brandsCache.clear();
   homeBootCache.clear();
   clearSearchSuggestCache();

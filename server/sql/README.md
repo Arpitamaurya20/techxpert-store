@@ -30,6 +30,8 @@ mysql -u root -p < sql/delivery_promise.sql  # arrives in N days, and a problem 
 mysql -u root -p < sql/order_channel.sql    # which customer app placed the order; safe to run again
 mysql -u root -p < sql/catalog_list_indexes.sql   # product list indexes (pricing and brand); online, safe to run again; then ANALYZE TABLE products, product_pricing;
 mysql -u root -p < sql/catalog_search_fulltext.sql  # FULLTEXT on products name+brand for ranked search; online, safe to run again; then ANALYZE TABLE products;
+mysql -u root -p < sql/cms_banners.sql            # home campaign banners table; safe to run again
+mysql -u root -p < sql/taxonomy_ack_2026_11_23.sql  # Ack 23 Nov: empty shelves off; merge tiny Industrial (11) into (10); safe to run again
 npm run staff:bootstrap                   # once: the first super admin (also the way back in if the only super admin is locked out)
 ```
 
@@ -62,7 +64,9 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `delivery_promise.sql` | Arrives in a number of days, copied onto a new order, and a short problem report. Starts off. Safe to run again. Run after `staff_alerts.sql` |
 | `catalog_list_indexes.sql` | Three indexes for the product list: pricing by product/price, pricing by active price, and brand. Online, safe to run again. No data changes |
 | `catalog_search_fulltext.sql` | FULLTEXT index `ft_products_name_brand` on `products (ProductName, Brand)` for ranked card search. MariaDB-compatible (no ngram). Online, safe to run again. Substring still uses LIKE. API works without it; ranking skips FULLTEXT until the script has been run |
+| `cms_banners.sql` | `cms_banners` for portal campaign banners. Creates the table and adds missing columns. Safe to run again |
 | `order_channel.sql` | Which customer app placed the order: `store_app` or `homecare_app`. Older rows and staff orders have none. Safe to run again |
+| `taxonomy_ack_2026_11_23.sql` | Ack 23 Nov taxonomy hygiene: deactivate empty category shells, merge duplicate Industrial (11→10), deactivate empty cloned type folders. Safe to run again. Back up `categories` / `sub_categories` / `products` before production |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):
 

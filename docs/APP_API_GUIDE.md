@@ -246,11 +246,11 @@ A brand's `id` is its name. Pass it as `brandId` when listing products.
 - After a category’s card pages are exhausted, hide subcategory rail items that matched no loaded products.
 - Home / deals / project links should only open categories that still appear in the sellable category list.
 
-**API notes / taxonomy hygiene (backend backlog)**
+**API notes / taxonomy hygiene**
 
-- Today `featured` on categories is derived as `DisplayOrder <= 5` in `catalogService.getCategories`, not a dedicated flag. Prefer unique `DisplayOrder` values and/or a real featured column; otherwise tiny shelves can outrank large ones in nav.
-- `productCount` is active products in that category (not necessarily the same as priced card-list volume). Aligning it with the shop price rule is optional polish.
-- Production has historically included **duplicate category names** (two `Industrial` rows) and **the same subcategory names under several parents** (e.g. Contactors / Relays). That is merchandising data to merge in `techxpertstore` — the phone cannot collapse cloned type folders without losing SKUs. See [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) Ack 23 Nov.
+- Public / phone `GET /catalog/categories` returns **sellable shelves only**: `productCount` is active products with a shop price (product- or variant-level), and rows with `productCount === 0` are omitted. A **staff** session still receives every active category (including empty shells) for the portal.
+- `featured` on categories is still derived as `DisplayOrder <= 5` (not a dedicated column). Prefer unique `DisplayOrder` values and/or CMS shortcuts for nav prominence.
+- Taxonomy data merge (duplicate `Industrial`, cloned Contactors/Relays, empty shells): run `server/sql/taxonomy_ack_2026_11_23.sql` on `techxpertstore` after backup. See [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) Ack 23 Nov.
 
 ### UC-3 Search and product lists
 
