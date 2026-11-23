@@ -1,69 +1,71 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { Image } from 'expo-image';
 import { memo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, fonts, radius, spacing, typography } from '@/constants/theme';
+import { cardShadow, colors, fonts, radius, spacing } from '@/constants/theme';
+import { getHomeCategoryArt } from '@/data/homeCategoryArt';
 import type { Category } from '@/types/catalog';
 import { getCategoryIcon } from '@/utils/categoryIcon';
-
-const MEDIA_ASPECT_RATIO = 16 / 10;
 
 type CategoryTileProps = {
   category: Category;
   width: number;
+  /** Extra line under the name (product count, search match, etc.). */
+  subtitle?: string;
   onPress: (category: Category) => void;
 };
 
-function formatProductCount(count: number) {
-  return `${count.toLocaleString('en-IN')} ${count === 1 ? 'product' : 'products'}`;
-}
-
-/** Category card for the Categories grid: image (or icon fallback), name, and optional count/description. */
-function CategoryTileComponent({ category, width, onPress }: CategoryTileProps) {
-  const [failedUri, setFailedUri] = useState<string | undefined>();
-  const showImage = !!category.imageUrl && failedUri !== category.imageUrl;
+/** Photo-forward category card for the Categories browse grid. */
+function CategoryTileComponent({ category, width, subtitle, onPress }: CategoryTileProps) {
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  const localArt = getHomeCategoryArt(category.id);
+  const remote = Boolean(category.imageUrl) && !remoteFailed;
   const countText =
-    category.productCount !== undefined ? formatProductCount(category.productCount) : undefined;
+    !subtitle && category.productCount !== undefined
+      ? `${category.productCount.toLocaleString('en-IN')} ${category.productCount === 1 ? 'product' : 'products'}`
+      : undefined;
+  const meta = subtitle || countText;
 
   return (
     <Pressable
       onPress={() => onPress(category)}
       accessibilityRole="button"
-      accessibilityLabel={[`${category.name} category`, countText].filter(Boolean).join(', ')}
+      accessibilityLabel={[`${category.name} category`, meta].filter(Boolean).join(', ')}
       accessibilityHint="Shows products in this category"
       style={({ pressed }) => [styles.card, { width }, pressed && styles.pressed]}
     >
       <View style={styles.media}>
-        {showImage ? (
+        {remote ? (
           <Image
             source={{ uri: category.imageUrl }}
             style={styles.image}
-            resizeMode="cover"
-            onError={() => setFailedUri(category.imageUrl)}
+            contentFit="cover"
+            onError={() => setRemoteFailed(true)}
           />
+        ) : localArt ? (
+          <Image source={localArt} style={styles.image} contentFit="cover" />
         ) : (
-          <View style={styles.iconCircle}>
-            <MaterialCommunityIcons
-              name={getCategoryIcon(category.id, category.icon)}
-              size={28}
-              color={colors.accent}
-            />
+          <View style={styles.fallback}>
+            <View style={styles.iconBadge}>
+              <MaterialCommunityIcons
+                name={getCategoryIcon(category.id, category.icon)}
+                size={28}
+                color={colors.navy}
+              />
+            </View>
           </View>
         )}
+        <View style={styles.mediaScrim} pointerEvents="none" />
       </View>
 
       <View style={styles.body}>
-        <View style={styles.titleRow}>
-          <Text style={styles.name} numberOfLines={2}>
-            {category.name}
-          </Text>
-          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={styles.chevron} />
-        </View>
-        {countText ? <Text style={styles.meta}>{countText}</Text> : null}
-        {category.description ? (
-          <Text style={styles.description} numberOfLines={2}>
-            {category.description}
+        <Text style={styles.name} numberOfLines={2}>
+          {category.name}
+        </Text>
+        {meta ? (
+          <Text style={styles.meta} numberOfLines={2}>
+            {meta}
           </Text>
         ) : null}
       </View>
@@ -88,63 +90,64 @@ export function CategoryTileSkeleton({ width }: { width: number }) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radius.md,
+    overflow: 'hidden',
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.cardBorder,
     backgroundColor: colors.card,
-    overflow: 'hidden',
+    ...cardShadow,
   },
   pressed: {
-    borderColor: colors.accent,
-    backgroundColor: colors.accentSoft,
+    borderColor: colors.navy,
+    backgroundColor: colors.navySoft,
   },
   media: {
     width: '100%',
-    aspectRatio: MEDIA_ASPECT_RATIO,
-    maxHeight: 132,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
+    aspectRatio: 1,
+    backgroundColor: colors.navySoft,
+    overflow: 'hidden',
   },
   image: {
     width: '100%',
     height: '100%',
   },
-  iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  mediaScrim: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(7, 28, 61, 0.04)',
+  },
+  fallback: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.navySoft,
+  },
+  iconBadge: {
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 28,
     backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
   },
   body: {
-    gap: 2,
+    gap: 4,
+    minHeight: 64,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.xs,
-  },
   name: {
-    ...typography.label,
-    flex: 1,
-    color: colors.text,
-  },
-  chevron: {
-    marginTop: 3,
+    fontSize: 14,
+    lineHeight: 19,
+    fontFamily: fonts.semiBold,
+    color: colors.navy,
   },
   meta: {
-    ...typography.small,
-    fontFamily: fonts.semiBold,
-    color: colors.accent,
-  },
-  description: {
-    ...typography.small,
-    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    fontFamily: fonts.medium,
     color: colors.textMuted,
   },
   skeletonMedia: {
@@ -152,12 +155,12 @@ const styles = StyleSheet.create({
   },
   skeletonLine: {
     height: 12,
-    width: '80%',
-    marginVertical: 4,
+    width: '78%',
+    marginVertical: 3,
     borderRadius: 6,
     backgroundColor: '#EDF1F5',
   },
   skeletonLineShort: {
-    width: '50%',
+    width: '45%',
   },
 });
