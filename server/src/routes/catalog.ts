@@ -16,10 +16,13 @@ const SLOW_LIST_MS = 300;
 const router = Router();
 
 // GET /catalog/categories
+// Public / phone: sellable shelves only (priced productCount > 0). Staff session: all active shelves.
 router.get(
   '/categories',
-  asyncHandler(async (_req, res) => {
-    const categories = await CatalogService.getCategories();
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const staff = await isActiveStaff(req);
+    const categories = await CatalogService.getCategories({ audience: staff ? 'staff' : 'customer' });
     res.setHeader('Cache-Control', PUBLIC_LIST_CACHE_CONTROL);
     return sendSuccess(res, categories);
   })
@@ -64,7 +67,7 @@ router.post(
   requireAdmin,
   requirePermission('categories', 'edit'),
   asyncHandler(async (req, res) => {
-    const categories = await CatalogService.getCategories();
+    const categories = await CatalogService.getCategories({ audience: 'staff' });
     const existing = categories.find((category: { id: string | number }) => String(category.id) === String(req.params.id));
     if (!existing) return sendError(res, 404, 'Category not found');
     const bytes = await readBannerUpload(req);

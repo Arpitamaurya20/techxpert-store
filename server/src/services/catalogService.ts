@@ -12,7 +12,12 @@ import { resolveCatalogGallery, resolveCatalogImageUrl } from '../utils/catalogM
 import { store } from '../db/store.js';
 import { mysqlOrFileStore } from '../db/mysqlErrors.js';
 import { CARD_LIMIT_MAX, FULL_LIMIT_MAX, escapeLike, trimCardPage } from '../utils/productList.js';
-import { brandsCache, categoriesCache, invalidateCatalogListCaches } from '../utils/responseCache.js';
+import {
+  brandsCache,
+  categoriesCache,
+  categoriesCustomerCache,
+  invalidateCatalogListCaches,
+} from '../utils/responseCache.js';
 import {
   expandSearchTerms,
   fulltextBooleanQuery,
@@ -175,11 +180,49 @@ export class CatalogService {
     }
   }
 
-  static async getCategories() {
-    const hit = categoriesCache.get();
+  /**
+   * Category list for the phone or the portal.
+   * - `audience: 'customer'` (default for public/home-boot): `productCount` is sellable
+   *   (active + shop price via product or variant pricing). Shelves with count 0 are omitted.
+   * - `audience: 'staff'`: every active category, including empty shells, with active-product counts
+   *   so the portal can still clean taxonomy (Ack 23 Nov).
+   */
+  static async getCategories(options: { audience?: 'customer' | 'staff' } = {}) {
+    const audience = options.audience === 'staff' ? 'staff' : 'customer';
+    const cache = audience === 'staff' ? categoriesCache : categoriesCustomerCache;
+    const hit = cache.get();
     if (hit) return hit;
     try {
-      // One GROUP BY for counts instead of a correlated COUNT per category.
+      // Customer counts match the shop price rule used by card lists (product or variant pricing).
+      const countJoin =
+        audience === 'customer'
+          ? `LEFT JOIN (
+               SELECT p.CategoryID, COUNT(*) as productCount
+               FROM products p
+               WHERE p.IsActive = 1
+                 AND (
+                   EXISTS (
+                     SELECT 1 FROM product_pricing pr
+                     WHERE pr.ProductID = p.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+                   )
+                   OR EXISTS (
+                     SELECT 1 FROM product_variants v
+                     INNER JOIN product_pricing pr
+                       ON pr.VariantID = v.ID AND pr.IsActive = 1 AND pr.SellingPrice > 0
+                     WHERE v.ProductID = p.ID
+                   )
+                 )
+               GROUP BY p.CategoryID
+             ) pc ON pc.CategoryID = c.ID`
+          : `LEFT JOIN (
+               SELECT CategoryID, COUNT(*) as productCount
+               FROM products
+               WHERE IsActive = 1
+               GROUP BY CategoryID
+             ) pc ON pc.CategoryID = c.ID`;
+
+      const emptyFilter = audience === 'customer' ? ' AND COALESCE(pc.productCount, 0) > 0' : '';
+
       const [rows] = await storePool.query<any[]>(
         `SELECT 
            c.ID as id,
@@ -191,19 +234,16 @@ export class CatalogService {
            COALESCE(pc.productCount, 0) as productCount,
            (c.DisplayOrder <= 5) as featured
          FROM categories c
-         LEFT JOIN (
-           SELECT CategoryID, COUNT(*) as productCount
-           FROM products
-           WHERE IsActive = 1
-           GROUP BY CategoryID
-         ) pc ON pc.CategoryID = c.ID
-         WHERE c.IsActive = 1
-         ORDER BY c.DisplayOrder ASC`
+         ${countJoin}
+         WHERE c.IsActive = 1${emptyFilter}
+         ORDER BY c.DisplayOrder ASC, c.CategoryName ASC`
       );
       for (const row of rows) {
         row.imageUrl = resolveCatalogImageUrl(row.imageUrl) ?? '';
+        row.featured = Boolean(row.featured);
+        row.productCount = Number(row.productCount) || 0;
       }
-      categoriesCache.set(rows);
+      cache.set(rows);
       return rows;
     } catch (err) {
       return mysqlOrFileStore('catalog.getCategories', err, () => store.getCategories());
@@ -319,7 +359,7 @@ export class CatalogService {
           ]
         );
         invalidateCatalogListCaches();
-        const all = await CatalogService.getCategories();
+        const all = await CatalogService.getCategories({ audience: 'staff' });
         const updated = all.find((c: any) => String(c.id) === String(id));
         if (updated) return updated;
       }

@@ -2,7 +2,10 @@
 
 **Product:** Techxpert Store — Construction & Home Materials Commerce Platform  
 **Target Market:** India (Homeowners & Contractors)  
-**Last Updated:** October 2026  
+**Last Updated:** November 2026  
+
+**Unified commerce (Homecare + Store):** locked design in [`superpowers/specs/2026-11-20-unified-commerce-design.md`](./superpowers/specs/2026-11-20-unified-commerce-design.md); Phase 0+1 build plan in [`superpowers/plans/2026-11-20-unified-commerce-phase-0-1.md`](./superpowers/plans/2026-11-20-unified-commerce-phase-0-1.md).  
+
 
 ---
 

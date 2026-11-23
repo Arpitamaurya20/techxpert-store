@@ -23,13 +23,13 @@ For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, 
 
 Live taxonomy has **redundant shelves** that make browse feel duplicated. Confirmed against production:
 
-| Issue | Evidence | Action for store / API owners |
-|---|---|---|
-| Duplicate category **name** | Two rows named `Industrial` (id **11** ≈7 SKUs, DisplayOrder 4; id **10** ≈7.7k SKUs, DisplayOrder 100) | Merge into one row; move products/subcategories; deactivate the shell |
-| Cloned product-type folders | Same subcategory **names** under several parents (e.g. Contactors / Relays under both Industrials + Electrical; Sensors / PLC under both Industrials) | Pick one primary parent; migrate SKUs; deactivate clones |
-| Empty shells still active | e.g. Electrical Appliances / Fans / Electronics / Automation with `productCount: 0` | Deactivate in portal (app already hides them) |
-| Weak “featured” signal | API sets `featured` as `DisplayOrder <= 5`, not a real `IsFeatured` column — tiny shelves can outrank large ones | Unique DisplayOrder for nav; prefer real featured flag or CMS shortcuts only |
-| Optional API polish | Customer `GET /catalog/categories` could omit zero-count rows; subcategory payloads could include sellable `productCount` | Nice-to-have once taxonomy is cleaned |
+| Issue | Evidence | Action for store / API owners | Status |
+|---|---|---|---|
+| Duplicate category **name** | Two rows named `Industrial` (id **11** ≈7 SKUs, DisplayOrder 4; id **10** ≈7.7k SKUs, DisplayOrder 100) | Merge into one row; move products/subcategories; deactivate the shell | **Script:** `server/sql/taxonomy_ack_2026_11_23.sql` (11→10). Run on each environment after backup |
+| Cloned product-type folders | Same subcategory **names** under several parents (e.g. Contactors / Relays under both Industrials + Electrical; Sensors / PLC under both Industrials) | Pick one primary parent; migrate SKUs; deactivate clones | Script deactivates **empty** clones; SKUs under Industrial 11 Contactors move to Industrial 10 Contactors |
+| Empty shells still active | e.g. Electrical Appliances / Fans / Electronics / Automation with `productCount: 0` | Deactivate in portal (app already hides them) | **Script** + API: public categories omit zero sellable count |
+| Weak “featured” signal | API sets `featured` as `DisplayOrder <= 5`, not a real `IsFeatured` column — tiny shelves can outrank large ones | Unique DisplayOrder for nav; prefer real featured flag or CMS shortcuts only | Still open (DisplayOrder hygiene / CMS) |
+| Optional API polish | Customer `GET /catalog/categories` could omit zero-count rows; subcategory payloads could include sellable `productCount` | Nice-to-have once taxonomy is cleaned | **Done for categories** (priced count + omit empty for public; staff keeps full list). Subcategory `productCount` still open |
 
 **Governance:** one primary `CategoryID` per product (already in schema). Do not invent Homecare/pricing rule changes for this. Catalogue merge is merchandising + `techxpertstore` data, not a phone-only change.
 
