@@ -240,6 +240,18 @@ GET /catalog/brands → 200
 
 A brand's `id` is its name. Pass it as `brandId` when listing products.
 
+**Phone app behaviour (customer UI)**
+
+- Hide categories with `productCount === 0` (empty shelves). Do not draw an empty product list for them; leave the route instead.
+- After a category’s card pages are exhausted, hide subcategory rail items that matched no loaded products.
+- Home / deals / project links should only open categories that still appear in the sellable category list.
+
+**API notes / taxonomy hygiene (backend backlog)**
+
+- Today `featured` on categories is derived as `DisplayOrder <= 5` in `catalogService.getCategories`, not a dedicated flag. Prefer unique `DisplayOrder` values and/or a real featured column; otherwise tiny shelves can outrank large ones in nav.
+- `productCount` is active products in that category (not necessarily the same as priced card-list volume). Aligning it with the shop price rule is optional polish.
+- Production has historically included **duplicate category names** (two `Industrial` rows) and **the same subcategory names under several parents** (e.g. Contactors / Relays). That is merchandising data to merge in `techxpertstore` — the phone cannot collapse cloned type folders without losing SKUs. See [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) Ack 23 Nov.
+
 ### UC-3 Search and product lists
 
 **Call, public:** `GET /catalog/products`. A customer sees products that have an active selling price. A staff token sees the unpriced ones too, so the portal can still price them. All filters are optional and can be combined:
@@ -301,6 +313,7 @@ A customer list may be reused for 30 seconds. Without `view=card`, nothing chang
 - `price: null` means the product can't be bought. Show it as unavailable and block Add to cart.
 - `stockStatus: "out_of_stock"` or `stockQuantity: 0` means it can't be added either.
 - Prefer `view=card` + `suggest` for the phone search UX; keep the full product list for the portal.
+- Phone grids must page with `after=meta.nextAfter` until `hasMore` is false. The first card page alone is not the catalogue.
 
 ### UC-4 Product detail and the price for a quantity
 

@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, fonts } from '@/constants/theme';
+import { cardShadow, colors, fonts, radius } from '@/constants/theme';
 import { getHomeCategoryArt } from '@/data/homeCategoryArt';
 import { CATEGORY_SHORTCUTS } from '@/data/homeContent';
 import type { Category } from '@/types/catalog';
@@ -39,22 +39,24 @@ function ShortcutArt({ category }: { category: Category }) {
   return <MaterialCommunityIcons name={getCategoryIcon(category.id, category.icon)} size={26} color={colors.navy} />;
 }
 
-/** Two rows of four circular category shortcuts under the header, ending in "More". */
+/** Two rows of four squircle category shortcuts under the header, ending in "More". */
 export function CategoryShortcuts({ categories, loading, published, onOpenCategory, onViewAll }: CategoryShortcutsProps) {
-  const fromPublished = published?.map((shortcut) => {
+  // `categories` is already sellable-only from the API layer; skip CMS ids that are not in that list.
+  const fromPublished = published?.flatMap((shortcut) => {
     const known = categories.find((item) => item.id === shortcut.categoryId);
+    if (!known) return [];
     const category: Category = {
-      id: shortcut.categoryId,
-      name: shortcut.name,
-      imageUrl: shortcut.imageUrl || known?.imageUrl,
+      ...known,
+      name: shortcut.name || known.name,
+      imageUrl: shortcut.imageUrl || known.imageUrl,
     };
-    return { category, label: shortcut.label };
+    return [{ category, label: shortcut.label }];
   });
   const fromDefaults = CATEGORY_SHORTCUTS.flatMap(({ categoryId, label }) => {
     const category = categories.find((item) => item.id === categoryId);
     return category ? [{ category, label }] : [];
   });
-  /** When CMS ids don't match the live catalogue, show the first categories so the grid is never empty. */
+  /** When CMS ids don't match the live catalogue, show the first sellable categories. */
   const fromCatalogue = categories.slice(0, CATEGORY_SHORTCUTS.length).map((category) => ({
     category,
     label: category.name.split(/[&/]/)[0]?.trim() || category.name,
@@ -65,6 +67,8 @@ export function CategoryShortcuts({ categories, loading, published, onOpenCatego
       : fromDefaults.length > 0
         ? fromDefaults
         : fromCatalogue;
+
+  if (!loading && shortcuts.length === 0) return null;
 
   return (
     <View style={styles.row}>
@@ -86,7 +90,7 @@ export function CategoryShortcuts({ categories, loading, published, onOpenCatego
               <View style={styles.art}>
                 <ShortcutArt category={category} />
               </View>
-              <Text style={styles.label} numberOfLines={1}>
+              <Text style={styles.label} numberOfLines={2}>
                 {label}
               </Text>
             </Pressable>
@@ -112,7 +116,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 16,
+    rowGap: 14,
   },
   tile: {
     width: '23%',
@@ -120,29 +124,33 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pressed: {
-    opacity: 0.8,
+    opacity: 0.82,
   },
   art: {
-    width: 64,
-    height: 64,
+    width: '100%',
+    maxWidth: 72,
+    aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    borderRadius: 32,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(11, 42, 91, 0.08)',
-    backgroundColor: colors.navySoft,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+    ...cardShadow,
   },
   moreArt: {
     backgroundColor: colors.navySoft,
+    borderColor: 'rgba(11, 42, 91, 0.08)',
   },
   image: {
     width: '100%',
     height: '100%',
   },
   label: {
-    fontSize: 12,
-    lineHeight: 16,
+    minHeight: 28,
+    fontSize: 11,
+    lineHeight: 14,
     fontFamily: fonts.semiBold,
     color: colors.navy,
     textAlign: 'center',

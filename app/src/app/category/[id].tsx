@@ -1,12 +1,13 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { FlatList, RefreshControl, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { CATEGORY_RAIL_WIDTH, CategoryRail, type CategoryRailItem } from '@/components/store/CategoryRail';
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
 import { HeaderCartButton } from '@/components/store/HeaderCartButton';
-import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { ProductCard, ProductCardSkeleton } from '@/components/store/ProductCard';
+import { ProductListFooter } from '@/components/store/ProductListFooter';
+import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { IconButton } from '@/components/ui/IconButton';
 import { StateView } from '@/components/ui/StateView';
 import { MAX_STORE_WIDTH, colors, spacing } from '@/constants/theme';
@@ -14,9 +15,10 @@ import { getHomeCategoryArt } from '@/data/homeCategoryArt';
 import { getSubcategoryArt } from '@/data/subcategoryArt';
 import { useAddToCart } from '@/hooks/useAddToCart';
 import { useAsyncData } from '@/hooks/useAsyncData';
+import { PRODUCT_PAGE_SIZE, useProductList } from '@/hooks/useProductList';
 import { GRID_GAP } from '@/hooks/useStoreLayout';
 import { getErrorMessage } from '@/services/apiClient';
-import { getCategories, getProducts, getSubcategories } from '@/services/productApi';
+import { getCategories, getSubcategories } from '@/services/productApi';
 import type { Product } from '@/types/catalog';
 import { getCategoryIcon } from '@/utils/categoryIcon';
 import { matchesSubcategory } from '@/utils/subcategoryMatch';
@@ -25,6 +27,7 @@ const ALL_ID = 'all';
 const GRID_PADDING = spacing.md;
 const SKELETON_CARDS = 4;
 const NO_PRODUCTS: Product[] = [];
+const END_REACHED_THRESHOLD = 0.35;
 
 type CategoryParams = {
   id: string;
@@ -41,16 +44,53 @@ export default function CategoryScreen() {
 
   const categories = useAsyncData('category-page-categories', getCategories);
   const subcategories = useAsyncData('category-page-subcategories', getSubcategories);
-  const products = useAsyncData(`category-page-products-${id}`, () => getProducts({ categoryId: id }));
+  const {
+    items: allProducts,
+    status: listStatus,
+    error: listError,
+    source: listSource,
+    hasMore,
+    loadingMore,
+    isRefreshing,
+    isUpdating,
+    reload,
+    refresh,
+    loadMore,
+  } = useProductList({ categoryId: id, limit: PRODUCT_PAGE_SIZE });
 
   const category = categories.data?.data.find((item) => item.id === id);
   const categoryName = category?.name ?? 'Category';
+  const catalogueSettled = listStatus === 'success' && !hasMore && !loadingMore;
+  const categoryMissing = categories.status === 'success' && !category;
+  const categoryEmpty = catalogueSettled && allProducts.length === 0;
 
-  const types = useMemo(
+  // Empty shelves are filtered from getCategories; if products come back empty, leave — never show an empty list.
+  useEffect(() => {
+    if (categoryMissing || categoryEmpty) {
+      router.replace('/categories');
+    }
+  }, [categoryMissing, categoryEmpty, router]);
+
+  const allTypes = useMemo(
     () => (subcategories.data?.data ?? []).filter((item) => item.categoryId === id),
     [subcategories.data, id]
   );
+
+  // Once the category catalogue is fully paged, drop product types that matched nothing.
+  const types = useMemo(() => {
+    if (!catalogueSettled || allProducts.length === 0) return allTypes;
+    return allTypes.filter((type) => allProducts.some((product) => matchesSubcategory(product, type)));
+  }, [allTypes, catalogueSettled, allProducts]);
+
   const selectedType = types.find((item) => item.id === selectedId);
+
+  // Selected type was hidden because it had no products — fall back to All.
+  useEffect(() => {
+    if (selectedId === ALL_ID) return;
+    if (!catalogueSettled) return;
+    if (types.some((type) => type.id === selectedId)) return;
+    router.setParams({ sub: undefined });
+  }, [selectedId, catalogueSettled, types, router]);
 
   const railItems = useMemo<CategoryRailItem[]>(
     () => [
@@ -72,7 +112,6 @@ export default function CategoryScreen() {
     [types, id, category?.imageUrl, category?.icon]
   );
 
-  const allProducts = products.data?.data ?? NO_PRODUCTS;
   const visible = useMemo(
     () => (selectedType ? allProducts.filter((product) => matchesSubcategory(product, selectedType)) : allProducts),
     [allProducts, selectedType]
@@ -82,7 +121,9 @@ export default function CategoryScreen() {
   const columns = gridWidth >= 560 ? 3 : 2;
   const cardWidth = Math.floor((gridWidth - GRID_GAP * (columns - 1)) / columns);
 
-  const isDemo = products.data?.source === 'demo';
+  const isDemo = listSource === 'demo';
+  const showGrid = listStatus === 'success' || (isUpdating && allProducts.length > 0);
+  const leavingEmpty = categoryMissing || categoryEmpty;
 
   const selectType = useCallback(
     (typeId: string) => router.setParams({ sub: typeId === ALL_ID ? undefined : typeId }),
@@ -98,38 +139,65 @@ export default function CategoryScreen() {
     router.push({ pathname: '/products', params: { categoryId: id, categoryName } });
 
   const refreshAll = () => {
-    products.refresh();
+    refresh();
     subcategories.refresh();
   };
 
-  const emptyState =
-    products.status === 'loading' ? (
-      <View style={styles.skeletonGrid} accessibilityRole="progressbar" accessibilityLabel="Loading products">
-        {Array.from({ length: SKELETON_CARDS }, (_, index) => (
-          <ProductCardSkeleton key={index} width={cardWidth} />
-        ))}
+  const onEndReached = useCallback(() => {
+    if (listStatus !== 'success') return;
+    loadMore();
+  }, [listStatus, loadMore]);
+
+  // Subcategory is filtered on the device. Keep paging while the filtered view
+  // is short so a sparse type does not look like an empty catalogue.
+  useEffect(() => {
+    if (!selectedType || listStatus !== 'success' || loadingMore) return;
+    if (!hasMore) return;
+    if (visible.length >= PRODUCT_PAGE_SIZE) return;
+    loadMore();
+  }, [selectedType, listStatus, loadingMore, hasMore, loadMore, visible.length]);
+
+  const emptyState = leavingEmpty ? null : listStatus === 'loading' || categories.status === 'loading' ? (
+    <View style={styles.skeletonGrid} accessibilityRole="progressbar" accessibilityLabel="Loading products">
+      {Array.from({ length: SKELETON_CARDS }, (_, index) => (
+        <ProductCardSkeleton key={index} width={cardWidth} />
+      ))}
+    </View>
+  ) : listStatus === 'error' && allProducts.length === 0 ? (
+    <StateView
+      variant="error"
+      compact
+      title="Couldn't load products"
+      message={getErrorMessage(listError)}
+      actionLabel="Try Again"
+      onAction={reload}
+    />
+  ) : selectedType && visible.length === 0 && (hasMore || loadingMore) ? (
+    <View style={styles.skeletonGrid} accessibilityRole="progressbar" accessibilityLabel="Loading products">
+      {Array.from({ length: SKELETON_CARDS }, (_, index) => (
+        <ProductCardSkeleton key={index} width={cardWidth} />
+      ))}
+    </View>
+  ) : null;
+
+  const footer =
+    showGrid && allProducts.length > 0 ? (
+      <View>
+        <ProductListFooter loadingMore={loadingMore} hasMore={hasMore} loadedCount={allProducts.length} />
+        {isDemo ? <DemoDataNotice /> : null}
       </View>
-    ) : products.status === 'error' ? (
-      <StateView
-        variant="error"
-        compact
-        title="Couldn't load products"
-        message={getErrorMessage(products.error)}
-        actionLabel="Try Again"
-        onAction={products.reload}
-      />
-    ) : selectedType ? (
-      <StateView
-        variant="empty"
-        compact
-        icon="cube-outline"
-        title={`No ${selectedType.name} available yet`}
-        actionLabel={allProducts.length > 0 ? `View all ${categoryName}` : undefined}
-        onAction={() => selectType(ALL_ID)}
-      />
-    ) : (
-      <StateView variant="empty" compact icon="cube-outline" title="No products available in this category yet." />
+    ) : isDemo ? (
+      <DemoDataNotice />
+    ) : null;
+
+  if (leavingEmpty) {
+    return (
+      <View style={styles.screen}>
+        <Stack.Screen options={{ title: categoryName }} />
+        <HeaderBackFallback fallback="/categories" accessibilityLabel="Back to Categories" />
+      </View>
     );
+  }
 
   return (
     <View style={styles.screen}>
@@ -155,20 +223,26 @@ export default function CategoryScreen() {
         <FlatList
           key={`columns-${columns}`}
           style={styles.list}
-          data={products.status === 'success' ? visible : NO_PRODUCTS}
+          data={showGrid ? visible : NO_PRODUCTS}
           numColumns={columns}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <ProductCard product={item} width={cardWidth} onOpen={openProduct} onAddToCart={handleAddToCart} />
           )}
-          columnWrapperStyle={styles.row}
+          columnWrapperStyle={columns > 1 ? styles.row : undefined}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={emptyState}
-          ListFooterComponent={isDemo ? <DemoDataNotice /> : null}
+          ListFooterComponent={footer}
           ListFooterComponentStyle={styles.footer}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={END_REACHED_THRESHOLD}
+          initialNumToRender={PRODUCT_PAGE_SIZE}
+          maxToRenderPerBatch={PRODUCT_PAGE_SIZE}
+          windowSize={7}
+          removeClippedSubviews
           refreshControl={
             <RefreshControl
-              refreshing={products.isRefreshing}
+              refreshing={isRefreshing}
               onRefresh={refreshAll}
               colors={[colors.accent]}
               tintColor={colors.homeInk}

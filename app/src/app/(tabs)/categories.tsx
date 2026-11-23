@@ -2,18 +2,17 @@ import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { CategoryListItem, CategoryListItemSkeleton } from '@/components/store/CategoryListItem';
+import { CategoryTile, CategoryTileSkeleton } from '@/components/store/CategoryTile';
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
 import { StoreHeader } from '@/components/store/StoreHeader';
 import { StateView } from '@/components/ui/StateView';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, spacing } from '@/constants/theme';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
+import { GRID_GAP, useStoreLayout } from '@/hooks/useStoreLayout';
 import { getErrorMessage } from '@/services/apiClient';
 import { getCategories, getSubcategories } from '@/services/productApi';
 import type { Category, Subcategory } from '@/types/catalog';
-
-const SKELETON_ROWS = 6;
 
 type CategoryRow = {
   category: Category;
@@ -25,7 +24,7 @@ type CategoryRow = {
 function countText(category: Category, types: Subcategory[]) {
   if (category.productCount !== undefined) {
     const count = category.productCount;
-    return `${count.toLocaleString('en-IN')} ${count === 1 ? 'Product' : 'Products'}`;
+    return `${count.toLocaleString('en-IN')} ${count === 1 ? 'product' : 'products'}`;
   }
   if (types.length > 0) {
     return `${types.length} ${types.length === 1 ? 'type' : 'types'}`;
@@ -36,6 +35,7 @@ function countText(category: Category, types: Subcategory[]) {
 export default function CategoriesScreen() {
   useStatusBarStyle('dark');
   const router = useRouter();
+  const layout = useStoreLayout();
   const [query, setQuery] = useState('');
 
   const categories = useAsyncData('categories-tab', getCategories);
@@ -89,9 +89,9 @@ export default function CategoriesScreen() {
   const renderList = () => {
     if (isLoading) {
       return (
-        <View style={styles.list} accessibilityRole="progressbar" accessibilityLabel="Loading categories">
-          {Array.from({ length: SKELETON_ROWS }, (_, index) => (
-            <CategoryListItemSkeleton key={index} />
+        <View style={styles.grid} accessibilityRole="progressbar" accessibilityLabel="Loading categories">
+          {Array.from({ length: layout.categoryTileColumns * 3 }, (_, index) => (
+            <CategoryTileSkeleton key={index} width={layout.categoryTileWidth} />
           ))}
         </View>
       );
@@ -126,11 +126,12 @@ export default function CategoriesScreen() {
       );
     }
     return (
-      <View style={styles.list}>
+      <View style={styles.grid}>
         {rows.map((row) => (
-          <CategoryListItem
+          <CategoryTile
             key={row.category.id}
             category={row.category}
+            width={layout.categoryTileWidth}
             subtitle={row.subtitle}
             onPress={() => openRow(row)}
           />
@@ -168,9 +169,12 @@ export default function CategoriesScreen() {
       />
 
       <View style={styles.body}>
-        <Text style={styles.title} accessibilityRole="header">
-          Categories
-        </Text>
+        <View style={styles.heading}>
+          <Text style={styles.title} accessibilityRole="header">
+            Categories
+          </Text>
+          <Text style={styles.intro}>Browse materials and supplies by category.</Text>
+        </View>
         {renderList()}
         {isDemo && !isLoading ? <DemoDataNotice /> : null}
       </View>
@@ -183,12 +187,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.screen,
   },
-  title: {
-    fontSize: 20,
-    lineHeight: 28,
-    fontFamily: fonts.bold,
-    color: colors.navy,
-  },
   content: {
     paddingBottom: spacing.xxl,
   },
@@ -198,9 +196,27 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: SCREEN_PADDING,
     paddingTop: spacing.lg,
-    gap: spacing.md,
+    gap: spacing.lg,
   },
-  list: {
-    gap: spacing.sm,
+  heading: {
+    gap: 4,
+  },
+  title: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontFamily: fonts.bold,
+    color: colors.navy,
+    letterSpacing: -0.3,
+  },
+  intro: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fonts.regular,
+    color: colors.textMuted,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: GRID_GAP,
   },
 });

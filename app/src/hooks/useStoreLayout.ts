@@ -17,8 +17,8 @@ export function useStoreLayout() {
   /** Compact icon cards on Home. */
   const categoryColumns =
     contentWidth >= 900 ? 6 : contentWidth >= 560 ? 5 : contentWidth < 330 ? 3 : 4;
-  /** Four-column photo grid on the Categories screen (matches the store layout). */
-  const categoryTileColumns = contentWidth >= 900 ? 6 : contentWidth >= 560 ? 5 : 4;
+  /** Photo-forward Categories grid: 2 on phones, wider on tablets. */
+  const categoryTileColumns = contentWidth >= 900 ? 4 : contentWidth >= 560 ? 3 : 2;
 
   return {
     contentWidth,
