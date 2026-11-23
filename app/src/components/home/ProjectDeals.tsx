@@ -28,12 +28,14 @@ export function ProjectDeals({
   onOpenCategory,
   onViewAll,
 }: ProjectDealsProps) {
+  // Only deal tiles whose category still has priced products (empty shelves are already filtered out of `categories`).
   const fromPublished = published?.flatMap((deal) => {
     const known = categories.find((item) => item.id === deal.categoryId);
+    if (!known) return [];
     const category: Category = {
-      id: deal.categoryId,
-      name: deal.name || deal.title,
-      imageUrl: deal.imageUrl || known?.imageUrl,
+      ...known,
+      name: deal.name || deal.title || known.name,
+      imageUrl: deal.imageUrl || known.imageUrl,
     };
     return [
       {
@@ -43,7 +45,7 @@ export function ProjectDeals({
         sampleOffer: '',
         tagline: deal.tagline,
         tone: deal.tone,
-        image: deal.imageUrl || known?.imageUrl ? { uri: deal.imageUrl || known?.imageUrl } : undefined,
+        image: deal.imageUrl || known.imageUrl ? { uri: deal.imageUrl || known.imageUrl } : undefined,
         category,
       },
     ];

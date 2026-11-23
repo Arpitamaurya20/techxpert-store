@@ -2,9 +2,36 @@
 
 For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, read this first, then use [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for exact request/response examples.
 
-**Date:** 6 Nov 2026  
-**Branch:** `develop`  
+**Date:** 23 Nov 2026  
+**Branch:** `techxpertstore-branch` (do not push app/docs work to `main` directly)  
 **Live API + staff portal:** `https://store.jiotechxpert.com`
+
+---
+
+## Ack — 23 Nov 2026 (app catalogue paging + empty shelves + taxonomy backlog)
+
+### App (`app/`) — done on this branch
+
+| Behaviour | Detail |
+|---|---|
+| Cursor product lists | `/products` and `/category/[id]` use `view=card&total=false`, then `after=meta.nextAfter` on scroll (`useProductList`). Do not treat the first page (~20) as the whole catalogue. |
+| Hide empty shelves | Customer UI drops categories with `productCount === 0`. Deep links / empty product pages redirect to Categories instead of an empty-state list. Empty sub-types drop off the category rail after the category is fully paged. |
+| Home product rail | Prefers CMS `home-boot` featured cards; if empty, first card page of the priced catalogue — not `featured=true` alone (almost no SKUs are flagged). |
+| EAS preview | `eas.json` preview builds `arm64-v8a` only + cache key (faster phone APKs). |
+
+### Backend / merchandising — **required** (app cannot fix alone)
+
+Live taxonomy has **redundant shelves** that make browse feel duplicated. Confirmed against production:
+
+| Issue | Evidence | Action for store / API owners |
+|---|---|---|
+| Duplicate category **name** | Two rows named `Industrial` (id **11** ≈7 SKUs, DisplayOrder 4; id **10** ≈7.7k SKUs, DisplayOrder 100) | Merge into one row; move products/subcategories; deactivate the shell |
+| Cloned product-type folders | Same subcategory **names** under several parents (e.g. Contactors / Relays under both Industrials + Electrical; Sensors / PLC under both Industrials) | Pick one primary parent; migrate SKUs; deactivate clones |
+| Empty shells still active | e.g. Electrical Appliances / Fans / Electronics / Automation with `productCount: 0` | Deactivate in portal (app already hides them) |
+| Weak “featured” signal | API sets `featured` as `DisplayOrder <= 5`, not a real `IsFeatured` column — tiny shelves can outrank large ones | Unique DisplayOrder for nav; prefer real featured flag or CMS shortcuts only |
+| Optional API polish | Customer `GET /catalog/categories` could omit zero-count rows; subcategory payloads could include sellable `productCount` | Nice-to-have once taxonomy is cleaned |
+
+**Governance:** one primary `CategoryID` per product (already in schema). Do not invent Homecare/pricing rule changes for this. Catalogue merge is merchandising + `techxpertstore` data, not a phone-only change.
 
 ---
 
@@ -154,8 +181,8 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 | # | Flow | Notes |
 |---|---|---|
 | 1 | Home | Prefer `GET /cms/home-boot`; else banners, sections, shortcuts, projects, deals, trust, search ideas |
-| 2 | Categories / brands | Public catalog lists (cached ~30s) |
-| 3 | Product list + search | **UC-3:** priced `view=card` + `total=false` / `after`; typeahead `GET /catalog/search/suggest?q=` (≥2 chars); respect `quantityStep` |
+| 2 | Categories / brands | Public catalog lists (cached ~30s). App hides `productCount === 0`. Taxonomy merge backlog: see Ack 23 Nov |
+| 3 | Product list + search | **UC-3:** priced `view=card` + `total=false` / `after` (wired with infinite scroll); typeahead `GET /catalog/search/suggest?q=` (≥2 chars); respect `quantityStep` |
 | 4 | Product detail | Variants, gallery, bulk tiers, highlights/specs |
 | 5 | Pincode | Check before checkout; server refuses unserved areas |
 | 6 | Cart | Server cart; `PUT` lines with `variantId`; show server totals |
@@ -200,4 +227,6 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 6. Align each screen to the shared UI designs without moving files out of the structure in §3.
 7. Leave payment UI as “cash on delivery” only until PayU is scheduled.
 
-**Already applied in `app/` (from [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §10):** OTP sign-in (`send-otp` / `verify-otp`), secure session restore, server order statuses, `home-boot` preference, `view=card` lists.
+**Already applied in `app/` (from [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §10):** OTP sign-in (`send-otp` / `verify-otp`), secure session restore, server order statuses, `home-boot` preference, `view=card` lists, **cursor paging on product/category grids**, **hide empty categories**.
+
+**Still on the store/API side (not app):** merge duplicate categories / cloned subcategories (Ack 23 Nov).

@@ -65,8 +65,8 @@ The existing database contains 81 tables. The following modules and tables have 
 
 | Table Name | Row Count | Primary Columns Used | Role in Backend Service |
 |---|---|---|---|
-| `categories` | 19 | `ID`, `CategoryCode`, `CategoryName`, `CategoryImage`, `DisplayOrder`, `IsActive` | Root catalog taxonomy served via `GET /catalog/categories`. |
-| `sub_categories` | 98 | `ID`, `CategoryID`, `SubCategoryCode`, `SubCategoryName`, `SubCategoryImage`, `DisplayOrder`, `IsActive` | Product types under categories served via `GET /catalog/subcategories`. |
+| `categories` | 19 | `ID`, `CategoryCode`, `CategoryName`, `CategoryImage`, `DisplayOrder`, `IsActive` | Root catalog taxonomy served via `GET /catalog/categories`. **Ops:** keep names unique; deactivate empty shelves; avoid duplicate DisplayOrder bands. Customer app hides `productCount === 0`. Merge backlog (duplicate `Industrial`, etc.): [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) Ack 23 Nov. |
+| `sub_categories` | 98 | `ID`, `CategoryID`, `SubCategoryCode`, `SubCategoryName`, `SubCategoryImage`, `DisplayOrder`, `IsActive` | Product types under categories served via `GET /catalog/subcategories`. **Ops:** do not clone the same type name under overlapping parents (Contactors/Relays/Sensors); one primary home per product type. |
 | `products` | 103,824+ | `ID`, `ProductCode`, `ProductName`, `ProductDescription`, `CategoryID`, `SubCategoryID`, `Brand`, `ProductImage`, `ProductGallery`, `StockStatus`, `MinOrderQuantity`, `MaxOrderQuantity`, `IsActive`, `IsFeatured` | Master material listing table served via `GET /catalog/products` and `GET /catalog/products/:id`. |
 | `product_variants` | 109,120 | `ID`, `ProductID`, `VariantSKU`, `VariantName`, `Weight`, `Dimensions` | SKU variations (sizes, packaging, pack multiples). |
 | `product_pricing` | 109,641 | `ProductID`, `VariantID`, `CostPrice`, `SellingPrice`, `MRP`, `IsActive`, `EffectiveFrom`, `EffectiveTo` | Authoritative regular selling price and strike-through MRP. |

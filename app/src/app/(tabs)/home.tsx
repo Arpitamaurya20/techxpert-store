@@ -304,7 +304,7 @@ export default function HomeScreen() {
             products={featured.data?.data ?? []}
             error={featured.error}
             onRetry={featured.reload}
-            onSeeAll={() => router.push({ pathname: '/products', params: { featured: 'true' } })}
+            onSeeAll={() => router.push('/products')}
             onOpenProduct={openProduct}
             onAdd={addProduct}
           />

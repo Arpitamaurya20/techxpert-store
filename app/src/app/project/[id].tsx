@@ -14,7 +14,6 @@ import { getErrorMessage } from '@/services/apiClient';
 import { isApiConfigured } from '@/services/apiConfig';
 import { getHomeContent } from '@/services/cmsApi';
 import { getCategories, getSubcategories } from '@/services/productApi';
-import type { Category } from '@/types/catalog';
 import type { CalculatorMode } from '@/utils/materialEstimates';
 
 const CALCULATOR_FOR_PROJECT: Partial<Record<string, CalculatorMode>> = {
@@ -89,11 +88,10 @@ export default function ProjectScreen() {
 
   const calculatorMode = project.calculator as CalculatorMode | undefined;
   const allCategories = categories.data?.data ?? [];
+  // Skip project links to empty shelves — getCategories already drops productCount === 0.
   const projectCategories = project.categoryIds.flatMap((categoryId) => {
     const category = allCategories.find((item) => item.id === categoryId);
-    if (category) return [category];
-    const name = project.names.get(categoryId);
-    return name ? [{ id: categoryId, name } satisfies Category] : [];
+    return category ? [category] : [];
   });
   const typeCount = (categoryId: string) =>
     (subcategories.data?.data ?? []).filter((item) => item.categoryId === categoryId).length;
