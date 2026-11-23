@@ -5,21 +5,23 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Tex
 
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
 import { HeaderCartButton } from '@/components/store/HeaderCartButton';
-import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { ProductCard, ProductCardSkeleton } from '@/components/store/ProductCard';
 import { ProductFilterSheet } from '@/components/store/ProductFilterSheet';
+import { ProductListFooter } from '@/components/store/ProductListFooter';
 import { ProductSearchBar } from '@/components/store/ProductSearchBar';
 import { ProductSortSheet } from '@/components/store/ProductSortSheet';
+import { HeaderBackFallback } from '@/components/ui/HeaderBackFallback';
 import { StateView } from '@/components/ui/StateView';
 import type { IconName } from '@/components/ui/TextField';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing, typography } from '@/constants/theme';
 import { useAddToCart } from '@/hooks/useAddToCart';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { PRODUCT_PAGE_SIZE, useProductList } from '@/hooks/useProductList';
 import { GRID_GAP, useStoreLayout } from '@/hooks/useStoreLayout';
 import { getErrorMessage } from '@/services/apiClient';
-import { getCategories, getProducts } from '@/services/productApi';
-import type { Product, ProductQuery } from '@/types/catalog';
+import { getCategories } from '@/services/productApi';
+import type { Product } from '@/types/catalog';
 import { formatPrice } from '@/utils/format';
 import {
   EMPTY_FILTERS,
@@ -47,6 +49,7 @@ type Chip = { key: string; label: string; onRemove: () => void };
 const SEARCH_DEBOUNCE_MS = 350;
 const SKELETON_ROWS = 2;
 const NO_PRODUCTS: Product[] = [];
+const END_REACHED_THRESHOLD = 0.35;
 
 export default function ProductListScreen() {
   const router = useRouter();
@@ -74,29 +77,45 @@ export default function ProductListScreen() {
     if ((params.search ?? '') !== debouncedSearch) {
       router.setParams({ search: debouncedSearch || undefined });
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, params.search, router]);
 
-  const query = useMemo<ProductQuery>(
+  const listQuery = useMemo(
     () => ({
       search: activeSearch || undefined,
       categoryId: params.categoryId || undefined,
       brandId: params.brandId || undefined,
-      featured: params.featured === 'true',
-      view: 'card',
-      total: false,
+      featured: params.featured === 'true' ? true : undefined,
+      limit: PRODUCT_PAGE_SIZE,
     }),
     [activeSearch, params.categoryId, params.brandId, params.featured]
   );
 
-  const products = useAsyncData(JSON.stringify(query), () => getProducts(query), {
-    keepPreviousData: true,
-  });
+  const products = useProductList(listQuery);
+  const {
+    items: loaded,
+    status: listStatus,
+    error: listError,
+    source: listSource,
+    hasMore,
+    loadingMore,
+    isRefreshing,
+    isUpdating,
+    reload,
+    refresh,
+    loadMore,
+  } = products;
   const categories = useAsyncData(`category-${params.categoryId ?? ''}`, (options) =>
     params.categoryId ? getCategories(options) : Promise.resolve(null)
   );
   const category = categories.data?.data.find((item) => item.id === params.categoryId);
 
-  const loaded = products.data?.data ?? NO_PRODUCTS;
+  // Empty category product pages: leave instead of showing a permanent empty list.
+  useEffect(() => {
+    if (!params.categoryId) return;
+    if (listStatus !== 'success' || hasMore || loadingMore) return;
+    if (loaded.length > 0) return;
+    router.replace('/categories');
+  }, [params.categoryId, listStatus, hasMore, loadingMore, loaded.length, router]);
   const filterOptions = useMemo(() => getFilterOptions(loaded), [loaded]);
   const sortOptions = useMemo(() => getAvailableSorts(loaded), [loaded]);
   const effectiveSort = sortOptions.includes(sort) ? sort : 'default';
@@ -108,12 +127,13 @@ export default function ProductListScreen() {
   const canFilter =
     filterOptions.brands.length > 0 || filterOptions.priceRange !== null || filterOptions.hasStockInfo;
 
+  const isFeatured = params.featured === 'true';
   const categoryName = params.categoryName ?? category?.name;
   const title =
     categoryName ??
     (activeSearch
       ? 'Search Results'
-      : (params.brandName ?? (query.featured ? 'Featured Products' : 'All Products')));
+      : (params.brandName ?? (isFeatured ? 'Featured Products' : 'All Products')));
 
   const openProduct = useCallback(
     (product: Product) => router.push({ pathname: '/products/[id]', params: { id: product.id } }),
@@ -122,6 +142,11 @@ export default function ProductListScreen() {
 
   const clearSearch = () => setSearchText('');
   const clearFilters = () => setFilters(EMPTY_FILTERS);
+
+  const onEndReached = useCallback(() => {
+    if (listStatus !== 'success') return;
+    loadMore();
+  }, [listStatus, loadMore]);
 
   const chips: Chip[] = [
     ...(params.brandId && params.brandName
@@ -133,7 +158,7 @@ export default function ProductListScreen() {
           },
         ]
       : []),
-    ...(query.featured
+    ...(isFeatured
       ? [{ key: 'param-featured', label: 'Featured', onRemove: () => router.setParams({ featured: undefined }) }]
       : []),
     ...filters.brands.map((key) => ({
@@ -170,8 +195,13 @@ export default function ProductListScreen() {
   const productWord = loaded.length === 1 ? 'product' : 'products';
   const countLabel =
     activeFilterCount > 0
-      ? `${visible.length} of ${loaded.length} ${productWord}`
-      : `${loaded.length} ${productWord}${activeSearch ? ` for “${activeSearch}”` : ''}`;
+      ? `${visible.length} of ${loaded.length} loaded`
+      : hasMore
+        ? `Showing ${loaded.length}+ ${productWord}${activeSearch ? ` for “${activeSearch}”` : ''}`
+        : `${loaded.length} ${productWord}${activeSearch ? ` for “${activeSearch}”` : ''}`;
+
+  const showGrid = listStatus === 'success' || (isUpdating && loaded.length > 0);
+  const listData = showGrid ? visible : NO_PRODUCTS;
 
   const header = (
     <View style={styles.header}>
@@ -202,15 +232,15 @@ export default function ProductListScreen() {
         </View>
       ) : null}
 
-      {products.data?.source === 'demo' ? <DemoDataNotice /> : null}
+      {listSource === 'demo' ? <DemoDataNotice /> : null}
 
-      {products.status === 'success' && loaded.length > 0 ? (
+      {showGrid && loaded.length > 0 ? (
         <View style={styles.toolbar}>
           <View style={styles.countRow}>
             <Text style={styles.count} numberOfLines={1}>
               {countLabel}
             </Text>
-            {products.isUpdating ? <ActivityIndicator size="small" color={colors.accent} /> : null}
+            {isUpdating ? <ActivityIndicator size="small" color={colors.accent} /> : null}
           </View>
           <View style={styles.toolbarActions}>
             <ToolbarButton
@@ -239,7 +269,7 @@ export default function ProductListScreen() {
   );
 
   const emptyState =
-    products.status === 'loading' ? (
+    listStatus === 'loading' ? (
       <View style={styles.skeletonGrid} accessibilityRole="progressbar" accessibilityLabel="Loading products">
         {Array.from({ length: SKELETON_ROWS }, (_, row) => (
           <View key={row} style={styles.skeletonRow}>
@@ -249,13 +279,13 @@ export default function ProductListScreen() {
           </View>
         ))}
       </View>
-    ) : products.status === 'error' ? (
+    ) : listStatus === 'error' && loaded.length === 0 ? (
       <StateView
         variant="error"
         title="Couldn't load products"
-        message={getErrorMessage(products.error)}
+        message={getErrorMessage(listError)}
         actionLabel="Try Again"
-        onAction={products.reload}
+        onAction={reload}
       />
     ) : loaded.length === 0 ? (
       activeSearch ? (
@@ -267,12 +297,13 @@ export default function ProductListScreen() {
           onAction={clearSearch}
         />
       ) : params.categoryId ? (
+        // Empty category shelves are hidden from browse; leave this route instead of an empty list.
         <StateView
           variant="empty"
-          icon="cube-outline"
-          title="No products available in this category yet."
+          icon="grid-outline"
+          title="This category isn't available"
           actionLabel="Browse Categories"
-          onAction={() => router.navigate('/home')}
+          onAction={() => router.replace('/categories')}
         />
       ) : (
         <StateView
@@ -308,7 +339,7 @@ export default function ProductListScreen() {
       />
       <FlatList
         key={`columns-${layout.productColumns}`}
-        data={products.status === 'success' ? visible : NO_PRODUCTS}
+        data={listData}
         numColumns={layout.productColumns}
         keyExtractor={(product) => product.id}
         renderItem={({ item }) => (
@@ -321,14 +352,25 @@ export default function ProductListScreen() {
         )}
         ListHeaderComponent={header}
         ListEmptyComponent={emptyState}
-        columnWrapperStyle={styles.row}
+        ListFooterComponent={
+          showGrid && loaded.length > 0 ? (
+            <ProductListFooter loadingMore={loadingMore} hasMore={hasMore} loadedCount={loaded.length} />
+          ) : null
+        }
+        columnWrapperStyle={layout.productColumns > 1 ? styles.row : undefined}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        onEndReached={onEndReached}
+        onEndReachedThreshold={END_REACHED_THRESHOLD}
+        initialNumToRender={PRODUCT_PAGE_SIZE}
+        maxToRenderPerBatch={PRODUCT_PAGE_SIZE}
+        windowSize={7}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl
-            refreshing={products.isRefreshing}
-            onRefresh={products.refresh}
+            refreshing={isRefreshing}
+            onRefresh={refresh}
             colors={[colors.accent]}
             tintColor={colors.accent}
           />

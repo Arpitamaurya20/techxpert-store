@@ -31,10 +31,16 @@ export function useAsyncData<T>(
     isUpdating: false,
   });
   const loaderRef = useRef(loader);
-  loaderRef.current = loader;
   const keepPreviousRef = useRef(keepPreviousData);
-  keepPreviousRef.current = keepPreviousData;
   const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    loaderRef.current = loader;
+  }, [loader]);
+
+  useEffect(() => {
+    keepPreviousRef.current = keepPreviousData;
+  }, [keepPreviousData]);
 
   const run = useCallback(async (mode: 'load' | 'refresh', force: boolean) => {
     const requestId = ++requestIdRef.current;
@@ -60,7 +66,7 @@ export function useAsyncData<T>(
   useEffect(() => {
     run('load', false);
     return () => {
-      requestIdRef.current++;
+      requestIdRef.current += 1;
     };
   }, [key, run]);
 

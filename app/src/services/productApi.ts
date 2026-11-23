@@ -18,6 +18,8 @@ import type {
 
 import { ApiError, apiGet } from './apiClient';
 import { isApiConfigured } from './apiConfig';
+import { sellableCategories } from '@/utils/catalogVisibility';
+
 import { asId, asNumber, asRecord, asText, normalizeList } from './normalize';
 
 /**
@@ -40,16 +42,11 @@ import { asId, asNumber, asRecord, asText, normalizeList } from './normalize';
  *         Product types shown under each category on the Categories tab.
  *         A tile opens the parent category's products searched by
  *         `searchTerm` (or `name` when it is left out).
- *   /catalog/products?search=&categoryId=&brandId=&featured=true&limit=
- *       → [{ id, name, categoryId, categoryName?, subcategoryId?, brandId?, brandName?, imageUrl?,
- *            price, originalPrice?, unit?, stockStatus?, stockQuantity?,
- *            maxOrderQuantity?, description?, featured?, createdAt? }]
- *         Returned in the store's default display order. `brandName` may also
- *         be sent as `brand` (a string or `{ id, name }`). `createdAt` is an
- *         ISO date. The app sorts and filters this list on the device, so the
- *         endpoint should return the complete result for the query; if the
- *         catalogue grows large, add `page`/`pageSize` and `sort` parameters
- *         and move sorting to the server.
+ *   /catalog/products?view=card&total=false&search=&categoryId=&brandId=&featured=&limit=&after=
+ *       → { data: ProductCard[], meta: { hasMore, nextAfter, limit } }
+ *         Lean phone rows in the store's default display order. Page with
+ *         `after=meta.nextAfter` until `hasMore` is false. Card search needs
+ *         ≥2 characters. Client sort/filter only applies to loaded pages.
  *   /catalog/products/{id}
  *       → a single product, or `{ "data": product }` (404 when it does not exist).
  *         Same fields as the list, plus the details-only fields:
@@ -268,7 +265,8 @@ export function getCategories(options: { force?: boolean } = {}): Promise<Catalo
   if (options.force || !categoriesRequest) {
     const request = apiGet('/catalog/categories').then(
       (raw): CatalogResult<Category[]> => ({
-        data: normalizeList(raw, normalizeCategory),
+        // Hide shelves with zero priced products so the app never opens an empty category list.
+        data: sellableCategories(normalizeList(raw, normalizeCategory)),
         source: 'api',
       })
     );
@@ -312,12 +310,13 @@ export async function getProducts(query: ProductQuery = {}): Promise<ProductsPag
   }
 
   const useTotal = query.total === true;
+  const limit = query.limit ?? (view === 'card' ? 20 : undefined);
   const raw = await apiGet('/catalog/products', {
     search: search || undefined,
     categoryId: query.categoryId,
     brandId: query.brandId,
     featured: query.featured ? true : undefined,
-    limit: query.limit,
+    limit,
     view: view === 'card' ? 'card' : undefined,
     total: view === 'card' && !useTotal ? false : undefined,
     after: query.after,
@@ -325,6 +324,11 @@ export async function getProducts(query: ProductQuery = {}): Promise<ProductsPag
   return { data: normalizeList(raw, normalizeProduct), source: 'api', meta: readListMeta(raw) };
 }
 
+/**
+ * Home product rail. Prefers CMS `home-boot` featured cards; if those are empty,
+ * falls back to the first card page of the priced catalogue (default store order).
+ * Do not rely on `featured=true` alone — almost no SKUs are flagged in the DB.
+ */
 export async function getFeaturedProducts(limit = 8): Promise<ProductsPage> {
   if (isApiConfigured) {
     try {
@@ -341,7 +345,7 @@ export async function getFeaturedProducts(limit = 8): Promise<ProductsPage> {
       // Fall through to the card list endpoint.
     }
   }
-  return getProducts({ featured: true, limit, view: 'card', total: false });
+  return getProducts({ limit, view: 'card', total: false });
 }
 
 /** Typeahead while typing (min 2 characters). Not the curated CMS chips. */
