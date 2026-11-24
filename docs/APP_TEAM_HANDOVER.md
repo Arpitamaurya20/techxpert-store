@@ -1,14 +1,29 @@
 # App team handover — live API, scope, and `app/` structure
 
-For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, read this first, then use [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for exact request/response examples.
+For whoever builds or finishes the customer Expo app in `app/`. After pull, start with [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) (what landed + verification checkmarks), then [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for request/response examples. Route bible: [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).
 
-**Green / auth route bible:** [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) · **Green upload list:** [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) · **Agent review prompt (built slice + test plan):** [`STORE_APP_TEAM_PROMPT.md`](./STORE_APP_TEAM_PROMPT.md).  
-One shared login (`homecare.users`); Store COD and Homecare booking stay **separate checkouts** until Mode C.
-
-**Date:** 24 Nov 2026  
-**Branch:** work on `develop` (do not push to `main` directly)  
-**Live API + staff portal (blue):** `https://store.jiotechxpert.com` · **Green API:** `https://apitest.jiotechxpert.com`  
+**Date:** 24 Nov 2026 (login 503 ops + Expo green wiring + pull brief)  
+**Branch:** `techxpertstore-branch` (do not push to `main` directly)  
+**Docs / green contract:** start with [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md)  
+**Green code / uploads:** see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md)  
+**Live API + staff portal (blue):** `https://store.jiotechxpert.com`  
+**Green API (auth + PayU):** `https://apitest.jiotechxpert.com`  
 **Expo QA base:** `EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api` (see `app/.env.example`)
+
+---
+
+## Ack — 24 Nov 2026 (login 503 + green dual-sided handover)
+
+| Finding | Action |
+|---|---|
+| App “login” **503** on Store | Almost always `POST /auth/send-otp` — Store host missing `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (same TECHXPERT OTP creds as Homecare). `/health` can still be 200. |
+| `POST /auth/login` **403** on prod/green | Expected. Do **not** call it from the app. |
+| Where to upload green | Only from `BLUE_GREEN/` — see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
+| Platform vs app deliverables | [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) |
+| After pull — prompt + tick boxes | [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) |
+| Route bible | [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) |
+
+Ops must set OTP env on Store blue and/or green and restart PM2 before the app team can complete OTP sign-in against those hosts.
 
 ---
 
@@ -21,7 +36,7 @@ Green Store customer slice is live (`homecare_green` + `techxpertstore_green`). 
 | OTP | `POST /auth/send-otp` → `POST /auth/verify-otp` → Store JWT (~30 days) in SecureStore |
 | Session | Hydrate calls `GET /auth/me`; **401 clears SecureStore** |
 | Addresses | Sync `GET/POST /auth/addresses` when signed in; checkout prefers `addressId` |
-| Cart / COD | Guest `x-session-id` or Bearer; `POST /cart/checkout` + optional `Idempotency-Key` |
+| Cart / COD / PayU | Guest `x-session-id` or Bearer; checkout `COD` or `PayU` (+ `Idempotency-Key`); PayU → `/payments/payu/*` |
 | Orders | `GET /orders` (own orders only) |
 
 Do **not** call Homecare `store-token` / Activity from Store Expo. Same phone → same `user_id`; checkouts stay separate.
@@ -98,12 +113,12 @@ The store **API and merchandising portal** are deployed on the VPS behind that h
 | Cart (server-priced, pack size / `quantityStep`, variants) | Live |
 | Delivery pincode check | Live |
 | Customer OTP sign-in (`send-otp` / `verify-otp`) | Live when SMS is configured on the server; local/dev uses the documented test code |
-| Checkout **cash on delivery (COD)** | Live — place order through `POST /cart/checkout` |
+| Checkout **cash on delivery (COD)** | Live — `POST /cart/checkout` with `paymentMethod: "COD"` |
 | Orders list / order again | Live |
 | Wishlist / Talk to us / Help / About / Policies CMS | Live |
-| **Online payment (PayU / UPI / cards)** | **Not built** — do not block COD checkout waiting for it |
+| **Online payment (PayU)** | **API on green** (`apitest`) — checkout `PayU` → `/payments/payu/initiate` → PayU → verify. App team wires UI; see [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) and APP_API_GUIDE UC-10b. Blue/prod cutover when ops promote. |
 
-**Verdict for the app:** you can build and ship the customer journey **through place order (COD)**. Treat PayU as a later slice on the same order record (`paymentMethod` stays `"COD"` until the gateway exists).
+**Verdict for the app:** ship COD now; wire PayU against green using the Store payment docs (no Homecare payment APIs).
 
 Quick checks:
 
