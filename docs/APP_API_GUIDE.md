@@ -4,6 +4,9 @@ For whoever builds the customer app (`app/`). It covers getting the API running 
 
 **Start here for production context:** [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) — live host `https://store.jiotechxpert.com`, COD checkout ready, PayU not built, and how to keep the Expo `app/` structure when applying shared UI designs.
 
+**Full customer route + auth protection list (green/blue):** [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).  
+**Files to upload for green go-live:** [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md).
+
 Everything below was checked against a local API on 26 Oct 2026, including sign-in, the priced product list, the cart, and cash checkout. Example values come from the shared local database; the personal details in the signed-in examples are placeholders. Against production, set `EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/api` (see the handover).
 
 ---
@@ -470,6 +473,18 @@ GET /auth/addresses → 200
   "area": "Sector 62", "city": "Noida", "pincode": "201301", "lat": null, "lng": null, "isDefault": 1 } ] }
 ```
 
+### UC-10a Homecare exchange token (Mode B from Homecare app)
+
+Not used by Store Expo. Homecare mints a 15-minute token (`aud` `techxpert-store-client`) via `POST /api/auth/store-token` on Homecare; the app calls Store with `Authorization: Bearer <exchange>`.
+
+| Rule | Detail |
+|---|---|
+| Kill switch | Store `ALLOW_HOMECARE_EXCHANGE_TOKENS` must be `true` (default off) |
+| Allowed | Catalogue, delivery check, cart, checkout, orders — scopes on the token |
+| Forbidden | `/auth/me`, address writes, staff/portal |
+| `channel` | Forced to `homecare_app` from the token; body `channel` ignored |
+| `Idempotency-Key` | Optional on `POST /cart/checkout`; same key+body replays; same key+different body → `409` |
+
 ### UC-10 Checkout (cash on delivery)
 
 `POST /cart/checkout` with the cart's headers (Bearer token, or `x-session-id` for guests).
@@ -764,6 +779,15 @@ Saving replaces this row only. Leaving `deals` out of the save is refused, so an
 | `POST /orders`, `POST /cart/items`, `DELETE /cart/items/:id`, `GET /cart/summary` | Older forms kept for old clients. Use `POST /cart/checkout`, `PUT /cart/items/:productId` and `GET /cart` |
 | `POST /auth/login` | Local only (section 6) |
 | Anything under `/auth/admin`, `/access`, `/stores`, `/audit`, `/orders/stats`, `?all=true`, or any POST, PUT or DELETE on catalogue, CMS, pricing or delivery | Staff portal only; needs a staff sign-in |
+| `GET /service/v1/*` and `GET /api/service/v1/*` | **Internal Homecare → Store only** (Activity). Not for Expo or the portal. Apache must return **403** on the public host; Homecare calls `http://127.0.0.1:<store-port>/service/v1/orders` with a 60-second bridge token (`aud` `techxpert-store-s2s`, scope `orders:read`). See [`contracts/unified-commerce-phase-0-1.md`](./contracts/unified-commerce-phase-0-1.md). |
+
+### Internal: Homecare Activity orders (not for Store Expo)
+
+`GET /service/v1/orders?before=&limit=` (also under `/api/service/v1/orders`).
+
+- Auth: `Authorization: Bearer` Homecare-minted bridge JWT (`HOMECARE_STORE_BRIDGE_SECRET`), not the customer Store JWT.
+- Response: ActivityItem v1 list in `data`, `meta.nextCursor`, header `X-Contract-Version: 1`.
+- Guest orders are omitted. Cursor form: `<ISO-8601>\|store_order:<id>`.
 
 ## 10. Must be fixed before the app goes live
 

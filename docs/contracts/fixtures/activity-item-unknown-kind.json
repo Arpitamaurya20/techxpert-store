@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "homecare:future:99",
+  "domain": "homecare",
+  "kind": "warranty_claim",
+  "title": "Warranty follow-up",
+  "statusCode": "needs_attention",
+  "statusLabel": "awaiting_parts",
+  "amountPaise": 0,
+  "amountKind": "estimate",
+  "createdAt": "2026-11-03T09:00:00.000Z",
+  "updatedAt": "2026-11-03T11:00:00.000Z",
+  "deepLink": "techxpert://activity/homecare/future/99",
+  "channel": null,
+  "nativeRef": "WC-99",
+  "groupRef": null
+}
