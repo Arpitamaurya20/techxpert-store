@@ -87,7 +87,7 @@ Use green: `https://apitest.jiotechxpert.com`. Prefer a real device / Expo build
 
 - [ ] Pulled the branch/PR that contains `docs/STORE_CUSTOMER_API.md` and APP_API_GUIDE UC-10b  
 - [ ] Read §1 prompt + this checklist  
-- [ ] App `.env` / `.env.local` points at **apitest**, not only prod  
+- [ ] App `.env` / `.env.local` is **`EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api`** — network log host is `apitest.jiotechxpert.com`, **never** `store.jiotechxpert.com` for this slice  
 
 ### B. Health & auth
 
