@@ -2,6 +2,12 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { sendError } from '../utils/response.js';
 import { getJwtSecret } from '../config/security.js';
+import {
+  BRIDGE_AUD_CLIENT,
+  exchangeTokensAllowed,
+  verifyBridgeToken,
+  type BridgeClaims,
+} from '../config/bridgeAuth.js';
 import { StaffService, type StaffIdentity } from '../services/staffService.js';
 import { AccessService, type AccessActor, type StaffAccess } from '../services/accessService.js';
 import { ADMIN_COOKIE, getCookie } from '../utils/cookies.js';
@@ -33,7 +39,11 @@ declare global {
   }
 }
 
-/** Verified claims; `staffId` survives only on a portal staff token, so old `adminId` and Homecare tokens are not staff. */
+/**
+ * Verified claims; `staffId` survives only on a portal staff token, so old `adminId` and Homecare tokens are not staff.
+ * Homecare bridge tokens use `HOMECARE_STORE_BRIDGE_SECRET` and are verified only in `bridgeTokenAuth` —
+ * they never pass this Store `JWT_SECRET` check (customer / staff routes stay closed to S2S).
+ */
 function claimsFrom(token: string): AuthPayload | null {
   try {
     const raw = jwt.verify(token, JWT_SECRET) as Record<string, unknown>;
@@ -45,11 +55,43 @@ function claimsFrom(token: string): AuthPayload | null {
   }
 }
 
+/**
+ * Attach a Homecare client bridge on `req.bridge` only — do **not** set `userId` here.
+ * Routes must call `allowClientBridge(...)` to promote the bridge into a customer session
+ * (default-deny so unscoped routes never act as the customer).
+ */
+function attachClientBridge(req: Request, token: string): void {
+  if (!exchangeTokensAllowed()) return;
+  if (req.bridge) return;
+  try {
+    const bridge: BridgeClaims = verifyBridgeToken(token, {
+      audience: BRIDGE_AUD_CLIENT,
+      requiredScopes: [],
+    });
+    req.bridge = bridge;
+    console.log(
+      JSON.stringify({
+        msg: 'bridge_auth_pending',
+        actor: 'client:homecare',
+        aud: bridge.aud,
+        channel: bridge.channel ?? null,
+        userId: bridge.sub,
+        path: req.path,
+        method: req.method,
+      })
+    );
+  } catch {
+    /* invalid bridge — leave unauthenticated */
+  }
+}
+
 export function extractAuth(req: Request): AuthPayload | null {
   const header = req.headers.authorization;
   if (header?.startsWith('Bearer ')) {
-    const claims = claimsFrom(header.split(' ')[1]);
+    const token = header.split(' ')[1];
+    const claims = claimsFrom(token);
     if (claims) return claims;
+    attachClientBridge(req, token);
   }
   const cookieToken = getCookie(req, ADMIN_COOKIE);
   return cookieToken ? claimsFrom(cookieToken) : null;
@@ -71,9 +113,21 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const user = extractAuth(req);
   if (!user || (!user.userId && !user.staffId)) {
+    // Bridge present but not promoted yet — still unauthenticated for this middleware.
+    if (req.bridge && !req.user?.userId) {
+      return sendError(res, 401, 'Authentication required');
+    }
     return sendError(res, 401, 'Authentication required');
   }
   req.user = user;
+  next();
+}
+
+/** Customer account only (Store Expo JWT or a scoped Homecare exchange after allowClientBridge). */
+export function requireCustomer(req: Request, res: Response, next: NextFunction) {
+  if (!req.user?.userId) {
+    return sendError(res, 401, 'Sign in to continue.');
+  }
   next();
 }
 

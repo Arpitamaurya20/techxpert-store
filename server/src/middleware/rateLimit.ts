@@ -61,3 +61,29 @@ export const passwordChangeRateLimit = rateLimit({
   keyFn: (req) => `staff-password:${req.user?.staffId ?? req.ip ?? 'unknown'}`,
   message: 'Too many password attempts. Wait 15 minutes and try again.',
 });
+
+/** Customer OTP send: 8 / 15 minutes per IP+phone */
+export const otpSendRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  keyFn: (req) => {
+    const phone = String(req.body?.phone || '')
+      .replace(/\D/g, '')
+      .slice(-10);
+    return `${req.ip || 'unknown'}:otp-send:${phone}`;
+  },
+  message: 'Too many sign-in codes. Wait 15 minutes and try again.',
+});
+
+/** Customer OTP verify: 12 / 15 minutes per IP+phone */
+export const otpVerifyRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 12,
+  keyFn: (req) => {
+    const phone = String(req.body?.phone || '')
+      .replace(/\D/g, '')
+      .slice(-10);
+    return `${req.ip || 'unknown'}:otp-verify:${phone}`;
+  },
+  message: 'Too many code attempts. Wait 15 minutes and try again.',
+});

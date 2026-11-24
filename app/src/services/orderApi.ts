@@ -92,6 +92,8 @@ export type PlaceOrderInput = {
   customerName: string;
   mobile: string;
   address: { line: string; city: string; pincode: string };
+  /** Saved server address id when signed in (`homecare.user_addresses.address_id`). */
+  addressId?: number;
   paymentMethod: PaymentMethod;
 };
 
@@ -117,16 +119,22 @@ export type PlacedOrder = {
  */
 export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
   const { line, city, pincode } = input.address;
+  const signedIn = Boolean(getAuthToken());
+  const useSavedAddress = signedIn && input.addressId != null && input.addressId > 0;
   const raw = await apiPost(
     '/cart/checkout',
     {
       ...(input.cartId ? { cartId: input.cartId } : {}),
       expectedTotal: input.expectedTotal,
-      shippingAddress: `${line}, ${city} - ${pincode}`,
-      pincode,
       paymentMethod: input.paymentMethod,
-      guestName: input.customerName,
-      guestPhone: input.mobile,
+      ...(useSavedAddress
+        ? { addressId: input.addressId, pincode }
+        : {
+            shippingAddress: `${line}, ${city} - ${pincode}`,
+            pincode,
+            guestName: input.customerName,
+            guestPhone: input.mobile,
+          }),
     },
     { headers: await cartHeaders() }
   );

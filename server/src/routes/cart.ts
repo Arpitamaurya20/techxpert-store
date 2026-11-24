@@ -1,9 +1,15 @@
 import { Router, type Request } from 'express';
 import { CartService, type CartAccess } from '../services/cartService.js';
 import { CartCheckoutService } from '../services/cartCheckoutService.js';
+import {
+  CheckoutIdempotencyService,
+  hashCheckoutBody,
+} from '../services/checkoutIdempotency.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
-import { optionalAuth, requireAuth } from '../middleware/auth.js';
+import { optionalAuth, requireCustomer } from '../middleware/auth.js';
+import { allowClientBridge } from '../middleware/clientBridge.js';
 import { chosenVariantId } from '../utils/variants.js';
+import { resolveCheckoutChannel } from '../utils/checkoutChannel.js';
 
 const router = Router();
 
@@ -25,6 +31,7 @@ function accessFrom(req: Request): CartAccess {
 router.get(
   '/',
   optionalAuth,
+  allowClientBridge('cart'),
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await CartService.view(accessFrom(req)));
   })
@@ -34,6 +41,7 @@ router.get(
 router.get(
   '/summary',
   optionalAuth,
+  allowClientBridge('cart'),
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await CartService.view(accessFrom(req)));
   })
@@ -43,6 +51,7 @@ router.get(
 router.put(
   '/items/:productId',
   optionalAuth,
+  allowClientBridge('cart'),
   asyncHandler(async (req, res) => {
     const productId = Number(req.params.productId);
     const quantity = Number(req.body?.quantity);
@@ -60,6 +69,7 @@ router.put(
 router.post(
   '/reorder',
   optionalAuth,
+  allowClientBridge('cart'),
   asyncHandler(async (req, res) => {
     if (!req.user?.userId) return sendError(res, 401, 'Sign in to reorder an order.');
     const orderId = Number(req.body?.orderId);
@@ -73,10 +83,11 @@ router.post(
 // POST /cart/merge - After sign-in, move the guest cart into the account cart
 router.post(
   '/merge',
-  requireAuth,
+  optionalAuth,
+  allowClientBridge('cart'),
+  requireCustomer,
   asyncHandler(async (req, res) => {
-    if (!req.user?.userId) return sendError(res, 403, 'Only customers have a cart');
-    const cart = await CartService.mergeGuestCart(req.user.userId, req.body?.sessionId);
+    const cart = await CartService.mergeGuestCart(req.user!.userId!, req.body?.sessionId);
     return sendSuccess(res, cart);
   })
 );
@@ -85,6 +96,7 @@ router.post(
 router.post(
   '/items',
   optionalAuth,
+  allowClientBridge('cart'),
   asyncHandler(async (req, res) => {
     const { cartId, variantId, productId, quantity } = req.body;
     if (!cartId || (!variantId && !productId)) {
@@ -107,9 +119,51 @@ router.post(
 router.post(
   '/checkout',
   optionalAuth,
+  allowClientBridge('cart', 'checkout'),
   asyncHandler(async (req, res) => {
-    const { order, replay } = await CartCheckoutService.place(accessFrom(req), req.body ?? {});
-    return sendSuccess(res, order, replay ? 'Order already placed' : 'Order placed', replay ? 200 : 201);
+    const body = { ...(req.body ?? {}) };
+    body.channel = resolveCheckoutChannel({
+      tokenChannel: req.bridge?.channel,
+      bodyChannel: body.channel,
+    });
+
+    const idemKey = String(req.headers['idempotency-key'] || '').trim();
+    const userId = req.user?.userId;
+    if (idemKey && userId) {
+      const requestHash = hashCheckoutBody(body);
+      let decision;
+      try {
+        decision = await CheckoutIdempotencyService.begin(userId, idemKey, requestHash);
+      } catch (err: any) {
+        if (err?.code === 'ER_NO_SUCH_TABLE') {
+          console.warn('[checkout] checkout_idempotency table missing — run sql/checkout_idempotency.sql');
+          decision = { action: 'proceed' as const };
+        } else {
+          throw err;
+        }
+      }
+      if (decision.action === 'conflict') {
+        return sendError(res, 409, 'Checkout with this Idempotency-Key is already in progress or used with a different body.');
+      }
+      if (decision.action === 'replay') {
+        res.status(decision.statusCode);
+        res.type('json');
+        return res.send(decision.responseJson);
+      }
+    }
+
+    const { order, replay } = await CartCheckoutService.place(accessFrom(req), body);
+    const status = replay ? 200 : 201;
+    const message = replay ? 'Order already placed' : 'Order placed';
+    if (idemKey && userId) {
+      const payload = { success: true, data: order, message };
+      try {
+        await CheckoutIdempotencyService.complete(userId, idemKey, status, payload);
+      } catch (err: any) {
+        if (err?.code !== 'ER_NO_SUCH_TABLE') console.warn('[checkout] idempotency complete failed', err);
+      }
+    }
+    return sendSuccess(res, order, message, status);
   })
 );
 
@@ -117,6 +171,7 @@ router.post(
 router.delete(
   '/items/:id',
   optionalAuth,
+  allowClientBridge('cart'),
   asyncHandler(async (req, res) => {
     const cartId = Number(req.query.cartId);
     if (!cartId) return sendError(res, 400, 'cartId query param required');
@@ -134,6 +189,7 @@ router.delete(
 router.delete(
   '/',
   optionalAuth,
+  allowClientBridge('cart'),
   asyncHandler(async (req, res) => {
     const cartId = Number(req.query.cartId);
     if (!cartId) return sendSuccess(res, await CartService.emptyCart(accessFrom(req)));

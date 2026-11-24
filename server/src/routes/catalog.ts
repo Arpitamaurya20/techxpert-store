@@ -4,6 +4,7 @@ import { CatalogSearchService } from '../services/catalogSearchService.js';
 import { StoreStockService } from '../services/storeStockService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { accessActor, isActiveStaff, optionalAuth, requireAdmin, requirePermission } from '../middleware/auth.js';
+import { allowClientBridge } from '../middleware/clientBridge.js';
 import { validateProductCreateBody, validateProductUpdateBody } from '../utils/validate.js';
 import { readBannerUpload } from '../utils/bannerMedia.js';
 import { storeCategoryImage, storeProductImage, storeSubcategoryImage } from '../utils/catalogMedia.js';
@@ -15,11 +16,14 @@ const SLOW_LIST_MS = 300;
 
 const router = Router();
 
+// Homecare exchange tokens need `catalog` on this router; Store Expo JWT is unaffected.
+router.use(optionalAuth);
+router.use(allowClientBridge('catalog'));
+
 // GET /catalog/categories
 // Public / phone: sellable shelves only (priced productCount > 0). Staff session: all active shelves.
 router.get(
   '/categories',
-  optionalAuth,
   asyncHandler(async (req, res) => {
     const staff = await isActiveStaff(req);
     const categories = await CatalogService.getCategories({ audience: staff ? 'staff' : 'customer' });

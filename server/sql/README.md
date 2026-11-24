@@ -28,6 +28,7 @@ mysql -u root -p < sql/staff_alerts.sql  # portal alert when a customer orders o
 mysql -u root -p < sql/order_messages.sql  # order confirmation by text or WhatsApp; starts off; safe to run again
 mysql -u root -p < sql/delivery_promise.sql  # arrives in N days, and a problem report; starts off; safe to run again
 mysql -u root -p < sql/order_channel.sql    # which customer app placed the order; safe to run again
+mysql -u root -p < sql/checkout_idempotency.sql  # Idempotency-Key on POST /cart/checkout; safe to run again
 mysql -u root -p < sql/catalog_list_indexes.sql   # product list indexes (pricing and brand); online, safe to run again; then ANALYZE TABLE products, product_pricing;
 mysql -u root -p < sql/catalog_search_fulltext.sql  # FULLTEXT on products name+brand for ranked search; online, safe to run again; then ANALYZE TABLE products;
 mysql -u root -p < sql/cms_banners.sql            # home campaign banners table; safe to run again
@@ -66,6 +67,7 @@ npm run staff:bootstrap                   # once: the first super admin (also th
 | `catalog_search_fulltext.sql` | FULLTEXT index `ft_products_name_brand` on `products (ProductName, Brand)` for ranked card search. MariaDB-compatible (no ngram). Online, safe to run again. Substring still uses LIKE. API works without it; ranking skips FULLTEXT until the script has been run |
 | `cms_banners.sql` | `cms_banners` for portal campaign banners. Creates the table and adds missing columns. Safe to run again |
 | `order_channel.sql` | Which customer app placed the order: `store_app` or `homecare_app`. Older rows and staff orders have none. Safe to run again |
+| `checkout_idempotency.sql` | `Idempotency-Key` replay for `POST /cart/checkout` (Phase 1). Unique per user+key. Safe to run again |
 | `taxonomy_ack_2026_11_23.sql` | Ack 23 Nov taxonomy hygiene: deactivate empty category shells, merge duplicate Industrial (11→10), deactivate empty cloned type folders. Safe to run again. Back up `categories` / `sub_categories` / `products` before production |
 
 Optional env for mobile-friendly banner images (relative `/images/...` paths):

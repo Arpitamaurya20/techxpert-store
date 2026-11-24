@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import { DeliveryAreaService } from '../services/deliveryAreaService.js';
 import { asyncHandler, sendError, sendSuccess } from '../utils/response.js';
-import { requireAdmin, requirePermission } from '../middleware/auth.js';
+import { optionalAuth, requireAdmin, requirePermission } from '../middleware/auth.js';
+import { allowClientBridge } from '../middleware/clientBridge.js';
 
 const router = Router();
 
 // GET /delivery/pincodes/:pincode - Public: do we deliver here?
 router.get(
   '/pincodes/:pincode',
+  optionalAuth,
+  allowClientBridge('delivery'),
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await DeliveryAreaService.check(req.params.pincode));
   })

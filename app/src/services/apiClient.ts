@@ -1,4 +1,4 @@
-import { getAuthToken } from '@/state/sessionStore';
+import { clearSession, getAuthToken } from '@/state/sessionStore';
 
 import { API_BASE_URL, REQUEST_TIMEOUT_MS, isApiConfigured } from './apiConfig';
 
@@ -98,6 +98,9 @@ async function request(method: Method, url: string, body?: unknown, options?: Re
   }
 
   if (response.status === 401 || response.status === 403) {
+    // 401 always ends the local session. 403 may be a permission refuse while still signed in —
+    // only clear when the server rejected the credentials (401).
+    if (response.status === 401) clearSession();
     throw new ApiError('UNAUTHORIZED', 'Please sign in again to continue.', response.status);
   }
   if (response.status === 404) {

@@ -1,7 +1,8 @@
 import { Router, type Request } from 'express';
 import { WishlistService, type WishlistAccess } from '../services/wishlistService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { optionalAuth, requireCustomer } from '../middleware/auth.js';
+import { forbidClientBridge } from '../middleware/clientBridge.js';
 
 const router = Router();
 
@@ -15,6 +16,7 @@ function accessFrom(req: Request): WishlistAccess {
 router.get(
   '/',
   optionalAuth,
+  forbidClientBridge,
   asyncHandler(async (req, res) => {
     return sendSuccess(res, await WishlistService.view(accessFrom(req)));
   })
@@ -24,6 +26,7 @@ router.get(
 router.put(
   '/:productId',
   optionalAuth,
+  forbidClientBridge,
   asyncHandler(async (req, res) => {
     if (typeof req.body?.saved !== 'boolean') return sendError(res, 400, 'saved must be true or false.');
     const list = await WishlistService.setSaved(accessFrom(req), Number(req.params.productId), req.body.saved);
@@ -35,12 +38,13 @@ router.put(
 router.post(
   '/merge',
   optionalAuth,
+  forbidClientBridge,
+  requireCustomer,
   asyncHandler(async (req, res) => {
-    if (!req.user?.userId) return sendError(res, 401, 'Sign in to keep your saved items.');
     if (req.body?.productIds != null && !Array.isArray(req.body.productIds)) {
       return sendError(res, 400, 'productIds must be a list of product numbers.');
     }
-    const list = await WishlistService.merge(req.user.userId, req.body?.sessionId, req.body?.productIds);
+    const list = await WishlistService.merge(req.user!.userId!, req.body?.sessionId, req.body?.productIds);
     return sendSuccess(res, list);
   })
 );

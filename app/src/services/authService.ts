@@ -1,3 +1,4 @@
+import { apiGet, ApiError } from './apiClient';
 import { API_BASE_URL, REQUEST_TIMEOUT_MS, isApiConfigured } from './apiConfig';
 import { asRecord, asText } from './normalize';
 
@@ -207,6 +208,29 @@ export async function verifyOtp(input: {
 
   const userRecord = data.user as unknown as Record<string, unknown>;
   return { token: data.token, user: normalizeUser(userRecord) };
+}
+
+/** Refresh the signed-in profile from GET /auth/me (Bearer session). */
+export async function fetchMe(): Promise<AuthUser> {
+  try {
+    const raw = await apiGet('/auth/me');
+    const envelope = asRecord(raw);
+    const payload = asRecord(envelope?.data) ?? envelope;
+    if (!payload || (payload.id == null && payload.user_id == null)) {
+      throw new AuthError('SERVER', 'We could not load your account. Please sign in again.');
+    }
+    return normalizeUser({
+      ...payload,
+      id: payload.id ?? payload.user_id,
+      mobile: payload.mobile ?? payload.phone,
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'UNAUTHORIZED') {
+      throw new AuthError('INVALID_CREDENTIALS', 'Please sign in again to continue.');
+    }
+    if (error instanceof AuthError) throw error;
+    throw new AuthError('SERVER', 'We could not load your account. Please try again.');
+  }
 }
 
 export function getAuthErrorMessage(error: unknown): string {

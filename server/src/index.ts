@@ -16,6 +16,7 @@ import deliveryRouter from './routes/delivery.js';
 import accessRouter from './routes/access.js';
 import storesRouter from './routes/stores.js';
 import wishlistRouter from './routes/wishlist.js';
+import serviceRouter from './routes/service.js';
 import { getCorsOptions, getJwtSecret } from './config/security.js';
 import { DB_STORE, DB_USERS, logDbBootStatus, testDbConnections } from './db/mysql.js';
 import { CmsService } from './services/cmsService.js';
@@ -95,6 +96,8 @@ const mountRouters = (prefix: string) => {
   app.use(`${prefix}/access`, accessRouter);
   app.use(`${prefix}/stores`, storesRouter);
   app.use(`${prefix}/shop`, shopRouter);
+  // Homecare S2S only — Apache must 403 public ^/(api/)?service(/|$)
+  app.use(`${prefix}/service`, serviceRouter);
 };
 mountRouters('');
 mountRouters('/api');

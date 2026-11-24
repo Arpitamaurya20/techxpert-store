@@ -293,6 +293,11 @@ export class AuthService {
     );
     const user = users[0];
     if (!user) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+    if (Number(user.is_active) === 0) {
+      throw Object.assign(new Error('This account is deactivated. Contact support.'), {
+        statusCode: 403,
+      });
+    }
 
     const [addrRows] = await userPool.query<any[]>(
       `SELECT city, pincode FROM user_addresses WHERE user_id = ? AND is_deleted = 0 ORDER BY is_default DESC LIMIT 1`,

@@ -56,9 +56,23 @@ async function writeStoredSession(session: Session | null) {
 /** Load any saved session before screens that need auth run. Safe to call more than once. */
 export function hydrateSession(): Promise<void> {
   if (!hydratePromise) {
-    hydratePromise = readStoredSession().then((session) => {
-      if (session) sessionStore.setState(session);
-    });
+    hydratePromise = (async () => {
+      const session = await readStoredSession();
+      if (!session) return;
+      sessionStore.setState(session);
+      try {
+        // Dynamic import avoids sessionStore ↔ authService ↔ apiClient cycles.
+        const { fetchMe } = await import('@/services/authService');
+        const user = await fetchMe();
+        const next = { token: session.token, user };
+        sessionStore.setState(next);
+        await writeStoredSession(next);
+      } catch {
+        // Dead or expired token — sign out so the UI does not look signed in.
+        sessionStore.setState(null);
+        await writeStoredSession(null);
+      }
+    })();
   }
   return hydratePromise;
 }
@@ -72,6 +86,15 @@ export function setSession(response: SignInResponse) {
 export function clearSession() {
   sessionStore.setState(null);
   void writeStoredSession(null);
+}
+
+/** Update the in-memory user (e.g. after /auth/me) without changing the token. */
+export function patchSessionUser(user: AuthUser) {
+  const current = sessionStore.getState();
+  if (!current) return;
+  const next = { ...current, user };
+  sessionStore.setState(next);
+  void writeStoredSession(next);
 }
 
 export function getAuthToken(): string | undefined {

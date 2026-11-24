@@ -6,12 +6,19 @@ import { AuditService } from '../services/auditService.js';
 import { StaffService, type StaffIdentity } from '../services/staffService.js';
 import {
   requireAuth,
+  requireCustomer,
   requireAdmin,
   requireAdminSession,
   requirePermission,
   signStaffToken,
 } from '../middleware/auth.js';
-import { adminLoginRateLimit, passwordChangeRateLimit } from '../middleware/rateLimit.js';
+import { forbidClientBridge } from '../middleware/clientBridge.js';
+import {
+  adminLoginRateLimit,
+  passwordChangeRateLimit,
+  otpSendRateLimit,
+  otpVerifyRateLimit,
+} from '../middleware/rateLimit.js';
 import { storeFilter } from '../utils/scope.js';
 import { clearAdminTokenCookie, setAdminTokenCookie } from '../utils/cookies.js';
 import { isDevCustomerLoginAllowed } from '../config/security.js';
@@ -53,6 +60,7 @@ router.post(
 // POST /auth/send-otp - Request OTP for mobile authentication
 router.post(
   '/send-otp',
+  otpSendRateLimit,
   asyncHandler(async (req, res) => {
     const { phone, purpose } = req.body;
     if (!phone) return sendError(res, 400, 'Phone number is required');
@@ -66,6 +74,7 @@ router.post(
 // POST /auth/verify-otp - Verify OTP and complete mobile login
 router.post(
   '/verify-otp',
+  otpVerifyRateLimit,
   asyncHandler(async (req, res) => {
     const { phone, otp, name, fullName, email } = req.body;
     if (!phone || !otp) return sendError(res, 400, 'Phone and OTP are required');
@@ -82,6 +91,8 @@ router.post(
 router.get(
   '/me',
   requireAuth,
+  forbidClientBridge,
+  requireCustomer,
   asyncHandler(async (req, res) => {
     const profile = await AuthService.getProfile(req.user!.userId!);
     return sendSuccess(res, profile);
@@ -92,6 +103,8 @@ router.get(
 router.get(
   '/addresses',
   requireAuth,
+  forbidClientBridge,
+  requireCustomer,
   asyncHandler(async (req, res) => {
     const addresses = await AuthService.getAddresses(req.user!.userId!);
     return sendSuccess(res, addresses);
@@ -103,6 +116,8 @@ router.get(
 router.post(
   '/addresses',
   requireAuth,
+  forbidClientBridge,
+  requireCustomer,
   asyncHandler(async (req, res) => {
     const newAddress = await AuthService.createAddress(req.user!.userId!, req.body);
     return sendSuccess(res, newAddress, 'Address saved successfully', 201);
@@ -113,6 +128,8 @@ router.post(
 router.put(
   '/addresses/:id/default',
   requireAuth,
+  forbidClientBridge,
+  requireCustomer,
   asyncHandler(async (req, res) => {
     const result = await AuthService.setDefaultAddress(req.user!.userId!, Number(req.params.id));
     return sendSuccess(res, result, 'Default address updated');
@@ -123,6 +140,8 @@ router.put(
 router.delete(
   '/addresses/:id',
   requireAuth,
+  forbidClientBridge,
+  requireCustomer,
   asyncHandler(async (req, res) => {
     const result = await AuthService.deleteAddress(req.user!.userId!, Number(req.params.id));
     return sendSuccess(res, result, 'Address removed');

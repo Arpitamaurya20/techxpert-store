@@ -4,12 +4,13 @@ import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import {
   optionalAuth,
   requireAdmin,
-  requireAuth,
+  requireCustomer,
   requirePermission,
   resolveAdmin,
   permissionRefusal,
   accessActor,
 } from '../middleware/auth.js';
+import { allowClientBridge, forbidClientBridge } from '../middleware/clientBridge.js';
 import { can } from '../utils/permissions.js';
 import { validateOrderStatusBody } from '../utils/validate.js';
 import { coversStore, storeFilter, type Scope } from '../utils/scope.js';
@@ -30,6 +31,7 @@ function orderInScope(order: { storeId?: unknown }, scope: Scope): boolean {
 router.get(
   '/',
   optionalAuth,
+  allowClientBridge('orders'),
   asyncHandler(async (req, res) => {
     const wantsAll = req.query.all === 'true' || req.headers['x-client'] === 'portal';
     let storeIds: number[] | null = null;
@@ -61,6 +63,7 @@ router.get(
 router.get(
   '/again',
   optionalAuth,
+  allowClientBridge('orders'),
   asyncHandler(async (req, res) => {
     if (!req.user?.userId) return sendError(res, 401, 'Sign in to see your orders.');
     const items = await OrderService.getOrderAgain(req.user.userId, req.query.limit);
@@ -82,7 +85,9 @@ router.get(
 // GET /orders/:id - Owner, or staff with orders view
 router.get(
   '/:id',
-  requireAuth,
+  optionalAuth,
+  allowClientBridge('orders'),
+  requireCustomer,
   asyncHandler(async (req, res) => {
     let scope: Scope | null = null;
     if (req.user?.staffId) {
@@ -126,10 +131,11 @@ router.post(
   })
 );
 
-// POST /orders - Create order
+// POST /orders - Legacy create (prefer POST /cart/checkout). Exchange tokens must use cart checkout.
 router.post(
   '/',
   optionalAuth,
+  forbidClientBridge,
   asyncHandler(async (req, res) => {
     const newOrder = await OrderService.createOrder(req.body, req.user?.userId);
     return sendSuccess(res, newOrder, 'Order placed successfully', 201);
@@ -139,12 +145,15 @@ router.post(
 // POST /orders/:id/problem - The customer reports a short problem. The order itself is unchanged.
 router.post(
   '/:id/problem',
-  requireAuth,
+  optionalAuth,
+  allowClientBridge('orders'),
+  requireCustomer,
   asyncHandler(async (req, res) => {
-    if (req.user?.staffId || req.user?.userId == null) {
-      return sendError(res, 403, 'Not allowed to view this order');
-    }
-    const problem = await OrderProblemService.report(req.params.id, Number(req.user.userId), req.body ?? {});
+    const problem = await OrderProblemService.report(
+      req.params.id,
+      Number(req.user!.userId),
+      req.body ?? {}
+    );
     return sendSuccess(res, problem, problem.message);
   })
 );
