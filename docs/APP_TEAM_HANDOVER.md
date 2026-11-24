@@ -14,14 +14,14 @@ For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, 
 
 | Finding | Action |
 |---|---|
-| App calling **`store.jiotechxpert.com`** | **Wrong for this slice.** Must use **`https://apitest.jiotechxpert.com`** (`EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api`). |
-| App “login” **503** on Store | After host is apitest: `POST /auth/send-otp` needs Store green `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (Homecare green `.env` does not count). |
-| `POST /auth/login` **403** on prod/green | Expected. Do **not** call it from the app. |
-| Where to upload green | Only from `BLUE_GREEN/` — see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
-| Platform vs app deliverables | [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0a + §0 |
-| Route bible | [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) |
+| Host routing | **Map by service** — not one hard base. GREEN (`apitest…`) for today’s live slice; BLUE (`store.jiotechxpert.com`) for the rest. See [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) host map. |
+| Green-slice OTP on BLUE | Mis-route. `send-otp` / `verify-otp` / green checkout / PayU / those orders → **GREEN**. |
+| Browse / CMS / search | Stay on **BLUE** until promote. |
+| App “login” **503** on GREEN | Store green needs `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (Homecare green `.env` does not count). |
+| `POST /auth/login` **403** | Expected on prod/green. Use OTP. |
+| Upload green | Only from `BLUE_GREEN/` — [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
 
-**App team first step:** confirm every request host is `apitest.jiotechxpert.com`, not `store.jiotechxpert.com`.
+**App team first step:** implement dual bases (or a router) from the host map; do not send green OTP/PayU to `store.jiotechxpert.com`.
 
 ---
 

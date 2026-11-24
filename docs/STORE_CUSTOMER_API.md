@@ -2,18 +2,18 @@
 
 **Audience:** Store Expo app, Homecare app team, green deploy  
 
-### Base URL (mandatory for current app work)
+### Hosts (map by service — not a single hard base)
 
-| | Host |
+| Alias | Host |
 |---|---|
-| **USE NOW** | `https://apitest.jiotechxpert.com` (also `/api/...` — same routers) |
-| **DO NOT USE for this slice** | `https://store.jiotechxpert.com` (blue/prod — only after promote) |
+| **GREEN** | `https://apitest.jiotechxpert.com` (also `/api/...`) |
+| **BLUE** | `https://store.jiotechxpert.com` |
 
-```bash
-EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api
-```
+**Went live on GREEN today → call GREEN:** OTP auth (`/auth/send-otp`, `/auth/verify-otp`), green session (`/auth/me`, addresses), green cart + `/cart/checkout` (COD|PayU), `/payments/payu/*`, green `/orders*`.  
 
-If the app is still calling `store.jiotechxpert.com`, change the base URL before filing auth bugs.
+**Everything else (browse/CMS/search/wishlist/help/…)** → keep **BLUE** until promote.  
+
+Full table: [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) host map. JWT and cart are **host-scoped** — do not send a GREEN token to BLUE.
 
 **Identity:** Shared `homecare.users` — one phone login is one `user_id` for Homecare bookings **and** Store materials.
 

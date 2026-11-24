@@ -3,33 +3,34 @@
 **Date:** 24 Nov 2026  
 **Docs branch:** `docs/store-customer-api` (this file + related docs only)  
 **Code homes:** edit / build / upload green **only** from `Desktop/BLUE_GREEN/`  
-**Green Store API (REQUIRED for app team now):** `https://apitest.jiotechxpert.com`  
-**Green Homecare API:** `https://apitest.techxpertindia.com`  
-**Blue Store (prod — DO NOT call for this slice):** `https://store.jiotechxpert.com`
+**GREEN Store:** `https://apitest.jiotechxpert.com`  
+**BLUE Store:** `https://store.jiotechxpert.com`  
+**GREEN Homecare:** `https://apitest.techxpertindia.com`  
 
-This document is the shared contract: **what platform already did**, **what app must deliver**, and **how to unblock login** (wrong host first, then OTP SMS).
+This document is the shared contract: **what platform already did**, **what app must deliver**, and **which host each service uses**.
 
-**After every docs pull:** [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md).
+**Authoritative host map:** [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) (green for today’s live slice; blue for the rest).
 
 ---
 
-## 0a. Wrong host (app config) — fix this first
+## 0a. Route green-slice traffic to GREEN (not “ban blue”)
 
-Observed blocker: the app called **`https://store.jiotechxpert.com/auth/send-otp`** (blue). For green work it must call **apitest**.
+Observed blocker: the app called **BLUE** `store.jiotechxpert.com/auth/send-otp` while testing the **green** OTP/PayU go-live. That path must use **GREEN** `apitest.jiotechxpert.com`. Catalog/CMS/search may stay on BLUE.
 
-| Wrong | Right |
+| Service made live on green today | Host |
 |---|---|
-| `https://store.jiotechxpert.com` | `https://apitest.jiotechxpert.com` |
-| `EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/...` | `EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api` |
+| OTP login, green session, addresses with that JWT | GREEN |
+| Cart + checkout COD/PayU + PayU initiate/verify + those orders | GREEN |
+| Catalog, CMS, home-boot, search, wishlist, help, other existing prod | BLUE |
 
 ```bash
-# Must be apitest — not store.jiotechxpert.com
+# Green-slice OTP (correct host for today’s go-live)
 curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://apitest.jiotechxpert.com/auth/send-otp \
   -H 'Content-Type: application/json' \
   -d '{"phone":"8810803874"}'
 ```
 
-Do **not** debug blue OTP while validating this green slice. Payload `{ "phone": "8810803874" }` is fine; wrong host is not.
+Payload `{ "phone": "8810803874" }` is fine. Using BLUE for green-slice OTP/PayU is the mis-route.
 
 ---
 
@@ -206,14 +207,14 @@ OTP SMS env on Store (section 0). Without it, every production `send-otp` is 503
 
 ### Intent for the Store Expo app
 
-Ship a coherent **materials shopping** experience against **green** first (`apitest.jiotechxpert.com`), using **Store OTP JWT**, without depending on Homecare exchange tokens yet.
+Ship green-slice flows (OTP, green cart/checkout, PayU) against **GREEN** (`apitest…`), keep existing browse on **BLUE**, using Store OTP JWT on green only — no Homecare exchange tokens yet.
 
 ### Must implement / verify
 
 | # | Deliverable | Done when |
 |---|---|---|
-| A1 | Base URL → green Store (`https://apitest.jiotechxpert.com` or `/api` twin) | Config documented; no hard-coded blue unless toggle |
-| A2 | Login = `send-otp` → `verify-otp` only | Never call `POST /auth/login` on green/prod |
+| A1 | Dual-host routing per [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) map | Green-slice calls → apitest; browse/CMS → blue until promote |
+| A2 | Green login = GREEN `send-otp` → `verify-otp` only | Never `POST /auth/login`; don’t use BLUE for green OTP tests |
 | A3 | Persist Store JWT; hydrate session; clear on 401 | Matches existing `app/` session patterns |
 | A4 | Protected calls: `/auth/me`, addresses, cart, checkout, orders | Bearer on customer routes |
 | A5 | COD checkout | `POST /cart/checkout` with `paymentMethod: "COD"` + optional `Idempotency-Key` |
