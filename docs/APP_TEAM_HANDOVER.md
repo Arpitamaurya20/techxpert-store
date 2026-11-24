@@ -1,12 +1,12 @@
 # App team handover — live API, scope, and `app/` structure
 
-For whoever builds or finishes the customer Expo app in `app/`. After pull, start with [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) (what landed + verification checkmarks), then [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for request/response examples. Route bible: [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).
+For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, read this first, then use [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for exact request/response examples.
 
-**Date:** 23 Nov 2026 (green + login ack 24 Nov; pull brief 24 Nov)  
+**Date:** 23 Nov 2026 (green + login ack added 24 Nov 2026)  
 **Docs branch (app contract):** `docs/store-customer-api`  
 **Green code / uploads:** `Desktop/BLUE_GREEN/techxpert-store-main` on `green/unified-commerce`  
 **Live API + staff portal (blue):** `https://store.jiotechxpert.com`  
-**Green API (auth + PayU):** `https://apitest.jiotechxpert.com`
+**Green API:** `https://apitest.jiotechxpert.com`
 
 ---
 
@@ -14,14 +14,14 @@ For whoever builds or finishes the customer Expo app in `app/`. After pull, star
 
 | Finding | Action |
 |---|---|
-| App “login” **503** on Store | Almost always `POST /auth/send-otp` — Store host missing `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (same TECHXPERT OTP creds as Homecare). `/health` can still be 200. |
-| `POST /auth/login` **403** on prod/green | Expected. Do **not** call it from the app. |
-| Where to upload green | Only from `BLUE_GREEN/` — see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
-| Platform vs app deliverables | [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) |
-| After pull — prompt + tick boxes | [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) |
-| Route bible | [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) |
+| Host routing | **Map by service** — not one hard base. GREEN (`apitest…`) for today’s live slice; BLUE (`store.jiotechxpert.com`) for the rest. See [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) host map. |
+| Green-slice OTP on BLUE | Mis-route. `send-otp` / `verify-otp` / green checkout / PayU / those orders → **GREEN**. |
+| Browse / CMS / search | Stay on **BLUE** until promote. |
+| App “login” **503** on GREEN | Store green needs `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (Homecare green `.env` does not count). |
+| `POST /auth/login` **403** | Expected on prod/green. Use OTP. |
+| Upload green | Only from `BLUE_GREEN/` — [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
 
-Ops must set OTP env on Store blue and/or green and restart PM2 before the app team can complete OTP sign-in against those hosts.
+**App team first step:** implement dual bases (or a router) from the host map; do not send green OTP/PayU to `store.jiotechxpert.com`.
 
 ---
 
