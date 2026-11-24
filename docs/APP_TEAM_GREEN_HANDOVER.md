@@ -3,67 +3,74 @@
 **Date:** 24 Nov 2026  
 **Docs branch:** `docs/store-customer-api` (this file + related docs only)  
 **Code homes:** edit / build / upload green **only** from `Desktop/BLUE_GREEN/`  
-**Green Store API:** `https://apitest.jiotechxpert.com`  
+**Green Store API (REQUIRED for app team now):** `https://apitest.jiotechxpert.com`  
 **Green Homecare API:** `https://apitest.techxpertindia.com`  
-**Blue Store (prod — do not treat as green):** `https://store.jiotechxpert.com`
+**Blue Store (prod — DO NOT call for this slice):** `https://store.jiotechxpert.com`
 
-This document is the shared contract: **what platform already did**, **what app must deliver**, and **how to unblock the login 503** the app team reported.
+This document is the shared contract: **what platform already did**, **what app must deliver**, and **how to unblock login** (wrong host first, then OTP SMS).
+
+**After every docs pull:** [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md).
 
 ---
 
-## 0. Login 503 — diagnosis and fix (ops, not app code)
+## 0a. Wrong host (app config) — fix this first
 
-Verified 24 Nov 2026 against live hosts:
+Observed blocker: the app called **`https://store.jiotechxpert.com/auth/send-otp`** (blue). For green work it must call **apitest**.
+
+| Wrong | Right |
+|---|---|
+| `https://store.jiotechxpert.com` | `https://apitest.jiotechxpert.com` |
+| `EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/...` | `EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api` |
+
+```bash
+# Must be apitest — not store.jiotechxpert.com
+curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://apitest.jiotechxpert.com/auth/send-otp \
+  -H 'Content-Type: application/json' \
+  -d '{"phone":"8810803874"}'
+```
+
+Do **not** debug blue OTP while validating this green slice. Payload `{ "phone": "8810803874" }` is fine; wrong host is not.
+
+---
+
+## 0. Login 503 on apitest — ops SMS (Store green .env)
+
+Only after the app host is **apitest**. Homecare green `.env` PRP keys do **not** apply to Store; copy them into Store green `.env`.
 
 | Call | Host | Result | Meaning |
 |---|---|---|---|
-| `POST /auth/login` | apitest | **403** | Expected when `NODE_ENV=production`. Dev-only shortcut. **Apps must not call this.** |
-| `POST /auth/send-otp` | apitest **and** blue store | **503** `"The sign-in code could not be sent. Ask for a new one."` | Store OTP SMS transport missing or PRP rejected the send |
-| `GET /health` | apitest | **200**, both DBs ok | API + MySQL are fine — this is **not** a DB outage |
-| Homecare `POST /api/auth/send-otp` | api / apitest Homecare | **404** user-not-found for dummy phone | Homecare SMS path is reachable (different product rules) |
+| `POST /auth/login` | apitest | **403** | Expected. Apps must not call this. |
+| `POST /auth/send-otp` | apitest | **503** if Store green missing PRP | Set Store green OTP env (below) |
+| `GET /health` | apitest | **200** | Not a MySQL outage |
 
-**Real customer login path (Store Expo):**
+**Real customer login path (Store Expo against green):**
 
 ```text
-POST /auth/send-otp  →  POST /auth/verify-otp  →  Authorization: Bearer <token>
+POST https://apitest.jiotechxpert.com/auth/send-otp
+  → POST https://apitest.jiotechxpert.com/auth/verify-otp
+  → Authorization: Bearer <token>
 ```
 
-**Fix on each Store Node host** (blue and/or green) — edit **existing** `server/.env`, then restart PM2. Do **not** overwrite `.env` from laptop.
+**Fix on Store green** — edit `/var/www/green-node/store/server/.env` (do not overwrite the whole file):
 
 ```bash
-# Required for production OTP (same PRP credentials Homecare already uses for TECHXPERT OTP)
 OTP_SMS_PROVIDER=prp
-PRP_SMS_API_KEY=<same key as Homecare backend>
+PRP_SMS_API_KEY=<same key as Homecare green>
 PRP_SMS_SENDER=TECHX
 PRP_SMS_TEMPLATE_NAME=TECHXPERT OTP
-
-# Confirm NODE_ENV=production on VPS (keeps /auth/login refused — correct)
-# Do NOT set OTP_SMS_PROVIDER=console on production (code treats that as missing)
 ```
 
-**Payload is correct** as `{ "phone": "8810803874" }` (10-digit India mobile). A 503 with that body is **not** a client/payload bug.
-
 ```bash
-# Blue Store (PM2: techxpert-store) — app team often hits this host today
-cd /var/www/node-projects/store/server   # adjust if blue path differs
-# set OTP_* / PRP_* in .env as above
-pm2 restart techxpert-store --update-env
-
-curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://store.jiotechxpert.com/auth/send-otp \
-  -H 'Content-Type: application/json' \
-  -d '{"phone":"8810803874"}'
-
-# Green Store (PM2: store-api-green)
 pm2 restart store-api-green --update-env
 curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://apitest.jiotechxpert.com/auth/send-otp \
   -H 'Content-Type: application/json' \
   -d '{"phone":"8810803874"}'
-# Expect HTTP 200 when PRP accepts; then verify-otp with the SMS code
+# Expect HTTP 200 when PRP accepts
 ```
 
-**App team:** payload `{ "phone": "<10 digits>" }` is correct. If you still see 503 after ops confirms the curl above returns 200, paste request URL + body (no secrets). Until then, treat 503 as **server SMS config**, not Expo bug.
+Blue (`techxpert-store` / `store.jiotechxpert.com`) is separate — only touch it when promoting, not for app green testing.
 
-Local laptop: leave `NODE_ENV` unset; code uses fixed OTP `123456` and `send-otp` may return `devOtp` — no SMS needed.
+Local laptop: leave `NODE_ENV` unset; OTP is `123456` / `devOtp` — no SMS needed.
 
 ---
 

@@ -1,8 +1,20 @@
 # Store customer API — full route list (auth & protection)
 
 **Audience:** Store Expo app, Homecare app team, green deploy  
-**Base (green):** `https://apitest.jiotechxpert.com` (also `/api/...` — same routers)  
-**Base (blue/prod):** `https://store.jiotechxpert.com`  
+
+### Base URL (mandatory for current app work)
+
+| | Host |
+|---|---|
+| **USE NOW** | `https://apitest.jiotechxpert.com` (also `/api/...` — same routers) |
+| **DO NOT USE for this slice** | `https://store.jiotechxpert.com` (blue/prod — only after promote) |
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api
+```
+
+If the app is still calling `store.jiotechxpert.com`, change the base URL before filing auth bugs.
+
 **Identity:** Shared `homecare.users` — one phone login is one `user_id` for Homecare bookings **and** Store materials.
 
 ### Separate checkouts, one login (locked for now)

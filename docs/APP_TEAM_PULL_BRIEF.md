@@ -4,19 +4,34 @@
 **Pasteable “prompt”:** §1 — give this to anyone (or another agent) so they know what landed and what to verify.  
 **Your job:** wire the Expo app to these APIs. **Not your job:** Homecare backend source, VPS uploads, Mode C combo.
 
+## STOP — wrong host blocks progress
+
+| | URL | Use now? |
+|---|---|---|
+| **REQUIRED (green)** | `https://apitest.jiotechxpert.com` | **YES — only this for auth / cart / PayU work** |
+| **FORBIDDEN for this slice (blue)** | `https://store.jiotechxpert.com` | **NO** — do not call this until ops promotes |
+
+```bash
+# Expo / .env — must be apitest, not store.jiotechxpert.com
+EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api
+```
+
+If Charles/Proxyman/logs show `store.jiotechxpert.com`, **fix the base URL first**. That mistake is currently blocking login verification. Payload `{ "phone": "8810803874" }` is fine; wrong host is not.
+
 | Env | Base URL |
 |---|---|
-| **Green (use this for new auth + PayU)** | `https://apitest.jiotechxpert.com` (paths work with or without `/api`) |
-| Blue / prod (COD already live; PayU after promote) | `https://store.jiotechxpert.com` |
+| **Green (use this)** | `https://apitest.jiotechxpert.com` (paths work with or without `/api`) |
+| Blue / prod (later) | `https://store.jiotechxpert.com` — **out of scope until promote** |
 
-**Login 503:** `POST /auth/send-otp` with `{ "phone": "<10 digits>" }` is the correct payload. HTTP 503 `"The sign-in code could not be sent…"` means Store host OTP SMS env (`OTP_SMS_PROVIDER=prp` + `PRP_SMS_*`) is missing — **ops**, not Expo. Blue host: `https://store.jiotechxpert.com`. Green: `https://apitest.jiotechxpert.com`. Full fix: [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0.
+**Login 503 on green:** after the base URL is apitest, if `POST /auth/send-otp` still returns `"The sign-in code could not be sent…"`, that is Store **green** OTP SMS env (`OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` on `store-api-green`), not Expo. Homecare green `.env` does not apply to Store. See [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0.
 
 **Read after pull (in order):**
 
-1. This file (checklist)  
-2. [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) — full route + auth labels  
-3. [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) — UC-10 COD + **UC-10b PayU**  
-4. [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) — Expo folder map / COD baseline  
+1. This file (checklist) — especially **STOP — wrong host**  
+2. [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0a + §0  
+3. [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) — full route + auth labels  
+4. [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) — UC-10 COD + **UC-10b PayU**  
+5. [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) — Expo folder map / COD baseline  
 
 If a linked file is missing on your branch, ask for the docs PR / `docs/store-customer-api` or green Store docs commit — do not invent routes.
 
@@ -30,15 +45,17 @@ You are helping the Store Expo app team after a Git pull of Techxpert Store docs
 CONTEXT
 - One shared customer identity with Homecare (`homecare.users` / same phone → same user_id).
 - Separate checkouts: Store owns materials (COD and PayU on the Store API). Homecare owns service bookings on the Homecare API. No combo cart.
-- Point the app at GREEN for this work: EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api
+- HARD RULE: API base MUST be https://apitest.jiotechxpert.com (green). NEVER https://store.jiotechxpert.com for this work.
+- Set EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api and verify in network logs that host is apitest.
 - Auth for Store Expo = Store OTP → 30-day Store JWT (Bearer). Do NOT call Homecare /api/auth/store-token from Store Expo (that is Homecare app Mode B later).
 - PayU is order-first: POST /cart/checkout with paymentMethod "PayU" → POST /payments/payu/initiate → open PayU with payuPayload or checkout_html → on return POST /payments/payu/verify → GET /orders/:id. COD still works with paymentMethod "COD".
 - Backend/API owners ship APIs + docs only; you wire Expo (session, WebView/browser for PayU, screens).
 
 AFTER PULL
-1. Read docs/APP_TEAM_PULL_BRIEF.md and tick every checkbox you can verify from the device or curl.
-2. Follow docs/STORE_CUSTOMER_API.md for auth labels (Customer vs Guest+ vs public).
-3. Implement against green; do not block on blue PayU until ops promotes.
+1. Confirm base URL is apitest (not store.jiotechxpert.com) — this is the current blocker if wrong.
+2. Read docs/APP_TEAM_PULL_BRIEF.md and tick every checkbox you can verify from the device or curl.
+3. Follow docs/STORE_CUSTOMER_API.md for auth labels (Customer vs Guest+ vs public).
+4. Implement against green; do not block on blue until ops promotes.
 
 OUT OF SCOPE FOR YOU
 - Homecare Activity UI, Homecare PayU, S2S /service, Apache, VPS .env, Mode C.

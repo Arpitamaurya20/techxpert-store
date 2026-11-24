@@ -14,13 +14,14 @@ For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, 
 
 | Finding | Action |
 |---|---|
-| App “login” **503** on Store | Almost always `POST /auth/send-otp` — Store host missing `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (same TECHXPERT OTP creds as Homecare). `/health` can still be 200. |
+| App calling **`store.jiotechxpert.com`** | **Wrong for this slice.** Must use **`https://apitest.jiotechxpert.com`** (`EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api`). |
+| App “login” **503** on Store | After host is apitest: `POST /auth/send-otp` needs Store green `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (Homecare green `.env` does not count). |
 | `POST /auth/login` **403** on prod/green | Expected. Do **not** call it from the app. |
 | Where to upload green | Only from `BLUE_GREEN/` — see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
-| Platform vs app deliverables | [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) |
+| Platform vs app deliverables | [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0a + §0 |
 | Route bible | [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) |
 
-Ops must set OTP env on Store blue and/or green and restart PM2 before the app team can complete OTP sign-in against those hosts.
+**App team first step:** confirm every request host is `apitest.jiotechxpert.com`, not `store.jiotechxpert.com`.
 
 ---
 
