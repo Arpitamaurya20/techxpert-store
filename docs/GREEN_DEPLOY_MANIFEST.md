@@ -1,28 +1,51 @@
 # Green deploy manifest — unified commerce + Store auth (go-live pack)
 
-**What this ships:** Store customer auth hardened + Homecare↔Store bridge (S2S Activity, exchange token) + SQL.  
-**What this does not ship:** Combo / Mode C checkout; Ionic UI for Activity/materials (app repo).
+**What this ships:** Store customer auth hardened + Homecare↔Store bridge + **Store PayU** (initiate/success/failure/verify) + SQL.  
+**What this does not ship:** Expo PayU UI (app team); Combo / Mode C; Ionic Activity UI.
 
-**Same login, separate checkouts:** one `homecare.users.user_id`; Homecare booking checkout and Store COD checkout stay independent.
+**Same login, separate checkouts:** one `homecare.users.user_id`; Homecare booking PayU stays on Homecare; Store materials COD/PayU on this API.
 
 API route list for apps: [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).
 
 ---
 
+## A0. Login 503 blocker (fix before / while deploying)
+
+App “login” failures that return **503** + `"The sign-in code could not be sent…"` are **`POST /auth/send-otp`**, not `/auth/login`.
+
+Cause: Store host missing PRP OTP env (or PRP rejected). Health can still be 200.
+
+On VPS Store `.env` (blue and/or green), set Homecare’s OTP credentials, then restart PM2:
+
+```bash
+OTP_SMS_PROVIDER=prp
+PRP_SMS_API_KEY=<same as Homecare>
+PRP_SMS_SENDER=TECHX
+PRP_SMS_TEMPLATE_NAME=TECHXPERT OTP
+```
+
+`POST /auth/login` returning **403** on production is **correct** — apps use send-otp → verify-otp only.
+
+Full dual-sided handover: [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md).
+
+---
+
 ## A. Build on laptop first
+
+**Source of truth:** `Desktop/BLUE_GREEN/` (not Desktop `techxpert-store` / `Homecare`).
 
 ```bash
 # Store API (required)
-cd ~/Desktop/techxpert-store/server
+cd ~/Desktop/BLUE_GREEN/techxpert-store-main/server
 npm ci
-npm test          # expect all pass
+npm test          # expect all pass (314 as of PayU slice)
 npm run build     # → dist/
 
 # Optional: Store portal if you also refresh uitest
 cd ../web && npm ci && VITE_API_BASE_URL=https://apitest.jiotechxpert.com npm run build
 ```
 
-Homecare green is JS source — no `tsc` build; upload `src/` + `sql/` and `npm ci --omit=dev` on VPS if deps changed.
+Homecare green is JS source — no `tsc` build; upload from `~/Desktop/BLUE_GREEN/techxpert_backend-main/` (`src/` + `sql/`) and `npm ci --omit=dev` on VPS if deps changed.
 
 ---
 
@@ -37,7 +60,7 @@ Upload **whole trees** (not SQL-only). Prefer syncing these paths:
 | `server/dist/` **(entire folder after build)** | `store/server/dist/` |
 | `server/package.json` | `store/server/package.json` |
 | `server/package-lock.json` | `store/server/package-lock.json` |
-| `server/sql/` **(entire folder, includes `checkout_idempotency.sql`)** | `store/server/sql/` |
+| `server/sql/` **(entire folder, includes `checkout_idempotency.sql`, `payment_orders.sql`)** | `store/server/sql/` |
 | `server/deploy/apache-api.conf` | `store/server/deploy/apache-api.conf` (reference; merge LocationMatch into live apitest vhost) |
 | `server/.env.example` | optional reference only — **do not overwrite** live `.env` blindly |
 
@@ -49,6 +72,20 @@ HOMECARE_STORE_BRIDGE_SECRET=<long-random-shared-secret>
 
 # Keep off until Homecare mint + CORS ready:
 ALLOW_HOMECARE_EXCHANGE_TOKENS=false
+
+# Store PayU (test merchant — not Homecare keys):
+PAYU_MERCHANT_KEY=<store-test-key>
+PAYU_MERCHANT_SALT=<store-test-salt>
+PAYU_BASE_URL=https://test.payu.in/_payment
+PAYU_SUCCESS_URL=https://apitest.jiotechxpert.com/payments/payu/success
+PAYU_FAILURE_URL=https://apitest.jiotechxpert.com/payments/payu/failure
+# APP_PAYU_RETURN_URL=techxpertstore://payu-return
+
+# OTP — required or every production send-otp is 503 (§A0)
+OTP_SMS_PROVIDER=prp
+PRP_SMS_API_KEY=<same as Homecare>
+PRP_SMS_SENDER=TECHX
+PRP_SMS_TEMPLATE_NAME=TECHXPERT OTP
 
 # Already expected:
 PORT=5003
@@ -77,12 +114,19 @@ server/src/routes/delivery.ts
 server/src/routes/orders.ts
 server/src/routes/wishlist.ts
 server/src/routes/service.ts
+server/src/routes/payments.ts
 server/src/services/authService.ts
 server/src/services/checkoutIdempotency.ts
 server/src/services/serviceOrdersService.ts
+server/src/services/payuInitiateService.ts
+server/src/services/payuSettlementService.ts
+server/src/services/cartCheckoutService.ts
 server/src/utils/activityItem.ts
 server/src/utils/checkoutChannel.ts
+server/src/utils/payu.ts
+server/src/utils/paymentMethod.ts
 server/sql/checkout_idempotency.sql
+server/sql/payment_orders.sql
 ```
 
 ### On VPS after upload
@@ -92,8 +136,10 @@ cd /var/www/green-node/store/server
 npm ci --omit=dev
 
 mysql -u green_app -p techxpertstore_green < sql/checkout_idempotency.sql
+mysql -u green_app -p techxpertstore_green < sql/payment_orders.sql
 
 # Apache: deny public /service (both with and without /api) — see deploy/apache-api.conf
+# Do NOT block /payments — PayU callbacks must reach Node.
 # Then:
 pm2 restart store-api-green
 pm2 save
@@ -105,7 +151,7 @@ curl -sS https://apitest.jiotechxpert.com/health
 
 ## C. Upload map — Homecare → `/var/www/green-node/homecare-backend/`
 
-| Laptop (`Homecare/backend/`) | VPS |
+| Laptop (`BLUE_GREEN/techxpert_backend-main/`) | VPS |
 |---|---|
 | `src/app.js` | `…/src/app.js` |
 | `src/config/storeClient.js` | `…/src/config/storeClient.js` |
@@ -151,15 +197,15 @@ UPDATE feature_flags SET enabled = 1 WHERE flag_key = 'UNIFIED_ACTIVITY_V1';
 
 ## D. Docs to share with app / ops (optional upload to green or Slack)
 
-From `techxpert-store/docs/`:
+From `BLUE_GREEN/techxpert-store-main/docs/` (also on GitHub branch `docs/store-customer-api`):
 
+- `APP_TEAM_GREEN_HANDOVER.md` — **503 fix + platform vs app deliverables**
 - `STORE_CUSTOMER_API.md` — **this release’s route + auth bible**
 - `GREEN_DEPLOY_MANIFEST.md` — this file
-- `BLUE_GREEN.md` — hosts / ports
-- `contracts/unified-commerce-phase-0-1.md`
-- `contracts/unified-commerce-discovery-notes.md`
+- `WORKSPACE_DEPLOY_CLARITY.md` — BLUE_GREEN isolation rule
 - `APP_API_GUIDE.md` (use cases; still valid)
 - `APP_TEAM_HANDOVER.md`
+- `STORE_APP_TEAM_PROMPT.md`
 
 ---
 

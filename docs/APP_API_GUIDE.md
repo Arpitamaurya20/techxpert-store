@@ -2,10 +2,7 @@
 
 For whoever builds the customer app (`app/`). It covers getting the API running on your own machine, pointing the app at it, and every app flow with the exact calls, real request and response examples, and the refusals each one can give.
 
-**Start here for production context:** [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) — live host `https://store.jiotechxpert.com`, COD checkout ready, PayU not built, and how to keep the Expo `app/` structure when applying shared UI designs.
-
-**Full customer route + auth protection list (green/blue):** [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).  
-**Files to upload for green go-live:** [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md).
+**Start here for production context:** [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) — live host `https://store.jiotechxpert.com`, COD + Store PayU APIs (green first). Full route list: [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).
 
 Everything below was checked against a local API on 26 Oct 2026, including sign-in, the priced product list, the cart, and cash checkout. Example values come from the shared local database; the personal details in the signed-in examples are placeholders. Against production, set `EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/api` (see the handover).
 
@@ -439,6 +436,7 @@ POST /auth/verify-otp → 200
 - Verifying a new phone number creates the customer.
 - `devOtp` only exists locally. Locally the code is not texted.
 - In production the same call uses the sign-in text template (`PRP_SMS_TEMPLATE_NAME`, Homecare's OTP template), never the order template. When that text is not configured the answer is `503` "The sign-in code could not be sent. Ask for a new one."
+- **Ops fix (verified 24 Nov 2026 on apitest + blue):** set `OTP_SMS_PROVIDER=prp`, `PRP_SMS_API_KEY`, `PRP_SMS_SENDER=TECHX`, `PRP_SMS_TEMPLATE_NAME=TECHXPERT OTP` on the Store host `.env`, then restart PM2. Full dual-sided notes: [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md).
 - Verifying creates the customer when the phone is new, and marks that phone verified. An existing phone keeps its name unless the stored name is still a placeholder. An email already on another account is `409` "That email is already on another account." with `"code": "EMAIL_TAKEN"`.
 - The local-only shortcut `POST /auth/login` with `{ "identifier": "9876543210" }` returns the same `{ token, user }` for an existing customer, with no code.
 - `deliveryLocation` is null when the customer has no saved address. Do not invent one.
@@ -473,18 +471,6 @@ GET /auth/addresses → 200
   "area": "Sector 62", "city": "Noida", "pincode": "201301", "lat": null, "lng": null, "isDefault": 1 } ] }
 ```
 
-### UC-10a Homecare exchange token (Mode B from Homecare app)
-
-Not used by Store Expo. Homecare mints a 15-minute token (`aud` `techxpert-store-client`) via `POST /api/auth/store-token` on Homecare; the app calls Store with `Authorization: Bearer <exchange>`.
-
-| Rule | Detail |
-|---|---|
-| Kill switch | Store `ALLOW_HOMECARE_EXCHANGE_TOKENS` must be `true` (default off) |
-| Allowed | Catalogue, delivery check, cart, checkout, orders — scopes on the token |
-| Forbidden | `/auth/me`, address writes, staff/portal |
-| `channel` | Forced to `homecare_app` from the token; body `channel` ignored |
-| `Idempotency-Key` | Optional on `POST /cart/checkout`; same key+body replays; same key+different body → `409` |
-
 ### UC-10 Checkout (cash on delivery)
 
 `POST /cart/checkout` with the cart's headers (Bearer token, or `x-session-id` for guests).
@@ -500,7 +486,7 @@ The cart still shows the company stock, because a pincode is not known yet. Chec
 | `addressId` | signed in | A saved address ID (use case 9) |
 | `shippingAddress` + `pincode` | guests, or no saved address | The full address text and its 6-digit pincode |
 | `guestName`, `guestPhone`, `guestEmail` | guests | Stored on the order |
-| `paymentMethod` | no | Only `"COD"`, which is the default. PayU comes later, on this order |
+| `paymentMethod` | no | `"COD"` (default) or `"PayU"`. PayU requires a signed-in customer; then call `/payments/payu/initiate` |
 | `channel` | no | `store_app` (the default) or `homecare_app`. Staff orders are neither |
 | `notes` | no | Free text |
 
@@ -525,7 +511,8 @@ POST /cart/checkout
 | Status | `error` | What the app does |
 |---|---|---|
 | 400 | `expectedTotal is required: the total shown to the customer.` | Send it |
-| 400 | `Only cash on delivery is available.` | Send `COD` |
+| 400 | `Payment method must be COD or PayU.` | Send `COD` or `PayU` |
+| 401 | `Sign in to pay online.` | PayU without Bearer |
 | 400 | `Your cart is empty.` | Back to the cart |
 | 409 | `Prices changed since you opened checkout. Check the new total and place the order again.` | Reload the cart, show the new total, ask again |
 | 409 | `We don't deliver to 110001 yet.` | Ask for another address |
@@ -540,6 +527,40 @@ POST /cart/checkout
 - `source` is `app` for an order the customer placed, `request` when staff placed it from Talk to us, and `staff` when staff placed it themselves. Show the status. The tag is for staff.
 - Staff can change the delivery charge or a line price on a pending order, or on an order they placed, until it is being prepared. The next read of the order shows the new totals and tax. Stock is unchanged. Show the totals from the order, not a total stored at checkout.
 - **Guests:** if `guestPhone` is a 10-digit number with no account, a new customer is created for it. If the number already has an account, the order stays a guest order and the account isn't touched.
+- **PayU:** see UC-10b. A normal PayU order is created as `status: pending` / `paymentStatus: pending` until the gateway succeeds; then it becomes `confirmed` / `paid` (large-order staff holds stay `pending` after pay).
+
+### UC-10b Checkout (PayU online)
+
+Signed-in only. Green base: `https://apitest.jiotechxpert.com` (same paths under `/api/...`).
+
+1. `POST /cart/checkout` with `"paymentMethod": "PayU"` (and the usual `expectedTotal` / `addressId`). Response order: `paymentMethod: "PAYU"`, `paymentStatus: "pending"`, usually `status: "pending"`.
+2. `POST /payments/payu/initiate` with Bearer and `{ "orderId": <id>, "client": "app" }`.
+3. Open PayU using `data.payuPayload` (form POST to `action`) or load `data.checkout_html` in a WebView.
+4. After the WebView returns (or on resume), `POST /payments/payu/verify` with `{ "orderId": <id> }` then `GET /orders/:id`.
+
+```json
+POST /payments/payu/initiate
+Authorization: Bearer <store-jwt>
+{ "orderId": 42, "client": "app" }
+
+→ 200 { "success": true, "data": {
+  "orderId": 42, "txnid": "TXS-…", "amount": 2710.46,
+  "payuPayload": { "key", "txnid", "amount", "productinfo", "firstname", "email", "phone",
+    "udf1", "udf2", "surl", "furl", "hash", "action" },
+  "checkout_html": "<!DOCTYPE html>…",
+  "app_return_hint": "…" } }
+```
+
+PayU calls Store `POST /payments/payu/success` or `/payments/payu/failure` (urlencoded) — the app does not call those. If the WebView dies mid-UPI, **verify** still reconciles via PayU’s server API.
+
+| Status | When |
+|---|---|
+| 400 | Order not PayU / bad orderId |
+| 403 | Order belongs to someone else |
+| 409 | Already paid / cancelled |
+| 503 | `PAYU_*` env not configured on the server |
+
+COD path (UC-10) is unchanged. Full table: [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).
 
 ### UC-11 My orders
 
@@ -779,15 +800,6 @@ Saving replaces this row only. Leaving `deals` out of the save is refused, so an
 | `POST /orders`, `POST /cart/items`, `DELETE /cart/items/:id`, `GET /cart/summary` | Older forms kept for old clients. Use `POST /cart/checkout`, `PUT /cart/items/:productId` and `GET /cart` |
 | `POST /auth/login` | Local only (section 6) |
 | Anything under `/auth/admin`, `/access`, `/stores`, `/audit`, `/orders/stats`, `?all=true`, or any POST, PUT or DELETE on catalogue, CMS, pricing or delivery | Staff portal only; needs a staff sign-in |
-| `GET /service/v1/*` and `GET /api/service/v1/*` | **Internal Homecare → Store only** (Activity). Not for Expo or the portal. Apache must return **403** on the public host; Homecare calls `http://127.0.0.1:<store-port>/service/v1/orders` with a 60-second bridge token (`aud` `techxpert-store-s2s`, scope `orders:read`). See [`contracts/unified-commerce-phase-0-1.md`](./contracts/unified-commerce-phase-0-1.md). |
-
-### Internal: Homecare Activity orders (not for Store Expo)
-
-`GET /service/v1/orders?before=&limit=` (also under `/api/service/v1/orders`).
-
-- Auth: `Authorization: Bearer` Homecare-minted bridge JWT (`HOMECARE_STORE_BRIDGE_SECRET`), not the customer Store JWT.
-- Response: ActivityItem v1 list in `data`, `meta.nextCursor`, header `X-Contract-Version: 1`.
-- Guest orders are omitted. Cursor form: `<ISO-8601>\|store_order:<id>`.
 
 ## 10. Must be fixed before the app goes live
 
