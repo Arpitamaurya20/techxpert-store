@@ -10,10 +10,10 @@
 | Checkout | Who owns money/rules | Auth today |
 |---|---|---|
 | Homecare services (booking / PayU) | Homecare API | Homecare JWT (cookie or Bearer) |
-| Store materials (COD cart) | **This Store API** | Store JWT (Expo) **or** Homecare-minted exchange token (Mode B) |
+| Store materials (COD **or** PayU) | **This Store API** | Store JWT (Expo) **or** Homecare-minted exchange token (Mode B) |
 | Combo / soft bundle | Later (Phase 2) | Not in this doc |
 
-Same DB identity; **cross-cart / combo is out of scope**. Each domain keeps its own cart and checkout.
+Same DB identity; **cross-cart / combo is out of scope**. Each domain keeps its own cart and checkout. Store PayU uses **Store** merchant keys and `/payments/payu/*` on this host — never Homecare’s payment APIs.
 
 Related: use-case narrative in [`APP_API_GUIDE.md`](./APP_API_GUIDE.md); contracts in [`contracts/unified-commerce-phase-0-1.md`](./contracts/unified-commerce-phase-0-1.md); green upload list in [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md); agent review of this slice in [`STORE_APP_TEAM_PROMPT.md`](./STORE_APP_TEAM_PROMPT.md).
 
@@ -57,9 +57,11 @@ Every path also exists under `/api/...`.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `/auth/send-otp` | Public | Rate-limited; body `{ phone, purpose? }` |
+| POST | `/auth/send-otp` | Public | Rate-limited; body `{ phone, purpose? }`. **Production needs PRP OTP env** or response is **503** (SMS not sent). |
 | POST | `/auth/verify-otp` | Public | Rate-limited → `{ token, user }` |
-| POST | `/auth/login` | Public (dev only) | Refused when `NODE_ENV=production` |
+| POST | `/auth/login` | Public (dev only) | **403** when `NODE_ENV=production` — apps must use OTP. |
+
+**Login troubleshooting (app team):** “Login 503” almost always means `send-otp` could not send SMS (`OTP_SMS_PROVIDER` / `PRP_SMS_*` missing on the Store host). It is **not** a client bug and **not** a MySQL outage if `/health` is 200. See [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0.
 | GET | `/auth/me` | Customer (Store JWT only) | |
 | GET | `/auth/addresses` | Customer (Store JWT only) | `homecare.user_addresses` |
 | POST | `/auth/addresses` | Customer (Store JWT only) | |
@@ -100,7 +102,22 @@ Every path also exists under `/api/...`.
 | POST | `/cart/merge` | **Customer** | `cart` |
 | POST | `/cart/checkout` | Guest+ / Customer | `cart` + `checkout` |
 
-Checkout body (COD): `expectedTotal` required; signed-in prefer `addressId`; guests send `shippingAddress` + `guestName` + `guestPhone`. Optional `Idempotency-Key`. Exchange forces `order_channel=homecare_app`.
+Checkout body: `expectedTotal` required; `paymentMethod` = `"COD"` (default) or `"PayU"`. Signed-in prefer `addressId`; guests send `shippingAddress` + `guestName` + `guestPhone` (**PayU requires signed-in**). Optional `Idempotency-Key`. Exchange forces `order_channel=homecare_app`.
+
+PayU place → order `paymentStatus=pending`, `status=pending` (awaiting payment) → then call `/payments/payu/initiate`.
+
+### Payments (`/payments`) — PayU
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/payments/payu/initiate` | Customer | Body `{ orderId, client?: "app"\|"web" }` → `{ payuPayload, checkout_html?, txnid, … }` |
+| POST | `/payments/payu/success` | Public (PayU POST) | `application/x-www-form-urlencoded`; hash verified; settles paid |
+| POST | `/payments/payu/failure` | Public (PayU POST) | urlencoded; marks failed when txn known |
+| POST | `/payments/payu/verify` | Customer | Body `{ orderId }` or `{ txnid }` — reconcile via PayU verify API (WebView miss) |
+
+Green `surl`/`furl` point at apitest `/payments/payu/success` and `/failure` (also under `/api/...`). App team opens PayU with `payuPayload` or loads `checkout_html` in a WebView; after return call verify then `GET /orders/:id`.
+
+**Abandoned PayU:** unpaid orders stay pending/failed; staff cancel restores stock. No auto-cancel job yet.
 
 ### Orders (`/orders`)
 
@@ -156,8 +173,11 @@ Store Expo does **not** call these.
 
 ## 4. Quick Mode B sequences
 
-**Store Expo (materials only)**  
-`send-otp` → `verify-otp` → Bearer → catalog → cart → `GET /delivery/pincodes/:pin` → `POST /cart/checkout` → `GET /orders`
+**Store Expo (materials, COD)**  
+`send-otp` → `verify-otp` → Bearer → catalog → cart → `GET /delivery/pincodes/:pin` → `POST /cart/checkout` (`paymentMethod: "COD"`) → `GET /orders`
+
+**Store Expo (materials, PayU)**  
+Same through cart → `POST /cart/checkout` (`paymentMethod: "PayU"`) → `POST /payments/payu/initiate` `{ orderId }` → open PayU (`payuPayload` / `checkout_html`) → on return `POST /payments/payu/verify` → `GET /orders/:id` (`paymentStatus: paid`)
 
 **Homecare app materials (when flag + exchange on)**  
 Homecare OTP → `POST /api/auth/store-token` → Store Bearer (exchange) → same Store catalog/cart/checkout paths (no `channel` in body) → addresses stay on Homecare APIs; pass Store `addressId`
