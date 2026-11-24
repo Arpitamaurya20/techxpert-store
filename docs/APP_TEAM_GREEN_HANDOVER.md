@@ -9,8 +9,6 @@
 
 This document is the shared contract: **what platform already did**, **what app must deliver**, and **how to unblock the login 503** the app team reported.
 
-**After every docs pull:** use [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) for the pasteable brief and end-to-end verification checkmarks (auth, COD, PayU).
-
 ---
 
 ## 0. Login 503 — diagnosis and fix (ops, not app code)
@@ -43,15 +41,27 @@ PRP_SMS_TEMPLATE_NAME=TECHXPERT OTP
 # Do NOT set OTP_SMS_PROVIDER=console on production (code treats that as missing)
 ```
 
+**Payload is correct** as `{ "phone": "8810803874" }` (10-digit India mobile). A 503 with that body is **not** a client/payload bug.
+
 ```bash
-pm2 restart store-api-green   # or blue store process name
-curl -sS -X POST https://apitest.jiotechxpert.com/auth/send-otp \
+# Blue Store (PM2: techxpert-store) — app team often hits this host today
+cd /var/www/node-projects/store/server   # adjust if blue path differs
+# set OTP_* / PRP_* in .env as above
+pm2 restart techxpert-store --update-env
+
+curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://store.jiotechxpert.com/auth/send-otp \
   -H 'Content-Type: application/json' \
-  -d '{"phone":"<real 10-digit test phone>"}'
+  -d '{"phone":"8810803874"}'
+
+# Green Store (PM2: store-api-green)
+pm2 restart store-api-green --update-env
+curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://apitest.jiotechxpert.com/auth/send-otp \
+  -H 'Content-Type: application/json' \
+  -d '{"phone":"8810803874"}'
 # Expect HTTP 200 when PRP accepts; then verify-otp with the SMS code
 ```
 
-**App team:** if you still see 503 after ops confirms the curl above returns 200, paste request URL + body (no secrets). Until then, treat 503 as **server SMS config**, not Expo bug.
+**App team:** payload `{ "phone": "<10 digits>" }` is correct. If you still see 503 after ops confirms the curl above returns 200, paste request URL + body (no secrets). Until then, treat 503 as **server SMS config**, not Expo bug.
 
 Local laptop: leave `NODE_ENV` unset; code uses fixed OTP `123456` and `send-otp` may return `devOtp` — no SMS needed.
 

@@ -9,6 +9,8 @@
 | **Green (use this for new auth + PayU)** | `https://apitest.jiotechxpert.com` (paths work with or without `/api`) |
 | Blue / prod (COD already live; PayU after promote) | `https://store.jiotechxpert.com` |
 
+**Login 503:** `POST /auth/send-otp` with `{ "phone": "<10 digits>" }` is the correct payload. HTTP 503 `"The sign-in code could not be sent…"` means Store host OTP SMS env (`OTP_SMS_PROVIDER=prp` + `PRP_SMS_*`) is missing — **ops**, not Expo. Blue host: `https://store.jiotechxpert.com`. Green: `https://apitest.jiotechxpert.com`. Full fix: [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0.
+
 **Read after pull (in order):**
 
 1. This file (checklist)  
