@@ -54,9 +54,9 @@ export default function RootLayout() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false, title: 'Sign In' }} />
-        <Stack.Screen name="register" options={{ title: 'Create Account' }} />
+        <Stack.Screen name="register" options={{ headerShown: false, title: 'Create Account' }} />
         <Stack.Screen name="forgot-password" options={{ title: 'Forgot Password' }} />
-        <Stack.Screen name="otp-login" options={{ title: 'Mobile OTP' }} />
+        <Stack.Screen name="otp-login" options={{ headerShown: false, title: 'Mobile OTP' }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Store' }} />
         <Stack.Screen
           name="products/index"
@@ -68,6 +68,10 @@ export default function RootLayout() {
           options={{ title: 'Product Details', contentStyle: { backgroundColor: colors.screen } }}
         />
         <Stack.Screen name="checkout" options={{ headerShown: false, title: 'Checkout' }} />
+        <Stack.Screen
+          name="payu-checkout"
+          options={{ title: 'Pay online', contentStyle: { backgroundColor: colors.background } }}
+        />
         <Stack.Screen
           name="order-placed"
           options={{ headerShown: false, title: 'Order Placed', gestureEnabled: false }}

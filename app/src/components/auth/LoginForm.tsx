@@ -5,7 +5,6 @@ import { Keyboard, StyleSheet, Text, View, type TextInput } from 'react-native';
 import { Button } from '@/components/ui/Button';
 import { FormAlert } from '@/components/ui/FormAlert';
 import { TextField } from '@/components/ui/TextField';
-import { TextLink } from '@/components/ui/TextLink';
 import { colors, spacing, typography } from '@/constants/theme';
 import { isApiConfigured } from '@/services/apiConfig';
 import { AuthError, getAuthErrorMessage, sendOtp } from '@/services/authService';
@@ -17,8 +16,8 @@ type FormError = {
 };
 
 /**
- * Phone → send OTP → otp-login (docs/APP_API_GUIDE.md UC-7).
- * Password /auth/login is not used; production refuses it.
+ * Phone → send OTP → otp-login (docs/STORE_CUSTOMER_API.md + APP_TEAM_PULL_BRIEF.md).
+ * Production refuses password `/auth/login` — OTP only.
  */
 export function LoginForm() {
   const router = useRouter();
@@ -61,8 +60,13 @@ export function LoginForm() {
       });
     } catch (error) {
       const notConfigured = error instanceof AuthError && error.code === 'NOT_CONFIGURED';
+      const smsDown = error instanceof AuthError && error.code === 'SERVER';
       setFormError({
-        title: notConfigured ? 'Sign-in unavailable' : 'Could not send code',
+        title: notConfigured
+          ? 'Sign-in unavailable'
+          : smsDown
+            ? 'Could not send code'
+            : 'Could not send code',
         message: getAuthErrorMessage(error),
       });
     } finally {
@@ -77,7 +81,7 @@ export function LoginForm() {
         <FormAlert
           variant="warning"
           title="Developer note: API not configured"
-          message="Set EXPO_PUBLIC_API_BASE_URL in .env.local to enable sign-in."
+          message="Set EXPO_PUBLIC_API_BASE_URL in .env.local to the green API (apitest.jiotechxpert.com/api)."
         />
       ) : null}
 
@@ -107,24 +111,14 @@ export function LoginForm() {
           onSubmitEditing={handleSubmit}
           maxLength={14}
         />
-        <Text style={styles.hint}>We will send a one-time code to this number.</Text>
+        <Text style={styles.hint}>India (+91). Code expires in about 10 minutes.</Text>
       </View>
 
-      <Button
-        title="Send OTP"
-        loadingTitle="Sending…"
-        onPress={handleSubmit}
-        loading={isSubmitting}
-      />
+      <Button title="Send OTP" loadingTitle="Sending…" onPress={handleSubmit} loading={isSubmitting} />
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>New to Techxpert?</Text>
-        <TextLink
-          label="Create Account"
-          onPress={() => router.push('/register')}
-          disabled={isSubmitting}
-        />
-      </View>
+      <Text style={styles.footerNote}>
+        New here? Enter your number — we create your account when you verify the code.
+      </Text>
     </View>
   );
 }
@@ -140,15 +134,9 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
   },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
-  footerText: {
-    ...typography.body,
+  footerNote: {
+    ...typography.caption,
     color: colors.textMuted,
+    textAlign: 'center',
   },
 });

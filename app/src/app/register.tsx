@@ -1,11 +1,6 @@
-import { PlaceholderScreen } from '@/components/PlaceholderScreen';
+import { Redirect } from 'expo-router';
 
+/** Accounts are created on first OTP verify — no separate register form. */
 export default function RegisterScreen() {
-  return (
-    <PlaceholderScreen
-      icon="person-add-outline"
-      title="Create your account"
-      message="Account registration is being built and will be available in an upcoming update."
-    />
-  );
+  return <Redirect href="/login" />;
 }

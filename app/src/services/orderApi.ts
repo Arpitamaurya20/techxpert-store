@@ -82,7 +82,7 @@ function normalizeOrder(raw: unknown): Order | null {
   };
 }
 
-export type PaymentMethod = 'COD';
+export type PaymentMethod = 'COD' | 'PayU';
 
 export type PlaceOrderInput = {
   /** The server cart being ordered; repeating the request with it returns the same order. */
@@ -106,12 +106,14 @@ export type PlacedOrder = {
   total?: number;
   shippingCharges?: number;
   placedAt?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
 };
 
 /**
- * Places a cash-on-delivery order from the server cart (POST /cart/checkout).
- * Signed-in: prefer `addressId` from GET /auth/addresses. Guests: shippingAddress + guest fields.
- * Optional `Idempotency-Key` replays the same checkout safely (docs/STORE_CUSTOMER_API.md).
+ * Places an order from the server cart (POST /cart/checkout).
+ * COD or PayU (PayU requires signed-in — docs/APP_TEAM_PULL_BRIEF.md).
+ * Signed-in: prefer `addressId`. Guests: shippingAddress + guest fields (COD only).
  */
 export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
   const { line, city, pincode } = input.address;
@@ -151,6 +153,8 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
     total: asNumber(totals?.grandTotal ?? record.total ?? record.grandTotal),
     shippingCharges: asNumber(totals?.delivery ?? record.shippingCharges),
     placedAt: asText(record.placedAt),
+    paymentMethod: asText(record.paymentMethod),
+    paymentStatus: asText(record.paymentStatus),
   };
 }
 

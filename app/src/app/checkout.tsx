@@ -68,17 +68,17 @@ const isUnconfirmed = (error: unknown) =>
     (error.code === 'SERVER' && (error.status ?? 500) >= 500));
 
 type PaymentOption = {
-  id: PaymentMethod | 'UPI' | 'CARD';
+  id: PaymentMethod;
   title: string;
   subtitle: string;
+  /** When false, show Coming soon. PayU is gated at tap-time if guest. */
   available: boolean;
 };
 
-/** Only cash on delivery works until an online payment gateway is connected. */
+/** COD always; PayU when signed in (docs/APP_TEAM_PULL_BRIEF.md UC-10b). */
 const PAYMENT_OPTIONS: PaymentOption[] = [
   { id: 'COD', title: 'Cash on delivery', subtitle: 'Pay when your order arrives', available: true },
-  { id: 'UPI', title: 'UPI', subtitle: 'GPay, PhonePe, Paytm', available: false },
-  { id: 'CARD', title: 'Debit / credit card', subtitle: 'Visa, Mastercard, RuPay', available: false },
+  { id: 'PayU', title: 'Pay online', subtitle: 'UPI, cards and net banking via PayU', available: true },
 ];
 
 function defaultAddress() {
@@ -100,7 +100,9 @@ export default function CheckoutScreen() {
   const totals = useCartTotals();
   const canCheckout = useCanCheckout();
   const savedAddresses = useSavedAddresses();
-  const user = useSession()?.user;
+  const session = useSession();
+  const user = session?.user;
+  const signedIn = Boolean(session);
   const mobileRef = useRef<TextInput>(null);
   const lineRef = useRef<TextInput>(null);
   const cityRef = useRef<TextInput>(null);
@@ -121,6 +123,7 @@ export default function CheckoutScreen() {
   });
   const [submitted, setSubmitted] = useState(false);
   const [placing, setPlacing] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
   /** Stable across retries of the same checkout attempt (Idempotency-Key). */
   const idempotencyKeyRef = useRef<string | null>(null);
 
@@ -164,6 +167,15 @@ export default function CheckoutScreen() {
         message: delivery.state === 'checking' ? 'Checking delivery to your pincode…' : delivery.message,
         bottomOffset: barHeight,
       });
+      return;
+    }
+    if (paymentMethod === 'PayU' && !signedIn) {
+      showToast({
+        variant: 'error',
+        message: 'Sign in to pay online.',
+        bottomOffset: barHeight,
+      });
+      router.push('/login');
       return;
     }
     const address = `${line.trim()}, ${city.trim()} - ${pincode.trim()}`;
@@ -221,11 +233,23 @@ export default function CheckoutScreen() {
         mobile: normalizeIndianMobile(mobile),
         address: { line: line.trim(), city: city.trim(), pincode: pincode.trim() },
         addressId: user && matchedSaved ? matchedSaved.id : undefined,
-        paymentMethod: 'COD',
+        paymentMethod,
         idempotencyKey: idempotencyKeyRef.current,
       });
       idempotencyKeyRef.current = null;
       clearCart();
+      if (paymentMethod === 'PayU') {
+        router.replace({
+          pathname: '/payu-checkout',
+          params: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            address,
+            ...(order.total !== undefined ? { total: String(order.total) } : {}),
+          },
+        });
+        return;
+      }
       router.replace({
         pathname: '/order-placed',
         params: {
@@ -233,6 +257,7 @@ export default function CheckoutScreen() {
           address,
           ...(order.total !== undefined ? { total: String(order.total) } : {}),
           ...(order.placedAt ? { placedAt: order.placedAt } : {}),
+          payment: 'cod',
         },
       });
     } catch (error) {
@@ -435,29 +460,48 @@ export default function CheckoutScreen() {
               </Text>
               <View accessibilityRole="radiogroup" style={styles.paymentList}>
                 {PAYMENT_OPTIONS.map((option) => {
-                  const selected = option.id === 'COD';
+                  const needsSignIn = option.id === 'PayU' && !signedIn;
+                  const selected = paymentMethod === option.id;
                   return (
-                    <View
+                    <Pressable
                       key={option.id}
-                      accessible
+                      onPress={() => {
+                        if (needsSignIn) {
+                          showToast({
+                            variant: 'error',
+                            message: 'Sign in to pay online.',
+                            bottomOffset: barHeight,
+                          });
+                          router.push('/login');
+                          return;
+                        }
+                        setPaymentMethod(option.id);
+                      }}
                       accessibilityRole="radio"
-                      accessibilityState={{ checked: selected, disabled: !option.available }}
-                      accessibilityLabel={`${option.title}. ${option.subtitle}${option.available ? '' : '. Coming soon'}`}
-                      style={[styles.payment, selected && styles.paymentSelected, !option.available && styles.paymentOff]}
+                      accessibilityState={{ checked: selected, disabled: needsSignIn }}
+                      accessibilityLabel={`${option.title}. ${option.subtitle}${needsSignIn ? '. Sign in required' : ''}`}
+                      style={({ pressed }) => [
+                        styles.payment,
+                        selected && styles.paymentSelected,
+                        needsSignIn && styles.paymentOff,
+                        pressed && styles.paymentPressed,
+                      ]}
                     >
                       <View style={[styles.radio, selected && styles.radioOn]}>
                         {selected ? <View style={styles.radioDot} /> : null}
                       </View>
                       <View style={styles.paymentText}>
                         <Text style={styles.paymentTitle}>{option.title}</Text>
-                        <Text style={styles.paymentSubtitle}>{option.subtitle}</Text>
+                        <Text style={styles.paymentSubtitle}>
+                          {needsSignIn ? 'Sign in required for UPI and cards' : option.subtitle}
+                        </Text>
                       </View>
-                      {option.available ? null : (
+                      {needsSignIn ? (
                         <View style={styles.soonPill}>
-                          <Text style={styles.soonText}>Coming soon</Text>
+                          <Text style={styles.soonText}>Sign in</Text>
                         </View>
-                      )}
-                    </View>
+                      ) : null}
+                    </Pressable>
                   );
                 })}
               </View>
@@ -532,7 +576,9 @@ export default function CheckoutScreen() {
               </View>
               <Text style={styles.note}>
                 {isApiConfigured
-                  ? 'You pay this total in cash when your order arrives. The store checks prices and stock once more as it places the order.'
+                  ? paymentMethod === 'PayU'
+                    ? 'You will complete payment securely with PayU. The store confirms the order after payment succeeds.'
+                    : 'You pay this total in cash when your order arrives. The store checks prices and stock once more as it places the order.'
                   : 'The store re-checks prices, stock and any delivery charge when your order is placed.'}
               </Text>
               {isApiConfigured ? null : (
@@ -560,13 +606,15 @@ export default function CheckoutScreen() {
           <Button
             title={
               payable != null
-                ? `Place order · ${formatPrice(payable)}`
+                ? paymentMethod === 'PayU'
+                  ? `Pay online · ${formatPrice(payable)}`
+                  : `Place order · ${formatPrice(payable)}`
                 : hasProblem
                   ? 'Fix items in your cart'
                   : 'Updating prices…'
             }
             loading={placing}
-            loadingTitle="Placing order…"
+            loadingTitle={paymentMethod === 'PayU' ? 'Starting payment…' : 'Placing order…'}
             disabled={payable == null || delivery.state === 'unserviceable'}
             onPress={submit}
           />
@@ -667,6 +715,9 @@ const styles = StyleSheet.create({
     borderColor: colors.navy,
     borderWidth: 1.5,
     backgroundColor: colors.navySoft,
+  },
+  paymentPressed: {
+    opacity: 0.85,
   },
   paymentOff: {
     opacity: 0.6,
