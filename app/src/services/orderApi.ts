@@ -92,7 +92,11 @@ export type PlaceOrderInput = {
   customerName: string;
   mobile: string;
   address: { line: string; city: string; pincode: string };
+  /** Signed-in saved address from GET /auth/addresses — preferred over shippingAddress text. */
+  addressId?: string;
   paymentMethod: PaymentMethod;
+  /** Optional; same key + body replays checkout (docs/STORE_CUSTOMER_API.md). */
+  idempotencyKey?: string;
 };
 
 /** What the server confirmed; its totals include delivery and tax, so they may differ from the cart. */
@@ -105,31 +109,34 @@ export type PlacedOrder = {
 };
 
 /**
- * Places a cash-on-delivery order from the server cart (POST /cart/checkout, JSON; Bearer token
- * when signed in, `x-session-id` for guests):
- *
- *   { cartId, expectedTotal, shippingAddress, pincode, paymentMethod: "COD", guestName, guestPhone }
- *       → 201 { data: { id, orderNumber, placedAt, totals: { grandTotal, … }, total } }
- *       → 200 with the same body when that cart already became an order (a repeated tap or retry)
- *
- * The server prices the cart exactly as the Cart screen shows it and refuses with 409 when a line
- * has a problem or its total differs from `expectedTotal`. Throws `ApiError`.
+ * Places a cash-on-delivery order from the server cart (POST /cart/checkout).
+ * Signed-in: prefer `addressId` from GET /auth/addresses. Guests: shippingAddress + guest fields.
+ * Optional `Idempotency-Key` replays the same checkout safely (docs/STORE_CUSTOMER_API.md).
  */
 export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
   const { line, city, pincode } = input.address;
-  const raw = await apiPost(
-    '/cart/checkout',
-    {
-      ...(input.cartId ? { cartId: input.cartId } : {}),
-      expectedTotal: input.expectedTotal,
-      shippingAddress: `${line}, ${city} - ${pincode}`,
-      pincode,
-      paymentMethod: input.paymentMethod,
-      guestName: input.customerName,
-      guestPhone: input.mobile,
-    },
-    { headers: await cartHeaders() }
-  );
+  const signedIn = Boolean(getAuthToken());
+  const body: Record<string, unknown> = {
+    ...(input.cartId ? { cartId: input.cartId } : {}),
+    expectedTotal: input.expectedTotal,
+    paymentMethod: input.paymentMethod,
+    pincode,
+  };
+
+  if (signedIn && input.addressId) {
+    body.addressId = input.addressId;
+  } else {
+    body.shippingAddress = `${line}, ${city} - ${pincode}`;
+    if (!signedIn) {
+      body.guestName = input.customerName;
+      body.guestPhone = input.mobile;
+    }
+  }
+
+  const headers: Record<string, string> = { ...(await cartHeaders()) };
+  if (input.idempotencyKey) headers['Idempotency-Key'] = input.idempotencyKey;
+
+  const raw = await apiPost('/cart/checkout', body, { headers });
 
   const envelope = asRecord(raw);
   const record = asRecord(envelope?.data) ?? envelope;

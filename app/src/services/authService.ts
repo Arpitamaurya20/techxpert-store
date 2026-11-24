@@ -1,12 +1,14 @@
+import { ApiError, apiGet } from './apiClient';
 import { API_BASE_URL, REQUEST_TIMEOUT_MS, isApiConfigured } from './apiConfig';
 import { asRecord, asText } from './normalize';
 
 /**
- * Customer sign-in (docs/APP_API_GUIDE.md UC-7).
+ * Customer sign-in (docs/STORE_CUSTOMER_API.md + APP_API_GUIDE.md UC-7).
  *
- * Production uses OTP only:
+ * Store OTP only (green / prod):
  *   POST /auth/send-otp   { phone }
- *   POST /auth/verify-otp { phone, otp, name?, email? } → { token, user }
+ *   POST /auth/verify-otp { phone, otp, name?, email? } → { token, user } (30-day Store JWT)
+ *   GET  /auth/me         Bearer → profile (Store JWT only)
  *
  * `POST /auth/login` is a local API shortcut and is refused in production — do not call it from the app.
  */
@@ -207,6 +209,38 @@ export async function verifyOtp(input: {
 
   const userRecord = data.user as unknown as Record<string, unknown>;
   return { token: data.token, user: normalizeUser(userRecord) };
+}
+
+/**
+ * Validates the stored Store JWT and refreshes profile fields.
+ * `apiClient` clears SecureStore on 401 (expired / invalid token).
+ */
+export async function fetchMe(): Promise<AuthUser> {
+  if (!isApiConfigured) {
+    throw new AuthError('NOT_CONFIGURED', 'The Techxpert store server is not connected yet.');
+  }
+  try {
+    const raw = await apiGet('/auth/me');
+    const record = asRecord(raw);
+    const payload = asRecord(record?.data) ?? record;
+    const id = payload ? String((payload as { id?: unknown }).id ?? '') : '';
+    if (!payload || !id) {
+      throw new AuthError('SERVER', 'We received an unexpected response. Please try again shortly.');
+    }
+    return normalizeUser(payload);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'UNAUTHORIZED') {
+      throw new AuthError('INVALID_CREDENTIALS', error.message);
+    }
+    if (error instanceof ApiError && error.code === 'NETWORK') {
+      throw new AuthError('NETWORK', error.message);
+    }
+    if (error instanceof ApiError && error.code === 'TIMEOUT') {
+      throw new AuthError('TIMEOUT', error.message);
+    }
+    if (error instanceof AuthError) throw error;
+    throw new AuthError('SERVER', 'Something went wrong on our side. Please try again shortly.');
+  }
 }
 
 export function getAuthErrorMessage(error: unknown): string {

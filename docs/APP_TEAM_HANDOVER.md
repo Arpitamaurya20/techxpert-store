@@ -7,7 +7,26 @@ One shared login (`homecare.users`); Store COD and Homecare booking stay **separ
 
 **Date:** 24 Nov 2026  
 **Branch:** work on `develop` (do not push to `main` directly)  
-**Live API + staff portal (blue):** `https://store.jiotechxpert.com` · **Green API:** `https://apitest.jiotechxpert.com`
+**Live API + staff portal (blue):** `https://store.jiotechxpert.com` · **Green API:** `https://apitest.jiotechxpert.com`  
+**Expo QA base:** `EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api` (see `app/.env.example`)
+
+---
+
+## Ack — 24 Nov 2026 (green customer API — Expo wiring)
+
+Green Store customer slice is live (`homecare_green` + `techxpertstore_green`). App points at green for QA.
+
+| Area | App behaviour |
+|---|---|
+| OTP | `POST /auth/send-otp` → `POST /auth/verify-otp` → Store JWT (~30 days) in SecureStore |
+| Session | Hydrate calls `GET /auth/me`; **401 clears SecureStore** |
+| Addresses | Sync `GET/POST /auth/addresses` when signed in; checkout prefers `addressId` |
+| Cart / COD | Guest `x-session-id` or Bearer; `POST /cart/checkout` + optional `Idempotency-Key` |
+| Orders | `GET /orders` (own orders only) |
+
+Do **not** call Homecare `store-token` / Activity from Store Expo. Same phone → same `user_id`; checkouts stay separate.
+
+Smoke: `GET https://apitest.jiotechxpert.com/health` → `status: ok`.
 
 ---
 
@@ -223,13 +242,13 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 ## 7. Suggested first week for the app team
 
 1. Clone repo, `git checkout develop`, `cd app && npm install`.
-2. Set `EXPO_PUBLIC_API_BASE_URL` to production (see `app/.env.example`).
-3. Confirm `home-boot` + `view=card` list + `search/suggest?q=fan` + one product detail against live JSON — services already call these.
+2. Set `EXPO_PUBLIC_API_BASE_URL` to **green** `https://apitest.jiotechxpert.com/api` (see `app/.env.example`); use blue prod only when asked. Restart with `npx expo start -c`.
+3. Confirm `home-boot` + `view=card` list + `search/suggest?q=fan` + OTP → `/auth/me` against green.
 4. Finish search UI polish: typeahead chips from `getSearchSuggestions` while typing (≥2 chars).
-5. Wire cart → pincode → checkout COD end-to-end on a device (COD path exists).
+5. Wire cart → pincode → checkout COD end-to-end on a device (addressId + Idempotency-Key supported).
 6. Align each screen to the shared UI designs without moving files out of the structure in §3.
 7. Leave payment UI as “cash on delivery” only until PayU is scheduled.
 
-**Already applied in `app/` (from [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §10):** OTP sign-in (`send-otp` / `verify-otp`), secure session restore, server order statuses, `home-boot` preference, `view=card` lists, **cursor paging on product/category grids**, **hide empty categories**.
+**Already applied in `app/`:** OTP sign-in, SecureStore hydrate + **401 clear**, server addresses, `home-boot`, `view=card` cursor paging, hide empty categories, COD checkout with `addressId` / `Idempotency-Key`.
 
-**Still on the store/API side (not app):** merge duplicate categories / cloned subcategories (Ack 23 Nov).
+**Still on the store/API side (not app):** DisplayOrder / featured hygiene (Ack 23 Nov).

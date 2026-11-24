@@ -82,6 +82,20 @@ export function getSavedAddress(id: string) {
   return locationStore.getState().addresses.find((address) => address.id === id);
 }
 
+/**
+ * Replaces device-saved addresses with the account list from GET /auth/addresses.
+ * Used after OTP sign-in so checkout can send a real server `addressId`.
+ */
+export function replaceAddressesFromServer(addresses: SavedAddress[]) {
+  const state = locationStore.getState();
+  const defaultId = addresses[0]?.id ?? null;
+  const current =
+    defaultId != null
+      ? { city: addresses[0].city, pincode: addresses[0].pincode }
+      : state.current;
+  locationStore.setState({ current, addresses, defaultId });
+}
+
 /** Adds a new address, or updates the one with the same id. Returns the saved address. */
 export function saveAddress(input: Omit<SavedAddress, 'id'> & { id?: string }): SavedAddress {
   const state = locationStore.getState();

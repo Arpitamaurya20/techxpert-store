@@ -114,8 +114,15 @@ export default function CheckoutScreen() {
   const [line, setLine] = useState(prefill.line);
   const [city, setCity] = useState(prefill.city);
   const [pincode, setPincode] = useState(prefill.pincode);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | undefined>(() => {
+    const { addresses, defaultId, current } = locationStore.getState();
+    if (defaultId) return defaultId;
+    return addresses.find((a) => a.city === current?.city && a.pincode === current?.pincode)?.id;
+  });
   const [submitted, setSubmitted] = useState(false);
   const [placing, setPlacing] = useState(false);
+  /** Stable across retries of the same checkout attempt (Idempotency-Key). */
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const errors = {
     name: validateFullName(name),
@@ -138,6 +145,7 @@ export default function CheckoutScreen() {
   );
 
   const applyAddress = (address: SavedAddress) => {
+    setSelectedAddressId(address.id);
     setLine(address.line);
     setCity(address.city);
     setPincode(address.pincode);
@@ -193,6 +201,18 @@ export default function CheckoutScreen() {
     }
 
     setPlacing(true);
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = `store-checkout-${cart.cartId ?? 'guest'}-${Date.now()}`;
+    }
+    const matchedSaved =
+      selectedAddressId &&
+      savedAddresses.find(
+        (item) =>
+          item.id === selectedAddressId &&
+          item.line === line.trim() &&
+          item.city === city.trim() &&
+          item.pincode === pincode.trim()
+      );
     try {
       const order = await placeOrder({
         cartId: cart.cartId,
@@ -200,8 +220,11 @@ export default function CheckoutScreen() {
         customerName: name.trim(),
         mobile: normalizeIndianMobile(mobile),
         address: { line: line.trim(), city: city.trim(), pincode: pincode.trim() },
+        addressId: user && matchedSaved ? matchedSaved.id : undefined,
         paymentMethod: 'COD',
+        idempotencyKey: idempotencyKeyRef.current,
       });
+      idempotencyKeyRef.current = null;
       clearCart();
       router.replace({
         pathname: '/order-placed',
@@ -215,7 +238,10 @@ export default function CheckoutScreen() {
     } catch (error) {
       const message = isUnconfirmed(error) ? UNCONFIRMED_ORDER : getErrorMessage(error);
       showToast({ variant: 'error', message, bottomOffset: barHeight });
-      if (isRefusal(error)) void refreshCart();
+      if (isRefusal(error)) {
+        idempotencyKeyRef.current = null;
+        void refreshCart();
+      }
     } finally {
       setPlacing(false);
     }
@@ -318,7 +344,10 @@ export default function CheckoutScreen() {
                 placeholder="House, building and street"
                 leftIcon="home-outline"
                 value={line}
-                onChangeText={setLine}
+                onChangeText={(text) => {
+                  setSelectedAddressId(undefined);
+                  setLine(text);
+                }}
                 error={shown(errors.line)}
                 autoCapitalize="words"
                 autoComplete="street-address"
@@ -334,7 +363,10 @@ export default function CheckoutScreen() {
                     label="City"
                     placeholder="City or area"
                     value={city}
-                    onChangeText={setCity}
+                    onChangeText={(text) => {
+                      setSelectedAddressId(undefined);
+                      setCity(text);
+                    }}
                     error={shown(errors.city)}
                     autoCapitalize="words"
                     returnKeyType="next"
@@ -348,7 +380,10 @@ export default function CheckoutScreen() {
                     label="Pin code"
                     placeholder="6 digits"
                     value={pincode}
-                    onChangeText={(text) => setPincode(text.replace(/\D/g, '').slice(0, 6))}
+                    onChangeText={(text) => {
+                      setSelectedAddressId(undefined);
+                      setPincode(text.replace(/\D/g, '').slice(0, 6));
+                    }}
                     error={shown(errors.pincode)}
                     keyboardType="number-pad"
                     maxLength={6}

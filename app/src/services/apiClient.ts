@@ -1,4 +1,4 @@
-import { getAuthToken } from '@/state/sessionStore';
+import { clearSession, getAuthToken } from '@/state/sessionStore';
 
 import { API_BASE_URL, REQUEST_TIMEOUT_MS, isApiConfigured } from './apiConfig';
 
@@ -97,8 +97,18 @@ async function request(method: Method, url: string, body?: unknown, options?: Re
     clearTimeout(timeoutId);
   }
 
-  if (response.status === 401 || response.status === 403) {
-    throw new ApiError('UNAUTHORIZED', 'Please sign in again to continue.', response.status);
+  // Invalid / expired Store JWT → 401. Clear SecureStore so the customer must OTP again.
+  if (response.status === 401) {
+    if (token) clearSession();
+    throw new ApiError('UNAUTHORIZED', 'Please sign in again to continue.', 401);
+  }
+  if (response.status === 403) {
+    const message = await readErrorMessage(response);
+    throw new ApiError(
+      'UNAUTHORIZED',
+      message ?? 'You do not have access to do that.',
+      403
+    );
   }
   if (response.status === 404) {
     throw new ApiError('NOT_FOUND', 'We could not find what you were looking for.', 404);

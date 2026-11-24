@@ -1,9 +1,12 @@
 /**
- * Live store API (docs/APP_TEAM_HANDOVER.md):
- *   EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/api
+ * Store customer API base URL (docs/STORE_CUSTOMER_API.md).
  *
- * Every platform calls this host directly. Expo web in a browser also needs
- * the API's CORS_ORIGINS to include the page origin.
+ * Green (test):  https://apitest.jiotechxpert.com/api
+ * Blue (prod):   https://store.jiotechxpert.com/api
+ *
+ * Routes also work without `/api`. Prefer `/api` so paths match the guides.
+ * Every platform calls this host directly. Expo web needs CORS_ORIGINS to
+ * include the page origin.
  */
 const rawBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
 
