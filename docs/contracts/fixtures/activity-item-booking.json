@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "booking:12345",
+  "domain": "homecare",
+  "kind": "booking",
+  "title": "AC Service",
+  "statusCode": "open",
+  "statusLabel": "confirmed",
+  "amountPaise": 79900,
+  "amountKind": "paid",
+  "createdAt": "2026-11-01T10:00:00.000Z",
+  "updatedAt": "2026-11-01T10:05:00.000Z",
+  "deepLink": "techxpert://bookings/12345",
+  "channel": null,
+  "nativeRef": "BK-20261101-ABC",
+  "groupRef": null
+}

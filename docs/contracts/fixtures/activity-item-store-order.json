@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "store_order:456",
+  "domain": "store",
+  "kind": "store_order",
+  "title": "Materials order",
+  "statusCode": "open",
+  "statusLabel": "processing",
+  "amountPaise": 245000,
+  "amountKind": "cod_due",
+  "createdAt": "2026-11-02T14:30:00.000Z",
+  "updatedAt": "2026-11-02T14:30:00.000Z",
+  "deepLink": "techxpert://store/orders/456",
+  "channel": "homecare_app",
+  "nativeRef": "TX-ORD-456",
+  "groupRef": null
+}

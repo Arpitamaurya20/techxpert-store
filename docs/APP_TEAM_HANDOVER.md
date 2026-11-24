@@ -2,9 +2,12 @@
 
 For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, read this first, then use [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for exact request/response examples.
 
-**Date:** 23 Nov 2026  
-**Branch:** `techxpertstore-branch` (do not push app/docs work to `main` directly)  
-**Live API + staff portal:** `https://store.jiotechxpert.com`
+**Green / auth route bible:** [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) · **Green upload list:** [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) · **Agent review prompt (built slice + test plan):** [`STORE_APP_TEAM_PROMPT.md`](./STORE_APP_TEAM_PROMPT.md).  
+One shared login (`homecare.users`); Store COD and Homecare booking stay **separate checkouts** until Mode C.
+
+**Date:** 24 Nov 2026  
+**Branch:** work on `develop` (do not push to `main` directly)  
+**Live API + staff portal (blue):** `https://store.jiotechxpert.com` · **Green API:** `https://apitest.jiotechxpert.com`
 
 ---
 

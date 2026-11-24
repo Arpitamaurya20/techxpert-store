@@ -1,0 +1,19 @@
+{
+  "orders": [
+    {
+      "id": 456,
+      "orderNumber": "TX-ORD-456",
+      "status": "processing",
+      "total": 2450.0,
+      "paymentMethod": "COD",
+      "channel": "homecare_app",
+      "createdAt": "2026-11-02T14:30:00.000Z",
+      "updatedAt": "2026-11-02T14:30:00.000Z"
+    }
+  ],
+  "nextCursor": null,
+  "meta": {
+    "limit": 20,
+    "contractVersion": 1
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "items": [
+    {
+      "schemaVersion": 1,
+      "id": "booking:12345",
+      "domain": "homecare",
+      "kind": "booking",
+      "title": "AC Service",
+      "statusCode": "open",
+      "statusLabel": "confirmed",
+      "amountPaise": 79900,
+      "amountKind": "paid",
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "updatedAt": "2026-11-01T10:05:00.000Z",
+      "deepLink": "techxpert://bookings/12345",
+      "channel": null,
+      "nativeRef": "BK-20261101-ABC",
+      "groupRef": null
+    },
+    {
+      "schemaVersion": 1,
+      "id": "lead:678",
+      "domain": "homecare",
+      "kind": "lead",
+      "title": "Painting estimate",
+      "statusCode": "in_progress",
+      "statusLabel": "quote_sent",
+      "amountPaise": 9900,
+      "amountKind": "paid",
+      "createdAt": "2026-10-28T08:00:00.000Z",
+      "updatedAt": "2026-10-30T12:00:00.000Z",
+      "deepLink": "techxpert://leads/678",
+      "channel": null,
+      "nativeRef": "LD-678",
+      "groupRef": null
+    }
+  ],
+  "nextCursor": "2026-10-28T08:00:00.000Z|lead:678",
+  "meta": {
+    "sources": [
+      { "name": "bookings", "status": "ok" },
+      { "name": "leads", "status": "ok" },
+      {
+        "name": "store_orders",
+        "status": "error",
+        "error": "store_s2s_unavailable"
+      }
+    ]
+  }
+}
