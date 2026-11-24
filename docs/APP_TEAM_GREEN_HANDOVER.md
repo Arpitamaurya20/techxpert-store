@@ -9,6 +9,8 @@
 
 This document is the shared contract: **what platform already did**, **what app must deliver**, and **how to unblock the login 503** the app team reported.
 
+**After every docs pull:** use [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) for the pasteable brief and end-to-end verification checkmarks (auth, COD, PayU).
+
 ---
 
 ## 0. Login 503 — diagnosis and fix (ops, not app code)
