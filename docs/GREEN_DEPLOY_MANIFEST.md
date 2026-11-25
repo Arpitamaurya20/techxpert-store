@@ -5,26 +5,87 @@
 
 **Same login, separate checkouts:** one `homecare.users.user_id`; Homecare booking PayU stays on Homecare; Store materials COD/PayU on this API.
 
-API route list for apps: [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).
+API route list for apps: [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).  
+Host map (green vs blue): [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md).
 
 ---
 
-## A0. Login 503 blocker (fix before / while deploying)
+## GATE — do not tell the app team green is ready until every box passes
 
-App “login” failures that return **503** + `"The sign-in code could not be sent…"` are **`POST /auth/send-otp`**, not `/auth/login`.
+Uploading `dist/` + SQL is **not** enough. Store green is a **separate Node process** from Homecare green. Homecare `.env` SMS/PayU keys do **not** apply to Store.
 
-Cause: Store host missing PRP OTP env (or PRP rejected). Health can still be 200.
-
-On VPS Store `.env` (blue and/or green), set Homecare’s OTP credentials, then restart PM2:
+### 1) Store green `.env` must include (edit in place — never overwrite blindly)
 
 ```bash
+# --- Identity / DB (already expected) ---
+PORT=5003
+HOST=127.0.0.1
+DB_USERS=homecare_green
+DB_STORE=techxpertstore_green
+PUBLIC_API_ORIGIN=https://apitest.jiotechxpert.com
+JWT_SECRET=<strong local-to-green secret, min 24>
+
+# --- CORS (Expo web + uitest). Include every Origin the app actually uses. ---
+CORS_ORIGINS=https://uitest.jiotechxpert.com,https://uitest.techxpertindia.com,http://localhost:8081,http://localhost:8100
+
+# --- OTP SMS (REQUIRED or send-otp → 503). Same TECHXPERT OTP creds as Homecare green. ---
 OTP_SMS_PROVIDER=prp
-PRP_SMS_API_KEY=<same as Homecare>
+PRP_SMS_API_KEY=<same as Homecare green>
 PRP_SMS_SENDER=TECHX
 PRP_SMS_TEMPLATE_NAME=TECHXPERT OTP
+
+# --- Store PayU (REQUIRED for Pay online). Store test merchant — NOT Homecare PayU keys. ---
+PAYU_MERCHANT_KEY=<store-test-key>
+PAYU_MERCHANT_SALT=<store-test-salt>
+PAYU_BASE_URL=https://test.payu.in/_payment
+PAYU_SUCCESS_URL=https://apitest.jiotechxpert.com/payments/payu/success
+PAYU_FAILURE_URL=https://apitest.jiotechxpert.com/payments/payu/failure
+# APP_PAYU_RETURN_URL=techxpertstore://payu-return
+
+# --- Bridge (optional until Homecare exchange on) ---
+HOMECARE_STORE_BRIDGE_SECRET=<shared with Homecare green, min 24>
+ALLOW_HOMECARE_EXCHANGE_TOKENS=false
 ```
 
-`POST /auth/login` returning **403** on production is **correct** — apps use send-otp → verify-otp only.
+Then: `pm2 restart store-api-green --update-env && pm2 save`
+
+### 2) Code / CORS allowlist (ship in `dist/`)
+
+`server/src/config/security.ts` must allow preflight headers used by checkout, including **`Idempotency-Key`**. If that header is missing from `Access-Control-Allow-Headers`, Expo web on `localhost:8081` shows a **CORS** error on `POST /cart/checkout` even when `CORS_ORIGINS` already lists localhost.
+
+### 3) Prove before notifying app team
+
+```bash
+# Health + green DBs
+curl -sS https://apitest.jiotechxpert.com/health
+# Expect status ok, homecare_green + techxpertstore_green
+
+# OTP (must be 200 — not 503)
+curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://apitest.jiotechxpert.com/auth/send-otp \
+  -H 'Content-Type: application/json' -d '{"phone":"<real test phone>"}'
+
+# CORS preflight for Expo web checkout (must list Idempotency-Key)
+curl -sS -D - -o /dev/null -X OPTIONS \
+  'https://apitest.jiotechxpert.com/api/cart/checkout' \
+  -H 'Origin: http://localhost:8081' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization,content-type,idempotency-key' \
+  | grep -i allow-headers
+# Expect: ... Idempotency-Key ...
+
+# PayU configured (expect not “Online payment is not configured” once signed-in order exists)
+# Initiate without auth → 401 is fine; 503 “not configured” means PAYU_* still missing
+```
+
+| Gate | Fail symptom if skipped |
+|---|---|
+| Store `OTP_SMS_*` / `PRP_*` | `send-otp` **503** (health still 200) |
+| Store `PAYU_*` | Pay online / initiate **503** “Online payment is not configured” |
+| `CORS_ORIGINS` includes app Origin | Browser CORS on all cross-origin calls |
+| `Idempotency-Key` in CORS allowlist (`dist`) | Browser CORS on checkout/merge only |
+| SQL `checkout_idempotency` + `payment_orders` | Checkout/PayU hard errors |
+
+`POST /auth/login` **403** on green/prod is **correct** — apps use send-otp → verify-otp.
 
 Full dual-sided handover: [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md).
 
@@ -66,35 +127,11 @@ Upload **whole trees** (not SQL-only). Prefer syncing these paths:
 
 ### Env edits on VPS (file already there: `store/server/.env`)
 
+**Mandatory block is in §GATE above** (OTP SMS + PayU + CORS Origins). Do not mark green live until those curls pass. Bridge vars:
+
 ```bash
-# Add / set (same secret Homecare green will use; min 24 chars):
-HOMECARE_STORE_BRIDGE_SECRET=<long-random-shared-secret>
-
-# Keep off until Homecare mint + CORS ready:
+HOMECARE_STORE_BRIDGE_SECRET=<same as Homecare green; min 24>
 ALLOW_HOMECARE_EXCHANGE_TOKENS=false
-
-# Store PayU (test merchant — not Homecare keys):
-PAYU_MERCHANT_KEY=<store-test-key>
-PAYU_MERCHANT_SALT=<store-test-salt>
-PAYU_BASE_URL=https://test.payu.in/_payment
-PAYU_SUCCESS_URL=https://apitest.jiotechxpert.com/payments/payu/success
-PAYU_FAILURE_URL=https://apitest.jiotechxpert.com/payments/payu/failure
-# APP_PAYU_RETURN_URL=techxpertstore://payu-return
-
-# OTP — required or every production send-otp is 503 (§A0)
-OTP_SMS_PROVIDER=prp
-PRP_SMS_API_KEY=<same as Homecare>
-PRP_SMS_SENDER=TECHX
-PRP_SMS_TEMPLATE_NAME=TECHXPERT OTP
-
-# Already expected:
-PORT=5003
-HOST=127.0.0.1
-DB_USERS=homecare_green
-DB_STORE=techxpertstore_green
-PUBLIC_API_ORIGIN=https://apitest.jiotechxpert.com
-CORS_ORIGINS=https://uitest.jiotechxpert.com,https://uitest.techxpertindia.com
-# Later: add real Capacitor Origins from app team
 ```
 
 ### Source files that produced this `dist/` (for review; upload **dist**, not src, to prod-like green)
@@ -102,7 +139,7 @@ CORS_ORIGINS=https://uitest.jiotechxpert.com,https://uitest.techxpertindia.com
 ```
 server/src/index.ts
 server/src/config/bridgeAuth.ts
-server/src/config/security.ts          # unchanged unless you edited
+server/src/config/security.ts          # CORS allowlist MUST include Idempotency-Key
 server/src/middleware/auth.ts
 server/src/middleware/bridgeTokenAuth.ts
 server/src/middleware/clientBridge.ts

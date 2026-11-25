@@ -17,9 +17,9 @@ For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, 
 | Host routing | **Map by service** — not one hard base. GREEN (`apitest…`) for today’s live slice; BLUE (`store.jiotechxpert.com`) for the rest. See [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) host map. |
 | Green-slice OTP on BLUE | Mis-route. `send-otp` / `verify-otp` / green checkout / PayU / those orders → **GREEN**. |
 | Browse / CMS / search | Stay on **BLUE** until promote. |
-| App “login” **503** on GREEN | Store green needs `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (Homecare green `.env` does not count). |
+| Platform green gates | Store green **own** `.env`: OTP SMS + PayU + CORS Origins; `dist` CORS must allow `Idempotency-Key`. Homecare `.env` ≠ Store. [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) §GATE. |
+| App “login” **503** / checkout CORS | Platform gate miss until §GATE curls pass — not Expo payload bugs. |
 | `POST /auth/login` **403** | Expected on prod/green. Use OTP. |
-| Upload green | Only from `BLUE_GREEN/` — [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
 
 **App team first step:** implement dual bases (or a router) from the host map; do not send green OTP/PayU to `store.jiotechxpert.com`.
 

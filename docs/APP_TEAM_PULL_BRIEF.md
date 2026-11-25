@@ -53,7 +53,7 @@ EXPO_PUBLIC_GREEN_API_BASE_URL=https://apitest.jiotechxpert.com/api  # GREEN —
 3. **OTP login for the green slice** must hit GREEN `send-otp` / `verify-otp` — calling BLUE `store.jiotechxpert.com/auth/send-otp` does not exercise today’s green go-live.  
 4. Payload `{ "phone": "<10 digits>" }` is correct on either host; wrong **host for that service** is the bug when testing green auth/PayU.
 
-**Login 503 on GREEN:** Store green missing `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (Homecare green `.env` does not count). See [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0.
+**Platform go-live gates (not app bugs):** Store green needs its **own** OTP SMS + PayU env, and `dist` CORS must allow `Idempotency-Key`. Homecare green `.env` does not count. If `send-otp` is 503 or checkout shows CORS on `localhost:8081`→apitest, ping platform — see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) **§GATE**.
 
 **Read after pull (in order):**
 

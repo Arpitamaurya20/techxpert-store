@@ -34,9 +34,23 @@ Payload `{ "phone": "8810803874" }` is fine. Using BLUE for green-slice OTP/PayU
 
 ---
 
-## 0. Login 503 on apitest — ops SMS (Store green .env)
+## 0. Ops gates on Store green (SMS + PayU + CORS) — platform responsibility
 
-Only after the app host is **apitest**. Homecare green `.env` PRP keys do **not** apply to Store; copy them into Store green `.env`.
+Homecare green `.env` does **not** feed Store green. Before app QA on apitest, Store green **must** have:
+
+| Required on `/var/www/green-node/store/server/.env` | If missing |
+|---|---|
+| `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (same TECHXPERT OTP as Homecare) | `send-otp` **503** |
+| `PAYU_MERCHANT_KEY` / `SALT` / `BASE_URL` / success+failure URLs (Store test merchant) | Pay online **503** not configured |
+| `CORS_ORIGINS` includes real app Origins (`http://localhost:8081`, uitest, …) | Browser CORS on all calls |
+
+Plus code in `dist`: CORS `allowedHeaders` must include **`Idempotency-Key`** or Expo web checkout preflight fails CORS even when Origin is allowed.
+
+Full gate + curls: [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) **§GATE**.
+
+### Login 503 on apitest — Store green SMS only
+
+Only after green-slice traffic hits **apitest**. Copy Homecare green PRP values into **Store** green `.env`.
 
 | Call | Host | Result | Meaning |
 |---|---|---|---|
