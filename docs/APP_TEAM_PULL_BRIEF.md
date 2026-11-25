@@ -134,7 +134,9 @@ Prefer a real device / Expo build. Use **GREEN** (`apitest…`) for §B–E; **B
 - [ ] `GET /auth/addresses` with Bearer → list (or empty)  
 - [ ] `POST /auth/addresses` → create; can set default  
 - [ ] Guest cart works with stable `x-session-id`  
-- [ ] After login, `POST /cart/merge` (or your flow) merges guest → user cart  
+- [ ] After OTP: **await** `POST /cart/merge` `{ sessionId }` **before** `GET /cart` / home / checkout (see [`APP_AUTH_AND_CART_SESSION.md`](./APP_AUTH_AND_CART_SESSION.md) mandatory sequence)  
+- [ ] Guest SessionID unchanged across OTP; not regenerated at login  
+
 - [ ] `GET /delivery/pincodes/:pin` matches checkout pincode rules  
 
 ### D. COD checkout (must still work)

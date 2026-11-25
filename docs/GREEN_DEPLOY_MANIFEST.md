@@ -84,8 +84,20 @@ curl -sS -D - -o /dev/null -X OPTIONS \
 | `CORS_ORIGINS` includes app Origin | Browser CORS on all cross-origin calls |
 | `Idempotency-Key` in CORS allowlist (`dist`) | Browser CORS on checkout/merge only |
 | SQL `checkout_idempotency` + `payment_orders` | Checkout/PayU hard errors |
+| `drop_cart_user_fk.sql` on schema | Cart merge / signed-in cart create **500** (`fk_cart_user` / `ER_NO_REFERENCED_ROW_2`) |
 
 `POST /auth/login` **403** on green/prod is **correct** — apps use send-otp → verify-otp.
+
+### Cart FK ops note (chaos F) — 2026-11-25
+
+`carts` / `orders` / `saved_items`.`UserID` must **not** FK to local Store `users` (identity is Homecare `users.user_id`). Script: `server/sql/drop_cart_user_fk.sql`.
+
+| Schema | Status |
+|---|---|
+| Local `techxpertstore` (blue) | **Clean** — 0 UserID→`users` FKs (verified 2026-11-25) |
+| Local `techxpertstore_green` | **Clean** — 0 UserID→`users` FKs (verified 2026-11-25) |
+| VPS blue `techxpertstore` | Re-run the SELECT in the plan / apply `drop_cart_user_fk.sql` if any rows remain before treating merge as production-safe |
+| VPS green `techxpertstore_green` | Same check after each green schema refresh |
 
 Full dual-sided handover: [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md).
 
