@@ -58,10 +58,11 @@ EXPO_PUBLIC_GREEN_API_BASE_URL=https://apitest.jiotechxpert.com/api  # GREEN —
 **Read after pull (in order):**
 
 1. This file — **host map** above  
-2. [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0a + §0  
-3. [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) — route bible + host column  
-4. [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) — UC-10 COD + **UC-10b PayU**  
-5. [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) — Expo folder map / COD baseline  
+2. [`APP_AUTH_AND_CART_SESSION.md`](./APP_AUTH_AND_CART_SESSION.md) — **JWT + guest SessionID maintenance** (read if login/cart “drops”)  
+3. [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) §0a + §0  
+4. [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) — route bible + host column  
+5. [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) — UC-10 COD + **UC-10b PayU**  
+6. [`APP_TEAM_HANDOVER.md`](./APP_TEAM_HANDOVER.md) — Expo folder map / COD baseline  
 
 If a linked file is missing on your branch, ask for the docs PR / `docs/store-customer-api` or green Store docs commit — do not invent routes.
 
