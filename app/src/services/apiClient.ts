@@ -1,6 +1,11 @@
-import { getAuthToken } from '@/state/sessionStore';
+import { clearSession, getAuthToken } from '@/state/sessionStore';
 
-import { API_BASE_URL, REQUEST_TIMEOUT_MS, isApiConfigured } from './apiConfig';
+import {
+  REQUEST_TIMEOUT_MS,
+  baseUrlFor,
+  isApiConfigured,
+  shouldAttachGreenAuth,
+} from './apiConfig';
 
 export type ApiErrorCode =
   | 'NOT_CONFIGURED'
@@ -25,54 +30,69 @@ export class ApiError extends Error {
 
 type QueryParams = Record<string, string | number | boolean | undefined>;
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
-type RequestOptions = { headers?: Record<string, string> };
+type RequestOptions = {
+  headers?: Record<string, string>;
+  /** When true, never send the green JWT (guest cart checkout on green). */
+  skipAuth?: boolean;
+};
 
 function buildUrl(path: string, params?: QueryParams) {
   const query = Object.entries(params ?? {})
     .filter(([, value]) => value !== undefined && value !== '')
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
     .join('&');
-  return `${API_BASE_URL}${path}${query ? `?${query}` : ''}`;
+  return `${baseUrlFor(path)}${path}${query ? `?${query}` : ''}`;
 }
 
-/** GET request to the Techxpert API. Sends the session token as a Bearer header when signed in. */
+/** GET request. Green JWT is attached only on green-slice paths. */
 export function apiGet(path: string, params?: QueryParams, options?: RequestOptions): Promise<unknown> {
-  return request('GET', buildUrl(path, params), undefined, options);
+  return request('GET', path, buildUrl(path, params), undefined, options);
 }
 
-/** POST a JSON body to the Techxpert API. Sends the session token as a Bearer header when signed in. */
+/** POST JSON. Green JWT is attached only on green-slice paths. */
 export function apiPost(path: string, body: unknown, options?: RequestOptions): Promise<unknown> {
-  return request('POST', buildUrl(path), body, options);
+  return request('POST', path, buildUrl(path), body, options);
 }
 
 export function apiPut(path: string, body: unknown, options?: RequestOptions): Promise<unknown> {
-  return request('PUT', buildUrl(path), body, options);
+  return request('PUT', path, buildUrl(path), body, options);
 }
 
 export function apiDelete(path: string, options?: RequestOptions): Promise<unknown> {
-  return request('DELETE', buildUrl(path), undefined, options);
+  return request('DELETE', path, buildUrl(path), undefined, options);
 }
 
 /** The server's own explanation for a rejected request, e.g. "Insufficient stock". */
 async function readErrorMessage(response: Response): Promise<string | undefined> {
   try {
-    const body = (await response.json()) as { error?: unknown; message?: unknown };
+    const body = (await response.json()) as { error?: unknown; message?: unknown; details?: unknown };
     const message = typeof body.error === 'string' ? body.error : body.message;
+    if (__DEV__ && typeof body.details === 'string' && body.details.trim()) {
+      console.warn('[api]', response.status, message, body.details.split('\n')[0]);
+    }
     return typeof message === 'string' && message.trim() ? message.trim() : undefined;
   } catch {
     return undefined;
   }
 }
 
-async function request(method: Method, url: string, body?: unknown, options?: RequestOptions): Promise<unknown> {
+async function request(
+  method: Method,
+  path: string,
+  url: string,
+  body?: unknown,
+  options?: RequestOptions
+): Promise<unknown> {
   if (!isApiConfigured) {
     throw new ApiError('NOT_CONFIGURED', 'The Techxpert store server is not connected yet.');
   }
 
   const headers: Record<string, string> = { ...options?.headers, Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+
   const token = getAuthToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const attachAuth = Boolean(token) && shouldAttachGreenAuth(path) && !options?.skipAuth;
+  if (attachAuth && token) headers.Authorization = `Bearer ${token}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -97,8 +117,14 @@ async function request(method: Method, url: string, body?: unknown, options?: Re
     clearTimeout(timeoutId);
   }
 
-  if (response.status === 401 || response.status === 403) {
-    throw new ApiError('UNAUTHORIZED', 'Please sign in again to continue.', response.status);
+  // Invalid / expired Store JWT on GREEN → 401. Clear SecureStore so the customer must OTP again.
+  if (response.status === 401) {
+    if (attachAuth) clearSession();
+    throw new ApiError('UNAUTHORIZED', 'Please sign in again to continue.', 401);
+  }
+  if (response.status === 403) {
+    const message = await readErrorMessage(response);
+    throw new ApiError('UNAUTHORIZED', message ?? 'You do not have access to do that.', 403);
   }
   if (response.status === 404) {
     throw new ApiError('NOT_FOUND', 'We could not find what you were looking for.', 404);
@@ -112,9 +138,10 @@ async function request(method: Method, url: string, body?: unknown, options?: Re
     );
   }
   if (!response.ok) {
+    const message = await readErrorMessage(response);
     throw new ApiError(
       'SERVER',
-      'Something went wrong on our side. Please try again shortly.',
+      message ?? 'Something went wrong on our side. Please try again shortly.',
       response.status
     );
   }
@@ -127,6 +154,11 @@ async function request(method: Method, url: string, body?: unknown, options?: Re
 }
 
 export function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
+  if (error instanceof ApiError) {
+    if (/foreign key constraint fails|CARTS_USERID_FK|carts\.UserID/i.test(error.message)) {
+      return 'Could not update your cart. Please try again in a moment.';
+    }
+    return error.message;
+  }
   return 'Something went wrong. Please try again.';
 }

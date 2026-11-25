@@ -21,7 +21,8 @@ import { MAX_CONTENT_WIDTH, SCREEN_PADDING, cardShadow, colors, fonts, radius, s
 import { usePincodeCheck } from '@/hooks/usePincodeCheck';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
 import { ApiError, getErrorMessage } from '@/services/apiClient';
-import { isApiConfigured } from '@/services/apiConfig';
+import { isApiConfigured, isPayUEnabled } from '@/services/apiConfig';
+import { retireIdempotencyKey, reuseOrMintIdempotencyKey } from '@/services/cartAuthPolicy';
 import { placeOrder, type PaymentMethod } from '@/services/orderApi';
 import {
   clearCart,
@@ -68,17 +69,24 @@ const isUnconfirmed = (error: unknown) =>
     (error.code === 'SERVER' && (error.status ?? 500) >= 500));
 
 type PaymentOption = {
-  id: PaymentMethod | 'UPI' | 'CARD';
+  id: PaymentMethod;
   title: string;
   subtitle: string;
+  /** When false, show Coming soon. PayU is gated at tap-time if guest. */
   available: boolean;
 };
 
-/** Only cash on delivery works until an online payment gateway is connected. */
+/** COD always. PayU only when EXPO_PUBLIC_PAYU_ENABLED=1 (green account cart must work). */
 const PAYMENT_OPTIONS: PaymentOption[] = [
   { id: 'COD', title: 'Cash on delivery', subtitle: 'Pay when your order arrives', available: true },
-  { id: 'UPI', title: 'UPI', subtitle: 'GPay, PhonePe, Paytm', available: false },
-  { id: 'CARD', title: 'Debit / credit card', subtitle: 'Visa, Mastercard, RuPay', available: false },
+  {
+    id: 'PayU',
+    title: 'Pay online',
+    subtitle: isPayUEnabled
+      ? 'UPI, cards and net banking via PayU'
+      : 'Temporarily unavailable on the test API — use cash on delivery',
+    available: isPayUEnabled,
+  },
 ];
 
 function defaultAddress() {
@@ -100,7 +108,9 @@ export default function CheckoutScreen() {
   const totals = useCartTotals();
   const canCheckout = useCanCheckout();
   const savedAddresses = useSavedAddresses();
-  const user = useSession()?.user;
+  const session = useSession();
+  const user = session?.user;
+  const signedIn = Boolean(session);
   const mobileRef = useRef<TextInput>(null);
   const lineRef = useRef<TextInput>(null);
   const cityRef = useRef<TextInput>(null);
@@ -114,8 +124,18 @@ export default function CheckoutScreen() {
   const [line, setLine] = useState(prefill.line);
   const [city, setCity] = useState(prefill.city);
   const [pincode, setPincode] = useState(prefill.pincode);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | undefined>(() => {
+    const { addresses, defaultId, current } = locationStore.getState();
+    if (defaultId) return defaultId;
+    return addresses.find((a) => a.city === current?.city && a.pincode === current?.pincode)?.id;
+  });
   const [submitted, setSubmitted] = useState(false);
   const [placing, setPlacing] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
+  /** Same key only while the checkout payload is unchanged. */
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const idempotencyFingerprintRef = useRef<string | null>(null);
+  const placingRef = useRef(false);
 
   const errors = {
     name: validateFullName(name),
@@ -138,13 +158,14 @@ export default function CheckoutScreen() {
   );
 
   const applyAddress = (address: SavedAddress) => {
+    setSelectedAddressId(address.id);
     setLine(address.line);
     setCity(address.city);
     setPincode(address.pincode);
   };
 
   const submit = async () => {
-    if (placing) return;
+    if (placingRef.current) return;
     setSubmitted(true);
     if (Object.values(errors).some(Boolean)) {
       showToast({ variant: 'error', message: 'Please complete your delivery details.', bottomOffset: barHeight });
@@ -156,6 +177,24 @@ export default function CheckoutScreen() {
         message: delivery.state === 'checking' ? 'Checking delivery to your pincode…' : delivery.message,
         bottomOffset: barHeight,
       });
+      return;
+    }
+    if (paymentMethod === 'PayU' && !isPayUEnabled) {
+      showToast({
+        variant: 'error',
+        message: 'Pay online is temporarily unavailable on the test API. Please use cash on delivery.',
+        bottomOffset: barHeight,
+      });
+      setPaymentMethod('COD');
+      return;
+    }
+    if (paymentMethod === 'PayU' && !signedIn) {
+      showToast({
+        variant: 'error',
+        message: 'Sign in to pay online.',
+        bottomOffset: barHeight,
+      });
+      router.push('/login');
       return;
     }
     const address = `${line.trim()}, ${city.trim()} - ${pincode.trim()}`;
@@ -192,6 +231,35 @@ export default function CheckoutScreen() {
       return;
     }
 
+    const matchedSaved =
+      selectedAddressId &&
+      savedAddresses.find(
+        (item) =>
+          item.id === selectedAddressId &&
+          item.line === line.trim() &&
+          item.city === city.trim() &&
+          item.pincode === pincode.trim()
+      );
+    const addressId = user && matchedSaved ? matchedSaved.id : undefined;
+    const fingerprint = [
+      cart.cartId ?? '',
+      String(cart.grandTotal),
+      paymentMethod,
+      name.trim(),
+      normalizeIndianMobile(mobile),
+      line.trim(),
+      city.trim(),
+      pincode.trim(),
+      addressId ?? '',
+    ].join('|');
+    const idempotency = reuseOrMintIdempotencyKey(
+      { key: idempotencyKeyRef.current, fingerprint: idempotencyFingerprintRef.current },
+      fingerprint,
+      () => `store-checkout-${cart.cartId ?? 'guest'}-${Date.now()}`
+    );
+    idempotencyKeyRef.current = idempotency.key;
+    idempotencyFingerprintRef.current = idempotency.fingerprint;
+    placingRef.current = true;
     setPlacing(true);
     try {
       const order = await placeOrder({
@@ -200,9 +268,25 @@ export default function CheckoutScreen() {
         customerName: name.trim(),
         mobile: normalizeIndianMobile(mobile),
         address: { line: line.trim(), city: city.trim(), pincode: pincode.trim() },
-        paymentMethod: 'COD',
+        addressId,
+        paymentMethod,
+        idempotencyKey: idempotency.key,
       });
+      idempotencyKeyRef.current = null;
+      idempotencyFingerprintRef.current = null;
       clearCart();
+      if (paymentMethod === 'PayU') {
+        router.replace({
+          pathname: '/payu-checkout',
+          params: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            address,
+            ...(order.total !== undefined ? { total: String(order.total) } : {}),
+          },
+        });
+        return;
+      }
       router.replace({
         pathname: '/order-placed',
         params: {
@@ -210,13 +294,27 @@ export default function CheckoutScreen() {
           address,
           ...(order.total !== undefined ? { total: String(order.total) } : {}),
           ...(order.placedAt ? { placedAt: order.placedAt } : {}),
+          payment: 'cod',
         },
       });
     } catch (error) {
-      const message = isUnconfirmed(error) ? UNCONFIRMED_ORDER : getErrorMessage(error);
-      showToast({ variant: 'error', message, bottomOffset: barHeight });
-      if (isRefusal(error)) void refreshCart();
+      const raw = getErrorMessage(error);
+      const idempotencyConflict = /already in progress or used with a different body/i.test(raw);
+      const message = isUnconfirmed(error) ? UNCONFIRMED_ORDER : raw;
+      showToast({
+        variant: 'error',
+        message: idempotencyConflict
+          ? 'That checkout attempt did not finish. Tap the button once more.'
+          : message,
+        bottomOffset: barHeight,
+      });
+      if (error instanceof ApiError && retireIdempotencyKey(error.status, raw)) {
+        idempotencyKeyRef.current = null;
+        idempotencyFingerprintRef.current = null;
+        if (isRefusal(error)) void refreshCart();
+      }
     } finally {
+      placingRef.current = false;
       setPlacing(false);
     }
   };
@@ -318,7 +416,10 @@ export default function CheckoutScreen() {
                 placeholder="House, building and street"
                 leftIcon="home-outline"
                 value={line}
-                onChangeText={setLine}
+                onChangeText={(text) => {
+                  setSelectedAddressId(undefined);
+                  setLine(text);
+                }}
                 error={shown(errors.line)}
                 autoCapitalize="words"
                 autoComplete="street-address"
@@ -334,7 +435,10 @@ export default function CheckoutScreen() {
                     label="City"
                     placeholder="City or area"
                     value={city}
-                    onChangeText={setCity}
+                    onChangeText={(text) => {
+                      setSelectedAddressId(undefined);
+                      setCity(text);
+                    }}
                     error={shown(errors.city)}
                     autoCapitalize="words"
                     returnKeyType="next"
@@ -348,7 +452,10 @@ export default function CheckoutScreen() {
                     label="Pin code"
                     placeholder="6 digits"
                     value={pincode}
-                    onChangeText={(text) => setPincode(text.replace(/\D/g, '').slice(0, 6))}
+                    onChangeText={(text) => {
+                      setSelectedAddressId(undefined);
+                      setPincode(text.replace(/\D/g, '').slice(0, 6));
+                    }}
                     error={shown(errors.pincode)}
                     keyboardType="number-pad"
                     maxLength={6}
@@ -400,29 +507,59 @@ export default function CheckoutScreen() {
               </Text>
               <View accessibilityRole="radiogroup" style={styles.paymentList}>
                 {PAYMENT_OPTIONS.map((option) => {
-                  const selected = option.id === 'COD';
+                  const needsSignIn = option.id === 'PayU' && !signedIn;
+                  const unavailable = !option.available;
+                  const blocked = needsSignIn || unavailable;
+                  const selected = paymentMethod === option.id;
                   return (
-                    <View
+                    <Pressable
                       key={option.id}
-                      accessible
+                      onPress={() => {
+                        if (unavailable) {
+                          showToast({
+                            variant: 'error',
+                            message: 'Pay online is temporarily unavailable on the test API. Please use cash on delivery.',
+                            bottomOffset: barHeight,
+                          });
+                          setPaymentMethod('COD');
+                          return;
+                        }
+                        if (needsSignIn) {
+                          showToast({
+                            variant: 'error',
+                            message: 'Sign in to pay online.',
+                            bottomOffset: barHeight,
+                          });
+                          router.push('/login');
+                          return;
+                        }
+                        setPaymentMethod(option.id);
+                      }}
                       accessibilityRole="radio"
-                      accessibilityState={{ checked: selected, disabled: !option.available }}
-                      accessibilityLabel={`${option.title}. ${option.subtitle}${option.available ? '' : '. Coming soon'}`}
-                      style={[styles.payment, selected && styles.paymentSelected, !option.available && styles.paymentOff]}
+                      accessibilityState={{ checked: selected, disabled: blocked }}
+                      accessibilityLabel={`${option.title}. ${option.subtitle}${blocked ? '. Unavailable' : ''}`}
+                      style={({ pressed }) => [
+                        styles.payment,
+                        selected && styles.paymentSelected,
+                        blocked && styles.paymentOff,
+                        pressed && styles.paymentPressed,
+                      ]}
                     >
                       <View style={[styles.radio, selected && styles.radioOn]}>
                         {selected ? <View style={styles.radioDot} /> : null}
                       </View>
                       <View style={styles.paymentText}>
                         <Text style={styles.paymentTitle}>{option.title}</Text>
-                        <Text style={styles.paymentSubtitle}>{option.subtitle}</Text>
+                        <Text style={styles.paymentSubtitle}>
+                          {needsSignIn ? 'Sign in required for UPI and cards' : option.subtitle}
+                        </Text>
                       </View>
-                      {option.available ? null : (
+                      {needsSignIn ? (
                         <View style={styles.soonPill}>
-                          <Text style={styles.soonText}>Coming soon</Text>
+                          <Text style={styles.soonText}>Sign in</Text>
                         </View>
-                      )}
-                    </View>
+                      ) : null}
+                    </Pressable>
                   );
                 })}
               </View>
@@ -497,7 +634,9 @@ export default function CheckoutScreen() {
               </View>
               <Text style={styles.note}>
                 {isApiConfigured
-                  ? 'You pay this total in cash when your order arrives. The store checks prices and stock once more as it places the order.'
+                  ? paymentMethod === 'PayU'
+                    ? 'You will complete payment securely with PayU. The store confirms the order after payment succeeds.'
+                    : 'You pay this total in cash when your order arrives. The store checks prices and stock once more as it places the order.'
                   : 'The store re-checks prices, stock and any delivery charge when your order is placed.'}
               </Text>
               {isApiConfigured ? null : (
@@ -525,13 +664,15 @@ export default function CheckoutScreen() {
           <Button
             title={
               payable != null
-                ? `Place order · ${formatPrice(payable)}`
+                ? paymentMethod === 'PayU'
+                  ? `Pay online · ${formatPrice(payable)}`
+                  : `Place order · ${formatPrice(payable)}`
                 : hasProblem
                   ? 'Fix items in your cart'
                   : 'Updating prices…'
             }
             loading={placing}
-            loadingTitle="Placing order…"
+            loadingTitle={paymentMethod === 'PayU' ? 'Starting payment…' : 'Placing order…'}
             disabled={payable == null || delivery.state === 'unserviceable'}
             onPress={submit}
           />
@@ -632,6 +773,9 @@ const styles = StyleSheet.create({
     borderColor: colors.navy,
     borderWidth: 1.5,
     backgroundColor: colors.navySoft,
+  },
+  paymentPressed: {
+    opacity: 0.85,
   },
   paymentOff: {
     opacity: 0.6,

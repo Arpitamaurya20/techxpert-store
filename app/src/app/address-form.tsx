@@ -8,7 +8,11 @@ import { Button } from '@/components/ui/Button';
 import { GLASS_HEADER_HEIGHT_ESTIMATE, GlassScreenHeader } from '@/components/ui/GlassScreenHeader';
 import { TextField } from '@/components/ui/TextField';
 import { MAX_CONTENT_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing, typography } from '@/constants/theme';
+import { useToast } from '@/components/ui/Toast';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
+import { createAddress } from '@/services/addressApi';
+import { getErrorMessage } from '@/services/apiClient';
+import { isApiConfigured } from '@/services/apiConfig';
 import {
   ADDRESS_LABELS,
   deliverToAddress,
@@ -16,6 +20,7 @@ import {
   saveAddress,
   type AddressLabel,
 } from '@/state/locationStore';
+import { useSession } from '@/state/sessionStore';
 import { validateAddressLine, validateCity, validatePincode } from '@/utils/validation';
 
 export default function AddressFormScreen() {
@@ -23,6 +28,8 @@ export default function AddressFormScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
+  const session = useSession();
   const [editing] = useState(() => (typeof params.id === 'string' ? getSavedAddress(params.id) : undefined));
   const cityRef = useRef<TextInput>(null);
   const pincodeRef = useRef<TextInput>(null);
@@ -33,27 +40,41 @@ export default function AddressFormScreen() {
   const [city, setCity] = useState(editing?.city ?? '');
   const [pincode, setPincode] = useState(editing?.pincode ?? '');
   const [submitted, setSubmitted] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const lineError = submitted ? validateAddressLine(line) : undefined;
   const cityError = submitted ? validateCity(city) : undefined;
   const pincodeError = submitted ? validatePincode(pincode) : undefined;
 
-  const save = () => {
+  const save = async () => {
     setSubmitted(true);
     if (validateAddressLine(line) || validateCity(city) || validatePincode(pincode)) return;
-    const saved = saveAddress({
-      id: editing?.id,
+    const payload = {
       label,
       line: line.trim(),
       city: city.trim(),
       pincode: pincode.trim(),
-    });
-    // A newly added address is where the shopper wants delivery now.
-    if (!editing) deliverToAddress(saved.id);
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/delivery-location');
+    };
+    setSaving(true);
+    try {
+      let saved;
+      if (isApiConfigured && session && !editing) {
+        const created = await createAddress({ ...payload, isDefault: true });
+        saved = saveAddress(created);
+      } else {
+        saved = saveAddress({ ...payload, id: editing?.id });
+      }
+      // A newly added address is where the shopper wants delivery now.
+      if (!editing) deliverToAddress(saved.id);
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/delivery-location');
+      }
+    } catch (error) {
+      showToast({ variant: 'error', message: getErrorMessage(error) });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -140,7 +161,7 @@ export default function AddressFormScreen() {
 
             <Text style={styles.note}>Your addresses are saved on this device only.</Text>
 
-            <Button title="Save Address" icon="checkmark" onPress={save} />
+            <Button title="Save Address" icon="checkmark" onPress={save} loading={saving} disabled={saving} />
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

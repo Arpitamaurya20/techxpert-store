@@ -208,7 +208,7 @@ export default function HomeScreen() {
           <CategoryShortcuts
             key={key}
             categories={categoryList}
-            loading={categories.status === 'loading' || waiting(homeLists.status, Boolean(homeLists.data))}
+            loading={categories.status === 'loading' && categoryList.length === 0}
             published={liveShortcuts}
             onOpenCategory={openCategory}
             onViewAll={openAllCategories}
@@ -372,7 +372,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.screen,
+    backgroundColor: colors.white,
   },
   content: {
     paddingBottom: spacing.xxxl,
@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
     maxWidth: MAX_STORE_WIDTH,
     alignSelf: 'center',
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: spacing.lg,
-    gap: spacing.xl,
+    paddingTop: spacing.sm,
+    gap: spacing.md,
   },
 });

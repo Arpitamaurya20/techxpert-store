@@ -43,7 +43,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setToast({ ...options, id: Date.now() });
     if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(options.message);
-    timeoutRef.current = setTimeout(() => setToast(null), TOAST_DURATION_MS);
+    timeoutRef.current = setTimeout(() => setToast(null), options.action ? 12_000 : TOAST_DURATION_MS);
   }, []);
 
   useEffect(

@@ -11,14 +11,16 @@
 import { isApiConfigured } from '@/services/apiConfig';
 import { getErrorMessage } from '@/services/apiClient';
 import {
+  adoptAccountCart,
   fetchCart,
-  mergeGuestCart,
   putCartLine,
   type CartLineProblem,
   type CartTotals,
   type ServerCart,
   type ServerCartLine,
 } from '@/services/cartApi';
+import { accountCartLinked, setAccountCartLinked } from '@/state/cartLink';
+import { getAuthToken } from '@/state/sessionStore';
 import type { Product } from '@/types/catalog';
 
 import { createStore } from './createStore';
@@ -53,7 +55,9 @@ type CartState = {
   /** Server totals; null without a server or while a change is still being saved. */
   totals: CartTotals | null;
   canCheckout: boolean;
-  notice: { id: number; message: string } | null;
+  notice: { id: number; message: string; retryMerge?: boolean } | null;
+  /** Set when guest-to-account merge failed. The guest lines stay on screen. */
+  mergeError: string | null;
 };
 
 export type AddToCartFailure =
@@ -75,6 +79,7 @@ export const cartStore = createStore<CartState>({
   totals: null,
   canCheckout: !isApiConfigured,
   notice: null,
+  mergeError: null,
 });
 
 export function getMaxQuantity(product: Product): number {
@@ -136,10 +141,22 @@ let noticeId = 0;
 
 const isBusy = (productId: string) => wanted.has(productId) || inFlight.has(productId);
 
-function postNotice(message: string) {
+function postNotice(message: string, retryMerge = false) {
   noticeId += 1;
-  cartStore.setState((state) => ({ ...state, notice: { id: noticeId, message } }));
+  cartStore.setState((state) => ({
+    ...state,
+    notice: { id: noticeId, message, retryMerge },
+    ...(retryMerge ? { mergeError: message } : {}),
+  }));
 }
+
+/**
+ * In-flight cart reads are dropped once a newer read or a merge starts, so a guest
+ * GET cannot overwrite the account cart after login.
+ */
+let epoch = 0;
+let handoff: Promise<ServerCart> | null = null;
+let mergeBlocked = false;
 
 function fromServerLine(line: ServerCartLine, local: CartItem | undefined): CartItem {
   const caps = [DEFAULT_MAX_QUANTITY, line.stock, line.max].filter(
@@ -168,6 +185,18 @@ function fromServerLine(line: ServerCartLine, local: CartItem | undefined): Cart
 /** Takes the server's cart, except lines the customer is still changing. */
 function applyServerCart(cart: ServerCart) {
   cartStore.setState((state) => {
+    // A different empty cart must not replace the account cart that already has lines.
+    if (
+      getAuthToken() &&
+      accountCartLinked() &&
+      state.cartId &&
+      cart.id &&
+      state.cartId !== cart.id &&
+      cart.lines.length === 0 &&
+      state.items.some((item) => !isBusy(item.productId))
+    ) {
+      return state;
+    }
     const local = new Map(state.items.map((item) => [item.productId, item]));
     const items: CartItem[] = [];
     const seen = new Set<string>();
@@ -216,25 +245,71 @@ function sendLine(productId: string, quantity: number) {
   void syncLine(productId);
 }
 
-/** Loads the server cart (app start, sign-out, after a refused change). */
+/** Loads the server cart. Waits out a merge, and does nothing while a merge error is showing. */
 export async function refreshCart() {
   if (!isApiConfigured) return;
+  if (handoff) {
+    try {
+      applyServerCart(await handoff);
+    } catch {
+      // The merge path reports the error. Leave the guest cart on screen.
+    }
+    return;
+  }
+  if (mergeBlocked) return;
+  const ticket = ++epoch;
   try {
-    applyServerCart(await fetchCart());
+    const cart = await fetchCart();
+    if (ticket !== epoch || handoff || mergeBlocked) return;
+    applyServerCart(cart);
   } catch {
     // Keep what is on screen; the next change or screen visit tries again.
   }
 }
 
-/** After sign-in: the guest cart on this device joins the account cart. */
-export async function mergeCartIntoAccount() {
-  if (!isApiConfigured) return;
+/**
+ * Sign-in handoff: persist is already done. Merge the original guest session with
+ * the JWT, then show the account cart from GET /cart. A failure stays visible.
+ */
+export async function mergeCartIntoAccount(): Promise<void> {
+  if (!isApiConfigured || !getAuthToken()) return;
+  if (mergeBlocked) return;
+  if (accountCartLinked()) return;
+
+  const ticket = ++epoch;
+  const run =
+    handoff ??
+    (handoff = adoptAccountCart().finally(() => {
+      handoff = null;
+    }));
   try {
-    applyServerCart(await mergeGuestCart());
+    const cart = await run;
+    if (ticket !== epoch) return;
+    mergeBlocked = false;
+    cartStore.setState((state) => ({ ...state, mergeError: null }));
+    applyServerCart(cart);
   } catch (error) {
-    postNotice(getErrorMessage(error));
-    await refreshCart();
+    if (ticket !== epoch) return;
+    mergeBlocked = true;
+    setAccountCartLinked(false);
+    postNotice(getErrorMessage(error), true);
+    throw error;
   }
+}
+
+/** Shows the guest cart again after sign-out. Drops any in-flight account read. */
+export function resetCartAuth() {
+  setAccountCartLinked(false);
+  mergeBlocked = false;
+  epoch += 1;
+  cartStore.setState((state) => (state.mergeError ? { ...state, mergeError: null } : state));
+}
+
+/** Tries the guest-to-account merge again after a visible failure. */
+export function retryAccountCartMerge(): Promise<void> {
+  mergeBlocked = false;
+  setAccountCartLinked(false);
+  return mergeCartIntoAccount();
 }
 
 // --- Changes ---------------------------------------------------------------
@@ -361,6 +436,10 @@ export function useCanCheckout() {
 
 export function useCartNotice() {
   return cartStore.useStore((state) => state.notice);
+}
+
+export function useCartMergeError() {
+  return cartStore.useStore((state) => state.mergeError);
 }
 
 /** Total number of units in the cart, shown on the header icon and Cart tab. */

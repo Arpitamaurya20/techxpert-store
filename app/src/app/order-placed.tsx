@@ -48,8 +48,10 @@ export default function OrderPlacedScreen() {
     placedAt?: string;
     address?: string;
     test?: string;
+    payment?: string;
   }>();
   const isTest = params.test === '1';
+  const paidOnline = params.payment === 'paid';
   const total = params.total ? Number(params.total) : NaN;
   const placedAt = formatPlacedAt(params.placedAt);
   const [scale] = useState(() => new Animated.Value(0.4));
@@ -90,9 +92,13 @@ export default function OrderPlacedScreen() {
           </View>
 
           <Text style={styles.title} accessibilityRole="header">
-            Order Placed Successfully!
+            {paidOnline ? 'Payment successful!' : 'Order Placed Successfully!'}
           </Text>
-          <Text style={styles.message}>Your order has been placed and will be processed shortly.</Text>
+          <Text style={styles.message}>
+            {paidOnline
+              ? 'Your online payment is confirmed. We will process your order shortly.'
+              : 'Your order has been placed and will be processed shortly.'}
+          </Text>
 
           {isTest ? (
             <View style={styles.testBanner} accessibilityRole="alert">

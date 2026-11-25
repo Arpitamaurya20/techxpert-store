@@ -295,12 +295,14 @@ CREATE TABLE techxpertstore.order_status_history (
 -- Carts
 CREATE TABLE techxpertstore.carts (
   ID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  UserID INT NULL, -- Logical foreign reference to homecare.users.user_id
+  UserID INT NULL, -- Logical foreign reference to homecare.users.user_id — do NOT add an InnoDB FK (see server/sql/carts_userid_logical_fk.sql)
   SessionID VARCHAR(255) NULL,
   CurrencyID INT NOT NULL DEFAULT 1,
   Status ENUM('active', 'merged', 'abandoned', 'ordered') NOT NULL DEFAULT 'active', -- 'ordered': became an order (server/sql/shop_s3_checkout.sql)
   CreatedDate DATE NOT NULL,
   CreatedTime TIME NOT NULL,
+  UpdatedDate DATE NULL,
+  UpdatedTime TIME NULL,
   INDEX idx_carts_user (UserID),
   INDEX idx_carts_session (SessionID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -313,6 +315,8 @@ CREATE TABLE techxpertstore.cart_items (
   Quantity INT NOT NULL DEFAULT 1,
   CreatedDate DATE NOT NULL,
   CreatedTime TIME NOT NULL,
+  UpdatedDate DATE NULL,
+  UpdatedTime TIME NULL,
   INDEX idx_cart_items_cart (CartID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

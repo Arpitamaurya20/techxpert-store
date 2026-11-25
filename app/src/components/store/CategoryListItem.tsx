@@ -4,7 +4,7 @@ import { memo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { cardShadow, colors, fonts, radius, spacing } from '@/constants/theme';
-import { getHomeCategoryArt } from '@/data/homeCategoryArt';
+import { resolveHomeCategoryArt } from '@/data/homeCategoryArt';
 import type { Category } from '@/types/catalog';
 import { getCategoryIcon } from '@/utils/categoryIcon';
 
@@ -17,7 +17,7 @@ type CategoryListItemProps = {
 /** Full-width category row for the Categories tab: photo, name, subtitle and chevron. */
 function CategoryListItemComponent({ category, subtitle, onPress }: CategoryListItemProps) {
   const [remoteFailed, setRemoteFailed] = useState(false);
-  const localArt = getHomeCategoryArt(category.id);
+  const localArt = resolveHomeCategoryArt(category.id, category.name);
   const remote = !!category.imageUrl && !remoteFailed;
 
   return (

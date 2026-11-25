@@ -209,3 +209,13 @@ You can mark the **API integration slice** done when:
 2. PayU path works end-to-end on green when merchant test keys are live (sections E).  
 3. Session hydrate + 401 clear behave correctly.  
 4. You did **not** depend on Homecare APIs for Store materials checkout.
+
+### Expo screens wired (this repo)
+
+| Screen | Path | Notes |
+|---|---|---|
+| Sign in | `app/src/app/login.tsx` + `LoginForm` | AuthHero + OTP send; guest continue |
+| OTP | `app/src/app/otp-login.tsx` | Verify → SecureStore session |
+| Checkout payment | `app/src/app/checkout.tsx` | COD or PayU (PayU requires sign-in) |
+| PayU WebView | `app/src/app/payu-checkout.tsx` | initiate → WebView/browser → verify |
+| Success | `app/src/app/order-placed.tsx` | COD or paid online copy |

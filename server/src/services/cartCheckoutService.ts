@@ -4,6 +4,7 @@ import { OrderService } from './orderService.js';
 import { DeliveryAreaService } from './deliveryAreaService.js';
 import { isOrderRefusal, orderFailed, orderRefusal } from '../utils/checkoutPricing.js';
 import { quantityRefusal, sameMoney } from '../utils/cartRules.js';
+import { paymentMethodAllowed } from '../utils/cartHandoff.js';
 import { deliveryPincode } from '../utils/pincode.js';
 import { StoreStockService } from './storeStockService.js';
 import { deliveryPromise } from '../utils/deliveryPromise.js';
@@ -33,12 +34,13 @@ const text = (value: unknown) => (typeof value === 'string' && value.trim() ? va
 
 export class CartCheckoutService {
   /**
-   * Turns the caller's server cart into a cash-on-delivery order. Checking out a cart that already
-   * became an order returns that order, so a double tap or a retry never makes a second one.
+   * Turns the caller's server cart into an order. PayU requires the JWT user and stays pending
+   * until payment is verified. Checking out a cart that already became an order returns that order.
    */
   static async place(access: CartAccess, body: CartCheckoutRequest): Promise<Placed> {
-    const paymentMethod = String(body.paymentMethod ?? 'COD').toUpperCase();
-    if (paymentMethod !== 'COD') throw orderRefusal(400, 'Only cash on delivery is available.');
+    const payment = paymentMethodAllowed(body.paymentMethod, access.userId);
+    if (!payment.ok) throw orderRefusal(payment.status, payment.message);
+    const paymentMethod = payment.method;
     const expectedTotal = Number(body.expectedTotal);
     if (body.expectedTotal == null || body.expectedTotal === '' || !Number.isFinite(expectedTotal)) {
       throw orderRefusal(400, 'expectedTotal is required: the total shown to the customer.');
@@ -101,6 +103,7 @@ export class CartCheckoutService {
         paymentMethod,
       });
       if (placement.refusal) throw orderRefusal(409, placement.refusal);
+      // PayU stays pending until /payments/payu verifies it. Stock is held and restored if staff cancel.
 
       const userId = access.userId ?? (await OrderService.ownerForGuest(guest));
       const customer = await OrderService.resolveCustomerInfo(userId, guest);
@@ -116,8 +119,8 @@ export class CartCheckoutService {
         lines,
         totals,
         taxRate,
-        orderStatus: placement.status,
-        historyNote: placement.reason ?? notes,
+        orderStatus: paymentMethod === 'PayU' ? 'pending' : placement.status,
+        historyNote: paymentMethod === 'PayU' ? 'Waiting for online payment.' : (placement.reason ?? notes),
         source: 'app',
         arrivesInDays: deliveryPromise(settings.deliveryDays),
         channel: readOrderChannel(body.channel, 'store_app'),
@@ -125,10 +128,8 @@ export class CartCheckoutService {
       await StaffAlertService.recordOrder(conn, orderId);
 
       await conn.query(`DELETE FROM cart_items WHERE CartID = ?`, [cartId]);
-      await conn.query(
-        `UPDATE carts SET Status = 'ordered', UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID = ?`,
-        [cartId]
-      );
+      // Status only — older dumps omit Updated* on `carts` (carts_userid_logical_fk.sql).
+      await conn.query(`UPDATE carts SET Status = 'ordered' WHERE ID = ?`, [cartId]);
       await conn.commit();
       await OrderNoticeService.tell(orderId);
       return { order: await OrderService.receipt(orderId), replay: false };
@@ -139,6 +140,13 @@ export class CartCheckoutService {
       }
       if (isOrderRefusal(err)) throw err;
       console.error('[CartCheckout] order failed', err);
+      const code = String(err?.code || '');
+      if (code === 'ER_NO_REFERENCED_ROW_2' || code === 'ER_NO_REFERENCED_ROW') {
+        throw orderRefusal(
+          409,
+          'This account cannot be saved on the order yet. Your cart is unchanged.'
+        );
+      }
       throw orderFailed();
     } finally {
       conn.release();

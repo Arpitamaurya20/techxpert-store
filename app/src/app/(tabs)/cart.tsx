@@ -7,15 +7,18 @@ import { CartItemCard } from '@/components/store/CartItemCard';
 import { CartOrderSummary } from '@/components/store/CartOrderSummary';
 import { DemoDataNotice } from '@/components/store/DemoDataNotice';
 import { Button } from '@/components/ui/Button';
+import { FormAlert } from '@/components/ui/FormAlert';
 import { StateView } from '@/components/ui/StateView';
 import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, spacing, typography } from '@/constants/theme';
 import { isApiConfigured } from '@/services/apiConfig';
 import {
   refreshCart,
+  retryAccountCartMerge,
   useCanCheckout,
   useCartCount,
   useCartItems,
   useCartLineCount,
+  useCartMergeError,
   useCartTotals,
 } from '@/state/cartStore';
 import { formatPrice, fromPaise, toPaise } from '@/utils/format';
@@ -30,6 +33,7 @@ export default function CartScreen() {
   const lineCount = useCartLineCount();
   const totals = useCartTotals();
   const canCheckout = useCanCheckout();
+  const mergeError = useCartMergeError();
   const [barHeight, setBarHeight] = useState(CHECKOUT_BAR_ESTIMATE);
   const checkoutLock = useRef(false);
 
@@ -56,8 +60,12 @@ export default function CartScreen() {
 
   const continueShopping = () => router.navigate('/home');
 
+  const retryMerge = () => {
+    void retryAccountCartMerge().catch(() => undefined);
+  };
+
   const goToCheckout = () => {
-    if (checkoutLock.current || items.length === 0 || !canCheckout) return;
+    if (checkoutLock.current || items.length === 0 || !canCheckout || mergeError) return;
     checkoutLock.current = true;
     router.push('/checkout');
   };
@@ -88,10 +96,10 @@ export default function CartScreen() {
         <StateView
           variant="empty"
           icon="cart-outline"
-          title="Your cart is empty"
-          message="Explore our store and add products to your cart."
-          actionLabel="Continue Shopping"
-          onAction={continueShopping}
+          title={mergeError ? 'Cart not moved to your account' : 'Your cart is empty'}
+          message={mergeError ?? 'Explore our store and add products to your cart.'}
+          actionLabel={mergeError ? 'Retry' : 'Continue Shopping'}
+          onAction={mergeError ? retryMerge : continueShopping}
         />
       </>
     );
@@ -107,6 +115,12 @@ export default function CartScreen() {
           renderItem={({ item }) => <CartItemCard item={item} />}
           ListHeaderComponent={
             <View style={styles.listHeader}>
+              {mergeError ? (
+                <View style={styles.mergeError}>
+                  <FormAlert title="Cart not moved to your account" message={mergeError} />
+                  <Button title="Retry" onPress={retryMerge} />
+                </View>
+              ) : null}
               {subtitle ? <Text style={styles.count}>{subtitle}</Text> : null}
               {!isApiConfigured ? (
                 <DemoDataNotice message="This cart is stored on this device only. It is cleared if you close the app, and it is not saved to a Techxpert account." />
@@ -142,7 +156,7 @@ export default function CartScreen() {
                 title={hasProblem ? 'Fix items to continue' : 'Proceed to Checkout'}
                 icon="arrow-forward"
                 onPress={goToCheckout}
-                disabled={!canCheckout}
+                disabled={!canCheckout || Boolean(mergeError)}
                 accessibilityHint={
                   hasProblem
                     ? 'Some items cannot be ordered as they are. Change or remove them first.'
@@ -185,6 +199,9 @@ const styles = StyleSheet.create({
   },
   listHeader: {
     gap: spacing.md,
+  },
+  mergeError: {
+    gap: spacing.sm,
   },
   count: {
     ...typography.caption,

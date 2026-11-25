@@ -3,7 +3,7 @@ import { memo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, fonts, radius, spacing, typography } from '@/constants/theme';
-import { getHomeCategoryArt } from '@/data/homeCategoryArt';
+import { resolveHomeCategoryArt } from '@/data/homeCategoryArt';
 import type { Category } from '@/types/catalog';
 import { getCategoryIcon } from '@/utils/categoryIcon';
 
@@ -22,7 +22,7 @@ function CategoryCardComponent({
   width = HOME_CATEGORY_TILE_SIZE,
 }: CategoryCardProps) {
   const [remoteFailed, setRemoteFailed] = useState(false);
-  const localArt = getHomeCategoryArt(category.id);
+  const localArt = resolveHomeCategoryArt(category.id, category.name);
   const remote = !!category.imageUrl && !remoteFailed;
 
   return (
@@ -42,7 +42,7 @@ function CategoryCardComponent({
             onError={() => setRemoteFailed(true)}
           />
         ) : localArt ? (
-          <Image source={localArt} style={styles.image} resizeMode="contain" />
+          <Image source={localArt} style={styles.image} resizeMode="cover" />
         ) : (
           <MaterialCommunityIcons
             name={getCategoryIcon(category.id, category.icon)}

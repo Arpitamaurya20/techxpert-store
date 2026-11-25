@@ -2,11 +2,27 @@
 
 For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, read this first, then use [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for exact request/response examples.
 
-**Date:** 23 Nov 2026 (green + login ack added 24 Nov 2026)  
-**Docs branch (app contract):** `docs/store-customer-api`  
-**Green code / uploads:** `Desktop/BLUE_GREEN/techxpert-store-main` on `green/unified-commerce`  
+**Date:** 25 Nov 2026 (signed-in cart JWT + guest merge)
+
+After OTP, the app stores the Store JWT, keeps the original guest `sessionId`, `POST /cart/merge` with `Authorization: Bearer` and that `sessionId`, then `GET /cart` with the JWT and no `x-session-id`. A merge error stays on screen with Retry. `GET /cart` with a valid JWT uses the account cart (Homecare `userId`) and does not open a new guest cart.  
+**Branch:** `techxpertstore-branch` (do not push to `main` directly)  
+**Docs / green contract:** start with [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md)  
+**Green code / uploads:** see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md)  
 **Live API + staff portal (blue):** `https://store.jiotechxpert.com`  
-**Green API:** `https://apitest.jiotechxpert.com`
+**Green API (auth + PayU):** `https://apitest.jiotechxpert.com`  
+**Expo QA bases:** BLUE `EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/api` + GREEN `EXPO_PUBLIC_GREEN_API_BASE_URL=https://apitest.jiotechxpert.com/api` (see `app/.env.example`)
+
+---
+
+## Ack — 25 Nov 2026 (dual host + signed-in cart 500 on green)
+
+| Finding | Action |
+|---|---|
+| Wrong single base | App was sending **all** traffic to green. Fixed: dual bases per [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) — BLUE browse/CMS; GREEN OTP/cart/checkout/PayU/orders. Router in `app/src/services/apiConfig.ts`. |
+| Cart host | `PUT /cart/items/…` on `apitest…` is the **correct** green cart host when checking out on green (not blue). Network must show catalog on `store.jiotechxpert.com` and cart/OTP on `apitest…`. |
+| Signed-in cart 500 | Green FK `fk_cart_user` on `carts.UserID` → REFERENCES `users(ID)`. Homecare ids are logical-only. Ops: `ALTER TABLE carts DROP FOREIGN KEY fk_cart_user;` ([`server/sql/carts_userid_logical_fk.sql`](../server/sql/carts_userid_logical_fk.sql)). |
+| Checkout 403 / PayU | Bearer + a **guest** `cartId` is 403. After merge, COD and PayU send the account cart id and the Store JWT, and do not send `x-session-id`. PayU stays behind `EXPO_PUBLIC_PAYU_ENABLED=1`. |
+| JWT | Green token on auth, cart (after merge), checkout, PayU, and orders. Guests send `x-session-id` only. Never send the green JWT to BLUE. |
 
 ---
 
@@ -22,6 +38,24 @@ For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, 
 | `POST /auth/login` **403** | Expected on prod/green. Use OTP. |
 
 **App team first step:** implement dual bases (or a router) from the host map; do not send green OTP/PayU to `store.jiotechxpert.com`.
+
+---
+
+## Ack — 24 Nov 2026 (green customer API — Expo wiring)
+
+Green Store customer slice is live (`homecare_green` + `techxpertstore_green`). App points at green for QA.
+
+| Area | App behaviour |
+|---|---|
+| OTP | `POST /auth/send-otp` → `POST /auth/verify-otp` → Store JWT (~30 days) in SecureStore |
+| Session | Hydrate calls `GET /auth/me`; **401 clears SecureStore** |
+| Addresses | Sync `GET/POST /auth/addresses` when signed in; checkout prefers `addressId` |
+| Cart / COD / PayU | Guest `x-session-id` or Bearer; checkout `COD` or `PayU` (+ `Idempotency-Key`); PayU → `/payments/payu/*` |
+| Orders | `GET /orders` (own orders only) |
+
+Do **not** call Homecare `store-token` / Activity from Store Expo. Same phone → same `user_id`; checkouts stay separate.
+
+Smoke: `GET https://apitest.jiotechxpert.com/health` → `status: ok`.
 
 ---
 
@@ -237,13 +271,13 @@ Full call shapes, refusals, and examples: [`APP_API_GUIDE.md`](./APP_API_GUIDE.m
 ## 7. Suggested first week for the app team
 
 1. Clone repo, `git checkout develop`, `cd app && npm install`.
-2. Set `EXPO_PUBLIC_API_BASE_URL` to production (see `app/.env.example`).
-3. Confirm `home-boot` + `view=card` list + `search/suggest?q=fan` + one product detail against live JSON — services already call these.
+2. Set `EXPO_PUBLIC_API_BASE_URL` to **green** `https://apitest.jiotechxpert.com/api` (see `app/.env.example`); use blue prod only when asked. Restart with `npx expo start -c`.
+3. Confirm `home-boot` + `view=card` list + `search/suggest?q=fan` + OTP → `/auth/me` against green.
 4. Finish search UI polish: typeahead chips from `getSearchSuggestions` while typing (≥2 chars).
-5. Wire cart → pincode → checkout COD end-to-end on a device (COD path exists).
+5. Wire cart → pincode → checkout COD end-to-end on a device (addressId + Idempotency-Key supported).
 6. Align each screen to the shared UI designs without moving files out of the structure in §3.
 7. Leave payment UI as “cash on delivery” only until PayU is scheduled.
 
-**Already applied in `app/` (from [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) §10):** OTP sign-in (`send-otp` / `verify-otp`), secure session restore, server order statuses, `home-boot` preference, `view=card` lists, **cursor paging on product/category grids**, **hide empty categories**.
+**Already applied in `app/`:** OTP sign-in, SecureStore hydrate + **401 clear**, server addresses, `home-boot`, `view=card` cursor paging, hide empty categories, COD checkout with `addressId` / `Idempotency-Key`.
 
-**Still on the store/API side (not app):** merge duplicate categories / cloned subcategories (Ack 23 Nov).
+**Still on the store/API side (not app):** DisplayOrder / featured hygiene (Ack 23 Nov).

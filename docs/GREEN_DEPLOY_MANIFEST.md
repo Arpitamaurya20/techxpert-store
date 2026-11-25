@@ -164,6 +164,7 @@ server/src/utils/payu.ts
 server/src/utils/paymentMethod.ts
 server/sql/checkout_idempotency.sql
 server/sql/payment_orders.sql
+server/sql/carts_userid_logical_fk.sql
 ```
 
 ### On VPS after upload
@@ -174,6 +175,10 @@ npm ci --omit=dev
 
 mysql -u green_app -p techxpertstore_green < sql/checkout_idempotency.sql
 mysql -u green_app -p techxpertstore_green < sql/payment_orders.sql
+
+# Signed-in cart 500: drop any real FK on carts.UserID (logical ref to homecare only).
+mysql -u green_app -p techxpertstore_green < sql/carts_userid_logical_fk.sql
+# Then DROP FOREIGN KEY for each CONSTRAINT_NAME the SELECT returns (see file comments).
 
 # Apache: deny public /service (both with and without /api) — see deploy/apache-api.conf
 # Do NOT block /payments — PayU callbacks must reach Node.

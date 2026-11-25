@@ -204,8 +204,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     marginTop: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
     backgroundColor: colors.orange,
   },
   ctaYellow: {
@@ -223,19 +223,22 @@ const styles = StyleSheet.create({
   dots: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: spacing.xs,
+    alignItems: 'center',
+    gap: 6,
   },
   dotHit: {
-    padding: 2,
+    padding: 4,
   },
   dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#C5D0DE',
   },
   dotActive: {
-    width: 18,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: colors.navy,
   },
 });

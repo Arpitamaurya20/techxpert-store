@@ -4,6 +4,7 @@ import { CartCheckoutService } from '../services/cartCheckoutService.js';
 import { asyncHandler, sendSuccess, sendError } from '../utils/response.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
 import { chosenVariantId } from '../utils/variants.js';
+import { cartOwner } from '../utils/cartHandoff.js';
 
 const router = Router();
 
@@ -16,9 +17,12 @@ function sessionIdFrom(req: Request) {
   );
 }
 
-/** Signed-in customers use their account cart; everyone else the guest session cart. */
+/**
+ * A Store JWT owns the account cart by userId. The guest session is not attached,
+ * so checkout cannot claim a stale guest cart after sign-in.
+ */
 function accessFrom(req: Request): CartAccess {
-  return req.user?.userId ? { userId: req.user.userId } : { sessionId: sessionIdFrom(req) };
+  return cartOwner({ userId: req.user?.userId, sessionId: sessionIdFrom(req) });
 }
 
 // GET /cart - The caller's priced cart (guests also get their sessionId)

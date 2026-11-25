@@ -4,7 +4,7 @@ import { memo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { cardShadow, colors, fonts, radius, spacing } from '@/constants/theme';
-import { getHomeCategoryArt } from '@/data/homeCategoryArt';
+import { resolveHomeCategoryArt } from '@/data/homeCategoryArt';
 import type { Category } from '@/types/catalog';
 import { getCategoryIcon } from '@/utils/categoryIcon';
 
@@ -19,7 +19,7 @@ type CategoryTileProps = {
 /** Photo-forward category card for the Categories browse grid. */
 function CategoryTileComponent({ category, width, subtitle, onPress }: CategoryTileProps) {
   const [remoteFailed, setRemoteFailed] = useState(false);
-  const localArt = getHomeCategoryArt(category.id);
+  const localArt = resolveHomeCategoryArt(category.id, category.name);
   const remote = Boolean(category.imageUrl) && !remoteFailed;
   const countText =
     !subtitle && category.productCount !== undefined
