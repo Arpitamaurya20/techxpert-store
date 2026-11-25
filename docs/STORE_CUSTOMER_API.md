@@ -1,8 +1,20 @@
 # Store customer API — full route list (auth & protection)
 
 **Audience:** Store Expo app, Homecare app team, green deploy  
-**Base (green):** `https://apitest.jiotechxpert.com` (also `/api/...` — same routers)  
-**Base (blue/prod):** `https://store.jiotechxpert.com`  
+
+### Hosts (map by service — not a single hard base)
+
+| Alias | Host |
+|---|---|
+| **GREEN** | `https://apitest.jiotechxpert.com` (also `/api/...`) |
+| **BLUE** | `https://store.jiotechxpert.com` |
+
+**Went live on GREEN today → call GREEN:** OTP auth (`/auth/send-otp`, `/auth/verify-otp`), green session (`/auth/me`, addresses), green cart + `/cart/checkout` (COD|PayU), `/payments/payu/*`, green `/orders*`.  
+
+**Everything else (browse/CMS/search/wishlist/help/…)** → keep **BLUE** until promote.  
+
+Full table: [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) host map. JWT and cart are **host-scoped** — do not send a GREEN token to BLUE.
+
 **Identity:** Shared `homecare.users` — one phone login is one `user_id` for Homecare bookings **and** Store materials.
 
 ### Separate checkouts, one login (locked for now)

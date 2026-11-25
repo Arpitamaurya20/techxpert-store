@@ -24,12 +24,17 @@ export default function TabsLayout() {
         headerStyle: { backgroundColor: colors.card },
         headerTitleStyle: { fontFamily: fonts.bold, color: colors.primary },
         headerShadowVisible: false,
-        sceneStyle: { backgroundColor: colors.screen },
+        sceneStyle: { backgroundColor: colors.white },
       }}
     >
       <Tabs.Screen
         name="home"
-        options={{ title: 'Home', headerShown: false, tabBarIcon: tabIcon('home', 'home-outline') }}
+        options={{
+          title: 'Home',
+          headerShown: false,
+          sceneStyle: { backgroundColor: colors.white },
+          tabBarIcon: tabIcon('home', 'home-outline'),
+        }}
       />
       <Tabs.Screen
         name="orders"

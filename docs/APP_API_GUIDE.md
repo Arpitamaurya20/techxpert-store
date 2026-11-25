@@ -453,8 +453,8 @@ POST /auth/verify-otp → 200
 
 **Rules:**
 - Where both carts have the same option, the larger quantity is kept, limited to the maximum and that option's stock. Different options of one product stay as separate lines. Quantities aren't added together.
-- The guest cart is then closed, so forget the saved `sessionId`.
-- From now on, cart calls send the Bearer token and no `x-session-id`.
+- The guest cart is then closed. Keep the saved `sessionId` so a failed merge can be retried, but do not send it on later cart calls.
+- From now on, cart calls send the Bearer token and no `x-session-id`. A failed merge must show an error and stay retryable. Do not replace the screen with a new empty guest cart.
 
 ### UC-9 Saved addresses (signed in)
 

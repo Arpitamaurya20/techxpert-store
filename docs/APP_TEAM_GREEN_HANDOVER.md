@@ -3,57 +3,75 @@
 **Date:** 24 Nov 2026  
 **Docs branch:** `docs/store-customer-api` (this file + related docs only)  
 **Code homes:** edit / build / upload green **only** from `Desktop/BLUE_GREEN/`  
-**Green Store API:** `https://apitest.jiotechxpert.com`  
-**Green Homecare API:** `https://apitest.techxpertindia.com`  
-**Blue Store (prod — do not treat as green):** `https://store.jiotechxpert.com`
+**GREEN Store:** `https://apitest.jiotechxpert.com`  
+**BLUE Store:** `https://store.jiotechxpert.com`  
+**GREEN Homecare:** `https://apitest.techxpertindia.com`  
 
-This document is the shared contract: **what platform already did**, **what app must deliver**, and **how to unblock the login 503** the app team reported.
+This document is the shared contract: **what platform already did**, **what app must deliver**, and **which host each service uses**.
 
-**After every docs pull:** use [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) for the pasteable brief and end-to-end verification checkmarks (auth, COD, PayU).
+**Authoritative host map:** [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) (green for today’s live slice; blue for the rest).
 
 ---
 
-## 0. Login 503 — diagnosis and fix (ops, not app code)
+## 0a. Route green-slice traffic to GREEN (not “ban blue”)
 
-Verified 24 Nov 2026 against live hosts:
+Observed blocker: the app called **BLUE** `store.jiotechxpert.com/auth/send-otp` while testing the **green** OTP/PayU go-live. That path must use **GREEN** `apitest.jiotechxpert.com`. Catalog/CMS/search may stay on BLUE.
+
+| Service made live on green today | Host |
+|---|---|
+| OTP login, green session, addresses with that JWT | GREEN |
+| Cart + checkout COD/PayU + PayU initiate/verify + those orders | GREEN |
+| Catalog, CMS, home-boot, search, wishlist, help, other existing prod | BLUE |
+
+```bash
+# Green-slice OTP (correct host for today’s go-live)
+curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://apitest.jiotechxpert.com/auth/send-otp \
+  -H 'Content-Type: application/json' \
+  -d '{"phone":"8810803874"}'
+```
+
+Payload `{ "phone": "8810803874" }` is fine. Using BLUE for green-slice OTP/PayU is the mis-route.
+
+---
+
+## 0. Login 503 on apitest — ops SMS (Store green .env)
+
+Only after the app host is **apitest**. Homecare green `.env` PRP keys do **not** apply to Store; copy them into Store green `.env`.
 
 | Call | Host | Result | Meaning |
 |---|---|---|---|
-| `POST /auth/login` | apitest | **403** | Expected when `NODE_ENV=production`. Dev-only shortcut. **Apps must not call this.** |
-| `POST /auth/send-otp` | apitest **and** blue store | **503** `"The sign-in code could not be sent. Ask for a new one."` | Store OTP SMS transport missing or PRP rejected the send |
-| `GET /health` | apitest | **200**, both DBs ok | API + MySQL are fine — this is **not** a DB outage |
-| Homecare `POST /api/auth/send-otp` | api / apitest Homecare | **404** user-not-found for dummy phone | Homecare SMS path is reachable (different product rules) |
+| `POST /auth/login` | apitest | **403** | Expected. Apps must not call this. |
+| `POST /auth/send-otp` | apitest | **503** if Store green missing PRP | Set Store green OTP env (below) |
+| `GET /health` | apitest | **200** | Not a MySQL outage |
 
-**Real customer login path (Store Expo):**
+**Real customer login path (Store Expo against green):**
 
 ```text
-POST /auth/send-otp  →  POST /auth/verify-otp  →  Authorization: Bearer <token>
+POST https://apitest.jiotechxpert.com/auth/send-otp
+  → POST https://apitest.jiotechxpert.com/auth/verify-otp
+  → Authorization: Bearer <token>
 ```
 
-**Fix on each Store Node host** (blue and/or green) — edit **existing** `server/.env`, then restart PM2. Do **not** overwrite `.env` from laptop.
+**Fix on Store green** — edit `/var/www/green-node/store/server/.env` (do not overwrite the whole file):
 
 ```bash
-# Required for production OTP (same PRP credentials Homecare already uses for TECHXPERT OTP)
 OTP_SMS_PROVIDER=prp
-PRP_SMS_API_KEY=<same key as Homecare backend>
+PRP_SMS_API_KEY=<same key as Homecare green>
 PRP_SMS_SENDER=TECHX
 PRP_SMS_TEMPLATE_NAME=TECHXPERT OTP
-
-# Confirm NODE_ENV=production on VPS (keeps /auth/login refused — correct)
-# Do NOT set OTP_SMS_PROVIDER=console on production (code treats that as missing)
 ```
 
 ```bash
-pm2 restart store-api-green   # or blue store process name
-curl -sS -X POST https://apitest.jiotechxpert.com/auth/send-otp \
+pm2 restart store-api-green --update-env
+curl -sS -w "\nHTTP:%{http_code}\n" -X POST https://apitest.jiotechxpert.com/auth/send-otp \
   -H 'Content-Type: application/json' \
-  -d '{"phone":"<real 10-digit test phone>"}'
-# Expect HTTP 200 when PRP accepts; then verify-otp with the SMS code
+  -d '{"phone":"8810803874"}'
+# Expect HTTP 200 when PRP accepts
 ```
 
-**App team:** if you still see 503 after ops confirms the curl above returns 200, paste request URL + body (no secrets). Until then, treat 503 as **server SMS config**, not Expo bug.
+Blue (`techxpert-store` / `store.jiotechxpert.com`) is separate — only touch it when promoting, not for app green testing.
 
-Local laptop: leave `NODE_ENV` unset; code uses fixed OTP `123456` and `send-otp` may return `devOtp` — no SMS needed.
+Local laptop: leave `NODE_ENV` unset; OTP is `123456` / `devOtp` — no SMS needed.
 
 ---
 
@@ -189,14 +207,14 @@ OTP SMS env on Store (section 0). Without it, every production `send-otp` is 503
 
 ### Intent for the Store Expo app
 
-Ship a coherent **materials shopping** experience against **green** first (`apitest.jiotechxpert.com`), using **Store OTP JWT**, without depending on Homecare exchange tokens yet.
+Ship green-slice flows (OTP, green cart/checkout, PayU) against **GREEN** (`apitest…`), keep existing browse on **BLUE**, using Store OTP JWT on green only — no Homecare exchange tokens yet.
 
 ### Must implement / verify
 
 | # | Deliverable | Done when |
 |---|---|---|
-| A1 | Base URL → green Store (`https://apitest.jiotechxpert.com` or `/api` twin) | Config documented; no hard-coded blue unless toggle |
-| A2 | Login = `send-otp` → `verify-otp` only | Never call `POST /auth/login` on green/prod |
+| A1 | Dual-host routing per [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) map | Green-slice calls → apitest; browse/CMS → blue until promote |
+| A2 | Green login = GREEN `send-otp` → `verify-otp` only | Never `POST /auth/login`; don’t use BLUE for green OTP tests |
 | A3 | Persist Store JWT; hydrate session; clear on 401 | Matches existing `app/` session patterns |
 | A4 | Protected calls: `/auth/me`, addresses, cart, checkout, orders | Bearer on customer routes |
 | A5 | COD checkout | `POST /cart/checkout` with `paymentMethod: "COD"` + optional `Idempotency-Key` |

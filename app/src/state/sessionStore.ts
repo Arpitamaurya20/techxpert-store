@@ -78,10 +78,10 @@ export function hydrateSession(): Promise<void> {
   return hydratePromise;
 }
 
-export function setSession(response: SignInResponse) {
+export async function setSession(response: SignInResponse) {
   const session: Session = { token: response.token, user: response.user };
   sessionStore.setState(session);
-  void writeStoredSession(session);
+  await writeStoredSession(session);
   void import('@/services/addressApi')
     .then(({ getAddresses }) => getAddresses())
     .then((addresses) => {

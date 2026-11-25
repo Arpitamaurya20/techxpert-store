@@ -81,7 +81,7 @@ export function LoginForm() {
         <FormAlert
           variant="warning"
           title="Developer note: API not configured"
-          message="Set EXPO_PUBLIC_API_BASE_URL in .env.local to the green API (apitest.jiotechxpert.com/api)."
+          message="Set EXPO_PUBLIC_API_BASE_URL (blue) and EXPO_PUBLIC_GREEN_API_BASE_URL (green) in .env.local."
         />
       ) : null}
 

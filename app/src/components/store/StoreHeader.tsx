@@ -5,9 +5,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandMark } from '@/components/brand/BrandMark';
-import { GLASS_EDGE, GlassBackground, glassSurface } from '@/components/ui/GlassBackground';
 import { BRAND } from '@/constants/brand';
-import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, radius, spacing } from '@/constants/theme';
+import { MAX_STORE_WIDTH, SCREEN_PADDING, colors, fonts, spacing } from '@/constants/theme';
 import { useCartCount } from '@/state/cartStore';
 import { useDeliveryLocation } from '@/state/locationStore';
 import { addRecentSearch } from '@/state/searchHistoryStore';
@@ -30,7 +29,7 @@ function HeaderAction({ icon, accessibilityLabel, onPress, badgeCount = 0 }: Hea
       hitSlop={4}
       style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
     >
-      <Ionicons name={icon} size={21} color={colors.navy} />
+      <Ionicons name={icon} size={22} color={colors.navy} />
       {badgeCount > 0 ? (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
@@ -49,9 +48,8 @@ type HeaderSearch = {
 };
 
 /**
- * Compact store header: logo, delivery location, cart, profile and search.
- * Screens pin it with `stickyHeaderIndices={[0]}` so search stays one tap away.
- * By default the search opens product results; pass `search` to drive it from the screen instead.
+ * Home-style store header matching the Techxpert mock: logo, circular cart/profile,
+ * inline deliver-to, and search with voice.
  */
 export function StoreHeader({ search: screenSearch }: { search?: HeaderSearch } = {}) {
   const router = useRouter();
@@ -61,7 +59,7 @@ export function StoreHeader({ search: screenSearch }: { search?: HeaderSearch } 
   const [searchText, setSearchText] = useState('');
   const locationText = location
     ? [location.city, location.pincode].filter(Boolean).join(', ')
-    : 'Select your delivery location';
+    : 'Select location';
 
   const search = (query: string) => {
     addRecentSearch(query);
@@ -70,7 +68,6 @@ export function StoreHeader({ search: screenSearch }: { search?: HeaderSearch } 
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-      <GlassBackground />
       <View style={styles.inner}>
         <View style={styles.topRow}>
           <View style={styles.brand}>
@@ -78,41 +75,44 @@ export function StoreHeader({ search: screenSearch }: { search?: HeaderSearch } 
             <Text style={styles.tagline}>{BRAND.tagline}</Text>
           </View>
 
-          <HeaderAction
-            icon="cart-outline"
-            accessibilityLabel="Cart"
-            badgeCount={cartCount}
-            onPress={() => router.navigate('/cart')}
-          />
-          <HeaderAction icon="person-outline" accessibilityLabel="Profile" onPress={() => router.navigate('/profile')} />
+          <View style={styles.actions}>
+            <HeaderAction
+              icon="cart-outline"
+              accessibilityLabel="Cart"
+              badgeCount={cartCount}
+              onPress={() => router.navigate('/cart')}
+            />
+            <HeaderAction
+              icon="person-outline"
+              accessibilityLabel="Profile"
+              onPress={() => router.navigate('/profile')}
+            />
+          </View>
         </View>
 
         <Pressable
           onPress={() => router.push('/delivery-location')}
           accessibilityRole="button"
           accessibilityLabel={`Deliver to ${location ? locationText : 'location not set'}. Change location`}
-          style={({ pressed }) => [styles.location, pressed && styles.actionPressed]}
+          style={({ pressed }) => [styles.location, pressed && styles.locationPressed]}
         >
-          <Ionicons name="location-outline" size={20} color={colors.navy} />
-          <View style={styles.locationText}>
-            <Text style={styles.locationLabel}>Deliver to</Text>
-            <View style={styles.locationValueRow}>
-              <Text style={styles.locationValue} numberOfLines={1}>
-                {locationText}
-              </Text>
-              <Ionicons name="chevron-down" size={14} color={colors.navy} />
-            </View>
-          </View>
+          <Ionicons name="location-sharp" size={18} color={colors.navy} />
+          <Text style={styles.locationLead}>Deliver to </Text>
+          <Text style={styles.locationValue} numberOfLines={1}>
+            {locationText}
+          </Text>
+          <Ionicons name="chevron-down" size={14} color={colors.navy} />
         </Pressable>
 
         {screenSearch ? (
-          <ProductSearchBar {...screenSearch} />
+          <ProductSearchBar {...screenSearch} shape="pill" />
         ) : (
           <ProductSearchBar
             value={searchText}
             onChangeText={setSearchText}
             onSubmit={search}
-            placeholder="Search cement, tiles, paints, plumbing..."
+            placeholder="Search cement, tiles, paints, plumb..."
+            shape="pill"
             voice
           />
         )}
@@ -126,7 +126,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: SCREEN_PADDING,
     paddingBottom: spacing.md,
-    ...glassSurface,
+    backgroundColor: colors.white,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.cardBorder,
   },
   inner: {
     width: '100%',
@@ -150,64 +152,63 @@ const styles = StyleSheet.create({
     color: colors.navy,
     opacity: 0.72,
   },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   location: {
     alignSelf: 'flex-start',
     maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: 2,
     paddingVertical: 2,
     paddingRight: spacing.sm,
-    borderRadius: radius.sm,
   },
-  locationText: {
-    flexShrink: 1,
-    minWidth: 0,
+  locationPressed: {
+    opacity: 0.75,
   },
-  locationLabel: {
-    fontSize: 11,
-    lineHeight: 14,
+  locationLead: {
+    fontSize: 13,
+    lineHeight: 18,
     fontFamily: fonts.regular,
-    color: colors.textMuted,
-  },
-  locationValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
+    color: colors.navy,
   },
   locationValue: {
     flexShrink: 1,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 13,
+    lineHeight: 18,
     fontFamily: fonts.semiBold,
     color: colors.navy,
+    textTransform: 'lowercase',
   },
   action: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderRadius: 21,
+    backgroundColor: colors.white,
     borderWidth: 1,
-    borderColor: GLASS_EDGE,
+    borderColor: colors.cardBorder,
   },
   actionPressed: {
-    backgroundColor: 'rgba(15, 23, 42, 0.06)',
+    backgroundColor: colors.navySoft,
   },
   badge: {
     position: 'absolute',
-    top: -4,
-    right: -4,
+    top: -3,
+    right: -3,
     minWidth: 18,
     height: 18,
     paddingHorizontal: 4,
     borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.orange,
+    backgroundColor: colors.logoRed,
     borderWidth: 1.5,
-    borderColor: colors.card,
+    borderColor: colors.white,
   },
   badgeText: {
     fontSize: 10,

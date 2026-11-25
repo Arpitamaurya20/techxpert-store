@@ -1,14 +1,28 @@
 # App team handover — live API, scope, and `app/` structure
 
-For whoever builds or finishes the customer Expo app in `app/`. After pull, start with [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) (what landed + verification checkmarks), then [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for request/response examples. Route bible: [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md).
+For whoever builds or finishes the customer Expo app in `app/`. Pull `develop`, read this first, then use [`APP_API_GUIDE.md`](./APP_API_GUIDE.md) for exact request/response examples.
 
-**Date:** 24 Nov 2026 (login 503 ops + Expo green wiring + pull brief)  
+**Date:** 25 Nov 2026 (signed-in cart JWT + guest merge)
+
+After OTP, the app stores the Store JWT, keeps the original guest `sessionId`, `POST /cart/merge` with `Authorization: Bearer` and that `sessionId`, then `GET /cart` with the JWT and no `x-session-id`. A merge error stays on screen with Retry. `GET /cart` with a valid JWT uses the account cart (Homecare `userId`) and does not open a new guest cart.  
 **Branch:** `techxpertstore-branch` (do not push to `main` directly)  
 **Docs / green contract:** start with [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md)  
 **Green code / uploads:** see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md)  
 **Live API + staff portal (blue):** `https://store.jiotechxpert.com`  
 **Green API (auth + PayU):** `https://apitest.jiotechxpert.com`  
-**Expo QA base:** `EXPO_PUBLIC_API_BASE_URL=https://apitest.jiotechxpert.com/api` (see `app/.env.example`)
+**Expo QA bases:** BLUE `EXPO_PUBLIC_API_BASE_URL=https://store.jiotechxpert.com/api` + GREEN `EXPO_PUBLIC_GREEN_API_BASE_URL=https://apitest.jiotechxpert.com/api` (see `app/.env.example`)
+
+---
+
+## Ack — 25 Nov 2026 (dual host + signed-in cart 500 on green)
+
+| Finding | Action |
+|---|---|
+| Wrong single base | App was sending **all** traffic to green. Fixed: dual bases per [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) — BLUE browse/CMS; GREEN OTP/cart/checkout/PayU/orders. Router in `app/src/services/apiConfig.ts`. |
+| Cart host | `PUT /cart/items/…` on `apitest…` is the **correct** green cart host when checking out on green (not blue). Network must show catalog on `store.jiotechxpert.com` and cart/OTP on `apitest…`. |
+| Signed-in cart 500 | Green FK `fk_cart_user` on `carts.UserID` → REFERENCES `users(ID)`. Homecare ids are logical-only. Ops: `ALTER TABLE carts DROP FOREIGN KEY fk_cart_user;` ([`server/sql/carts_userid_logical_fk.sql`](../server/sql/carts_userid_logical_fk.sql)). |
+| Checkout 403 / PayU | Bearer + a **guest** `cartId` is 403. After merge, COD and PayU send the account cart id and the Store JWT, and do not send `x-session-id`. PayU stays behind `EXPO_PUBLIC_PAYU_ENABLED=1`. |
+| JWT | Green token on auth, cart (after merge), checkout, PayU, and orders. Guests send `x-session-id` only. Never send the green JWT to BLUE. |
 
 ---
 
@@ -16,14 +30,14 @@ For whoever builds or finishes the customer Expo app in `app/`. After pull, star
 
 | Finding | Action |
 |---|---|
-| App “login” **503** on Store | Almost always `POST /auth/send-otp` — Store host missing `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (same TECHXPERT OTP creds as Homecare). `/health` can still be 200. |
-| `POST /auth/login` **403** on prod/green | Expected. Do **not** call it from the app. |
-| Where to upload green | Only from `BLUE_GREEN/` — see [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
-| Platform vs app deliverables | [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md) |
-| After pull — prompt + tick boxes | [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) |
-| Route bible | [`STORE_CUSTOMER_API.md`](./STORE_CUSTOMER_API.md) |
+| Host routing | **Map by service** — not one hard base. GREEN (`apitest…`) for today’s live slice; BLUE (`store.jiotechxpert.com`) for the rest. See [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) host map. |
+| Green-slice OTP on BLUE | Mis-route. `send-otp` / `verify-otp` / green checkout / PayU / those orders → **GREEN**. |
+| Browse / CMS / search | Stay on **BLUE** until promote. |
+| App “login” **503** on GREEN | Store green needs `OTP_SMS_PROVIDER=prp` + `PRP_SMS_*` (Homecare green `.env` does not count). |
+| `POST /auth/login` **403** | Expected on prod/green. Use OTP. |
+| Upload green | Only from `BLUE_GREEN/` — [`GREEN_DEPLOY_MANIFEST.md`](./GREEN_DEPLOY_MANIFEST.md) |
 
-Ops must set OTP env on Store blue and/or green and restart PM2 before the app team can complete OTP sign-in against those hosts.
+**App team first step:** implement dual bases (or a router) from the host map; do not send green OTP/PayU to `store.jiotechxpert.com`.
 
 ---
 

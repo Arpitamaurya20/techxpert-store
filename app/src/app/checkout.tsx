@@ -21,7 +21,8 @@ import { MAX_CONTENT_WIDTH, SCREEN_PADDING, cardShadow, colors, fonts, radius, s
 import { usePincodeCheck } from '@/hooks/usePincodeCheck';
 import { useStatusBarStyle } from '@/hooks/useStatusBarStyle';
 import { ApiError, getErrorMessage } from '@/services/apiClient';
-import { isApiConfigured } from '@/services/apiConfig';
+import { isApiConfigured, isPayUEnabled } from '@/services/apiConfig';
+import { retireIdempotencyKey, reuseOrMintIdempotencyKey } from '@/services/cartAuthPolicy';
 import { placeOrder, type PaymentMethod } from '@/services/orderApi';
 import {
   clearCart,
@@ -75,10 +76,17 @@ type PaymentOption = {
   available: boolean;
 };
 
-/** COD always; PayU when signed in (docs/APP_TEAM_PULL_BRIEF.md UC-10b). */
+/** COD always. PayU only when EXPO_PUBLIC_PAYU_ENABLED=1 (green account cart must work). */
 const PAYMENT_OPTIONS: PaymentOption[] = [
   { id: 'COD', title: 'Cash on delivery', subtitle: 'Pay when your order arrives', available: true },
-  { id: 'PayU', title: 'Pay online', subtitle: 'UPI, cards and net banking via PayU', available: true },
+  {
+    id: 'PayU',
+    title: 'Pay online',
+    subtitle: isPayUEnabled
+      ? 'UPI, cards and net banking via PayU'
+      : 'Temporarily unavailable on the test API — use cash on delivery',
+    available: isPayUEnabled,
+  },
 ];
 
 function defaultAddress() {
@@ -124,8 +132,10 @@ export default function CheckoutScreen() {
   const [submitted, setSubmitted] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
-  /** Stable across retries of the same checkout attempt (Idempotency-Key). */
+  /** Same key only while the checkout payload is unchanged. */
   const idempotencyKeyRef = useRef<string | null>(null);
+  const idempotencyFingerprintRef = useRef<string | null>(null);
+  const placingRef = useRef(false);
 
   const errors = {
     name: validateFullName(name),
@@ -155,7 +165,7 @@ export default function CheckoutScreen() {
   };
 
   const submit = async () => {
-    if (placing) return;
+    if (placingRef.current) return;
     setSubmitted(true);
     if (Object.values(errors).some(Boolean)) {
       showToast({ variant: 'error', message: 'Please complete your delivery details.', bottomOffset: barHeight });
@@ -167,6 +177,15 @@ export default function CheckoutScreen() {
         message: delivery.state === 'checking' ? 'Checking delivery to your pincode…' : delivery.message,
         bottomOffset: barHeight,
       });
+      return;
+    }
+    if (paymentMethod === 'PayU' && !isPayUEnabled) {
+      showToast({
+        variant: 'error',
+        message: 'Pay online is temporarily unavailable on the test API. Please use cash on delivery.',
+        bottomOffset: barHeight,
+      });
+      setPaymentMethod('COD');
       return;
     }
     if (paymentMethod === 'PayU' && !signedIn) {
@@ -212,10 +231,6 @@ export default function CheckoutScreen() {
       return;
     }
 
-    setPlacing(true);
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current = `store-checkout-${cart.cartId ?? 'guest'}-${Date.now()}`;
-    }
     const matchedSaved =
       selectedAddressId &&
       savedAddresses.find(
@@ -225,6 +240,27 @@ export default function CheckoutScreen() {
           item.city === city.trim() &&
           item.pincode === pincode.trim()
       );
+    const addressId = user && matchedSaved ? matchedSaved.id : undefined;
+    const fingerprint = [
+      cart.cartId ?? '',
+      String(cart.grandTotal),
+      paymentMethod,
+      name.trim(),
+      normalizeIndianMobile(mobile),
+      line.trim(),
+      city.trim(),
+      pincode.trim(),
+      addressId ?? '',
+    ].join('|');
+    const idempotency = reuseOrMintIdempotencyKey(
+      { key: idempotencyKeyRef.current, fingerprint: idempotencyFingerprintRef.current },
+      fingerprint,
+      () => `store-checkout-${cart.cartId ?? 'guest'}-${Date.now()}`
+    );
+    idempotencyKeyRef.current = idempotency.key;
+    idempotencyFingerprintRef.current = idempotency.fingerprint;
+    placingRef.current = true;
+    setPlacing(true);
     try {
       const order = await placeOrder({
         cartId: cart.cartId,
@@ -232,11 +268,12 @@ export default function CheckoutScreen() {
         customerName: name.trim(),
         mobile: normalizeIndianMobile(mobile),
         address: { line: line.trim(), city: city.trim(), pincode: pincode.trim() },
-        addressId: user && matchedSaved ? matchedSaved.id : undefined,
+        addressId,
         paymentMethod,
-        idempotencyKey: idempotencyKeyRef.current,
+        idempotencyKey: idempotency.key,
       });
       idempotencyKeyRef.current = null;
+      idempotencyFingerprintRef.current = null;
       clearCart();
       if (paymentMethod === 'PayU') {
         router.replace({
@@ -261,13 +298,23 @@ export default function CheckoutScreen() {
         },
       });
     } catch (error) {
-      const message = isUnconfirmed(error) ? UNCONFIRMED_ORDER : getErrorMessage(error);
-      showToast({ variant: 'error', message, bottomOffset: barHeight });
-      if (isRefusal(error)) {
+      const raw = getErrorMessage(error);
+      const idempotencyConflict = /already in progress or used with a different body/i.test(raw);
+      const message = isUnconfirmed(error) ? UNCONFIRMED_ORDER : raw;
+      showToast({
+        variant: 'error',
+        message: idempotencyConflict
+          ? 'That checkout attempt did not finish. Tap the button once more.'
+          : message,
+        bottomOffset: barHeight,
+      });
+      if (error instanceof ApiError && retireIdempotencyKey(error.status, raw)) {
         idempotencyKeyRef.current = null;
-        void refreshCart();
+        idempotencyFingerprintRef.current = null;
+        if (isRefusal(error)) void refreshCart();
       }
     } finally {
+      placingRef.current = false;
       setPlacing(false);
     }
   };
@@ -461,11 +508,22 @@ export default function CheckoutScreen() {
               <View accessibilityRole="radiogroup" style={styles.paymentList}>
                 {PAYMENT_OPTIONS.map((option) => {
                   const needsSignIn = option.id === 'PayU' && !signedIn;
+                  const unavailable = !option.available;
+                  const blocked = needsSignIn || unavailable;
                   const selected = paymentMethod === option.id;
                   return (
                     <Pressable
                       key={option.id}
                       onPress={() => {
+                        if (unavailable) {
+                          showToast({
+                            variant: 'error',
+                            message: 'Pay online is temporarily unavailable on the test API. Please use cash on delivery.',
+                            bottomOffset: barHeight,
+                          });
+                          setPaymentMethod('COD');
+                          return;
+                        }
                         if (needsSignIn) {
                           showToast({
                             variant: 'error',
@@ -478,12 +536,12 @@ export default function CheckoutScreen() {
                         setPaymentMethod(option.id);
                       }}
                       accessibilityRole="radio"
-                      accessibilityState={{ checked: selected, disabled: needsSignIn }}
-                      accessibilityLabel={`${option.title}. ${option.subtitle}${needsSignIn ? '. Sign in required' : ''}`}
+                      accessibilityState={{ checked: selected, disabled: blocked }}
+                      accessibilityLabel={`${option.title}. ${option.subtitle}${blocked ? '. Unavailable' : ''}`}
                       style={({ pressed }) => [
                         styles.payment,
                         selected && styles.paymentSelected,
-                        needsSignIn && styles.paymentOff,
+                        blocked && styles.paymentOff,
                         pressed && styles.paymentPressed,
                       ]}
                     >

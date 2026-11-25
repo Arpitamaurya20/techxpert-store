@@ -2,23 +2,23 @@ import type { Href } from 'expo-router';
 import type { ImageSourcePropType } from 'react-native';
 
 import { HERO_SLIDES, type HeroSlide } from '@/data/homeContent';
-import { API_BASE_URL, isApiConfigured } from './apiConfig';
+import { BLUE_API_BASE_URL, isApiConfigured } from './apiConfig';
 import { ApiError, apiGet } from './apiClient';
 import { asId, asRecord, asText, normalizeList, type RawRecord } from './normalize';
 
-/** Absolute URL for CMS image paths so Expo Image can load them (L5). */
+/** Absolute URL for CMS image paths so Expo Image can load them (L5). Uses BLUE. */
 function resolveMediaUrl(url: string): string {
   const raw = url.trim();
   if (!raw) return raw;
   if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
   if (!raw.startsWith('/')) return raw;
-  // Uploaded campaign files are on the API, even when other assets use a website origin.
+  // Uploaded campaign files are on the BLUE API, even when other assets use a website origin.
   if (raw.startsWith('/uploads/')) {
-    if (!API_BASE_URL) return raw;
-    return `${API_BASE_URL}${raw}`;
+    if (!BLUE_API_BASE_URL) return raw;
+    return `${BLUE_API_BASE_URL}${raw}`;
   }
   const assetBase = (process.env.EXPO_PUBLIC_ASSET_BASE_URL ?? '').trim().replace(/\/+$/, '');
-  const base = assetBase || API_BASE_URL;
+  const base = assetBase || BLUE_API_BASE_URL;
   if (!base) return raw;
   return `${base}${raw}`;
 }

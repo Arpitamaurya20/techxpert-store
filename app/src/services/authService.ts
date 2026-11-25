@@ -1,5 +1,5 @@
 import { ApiError, apiGet } from './apiClient';
-import { API_BASE_URL, REQUEST_TIMEOUT_MS, isApiConfigured } from './apiConfig';
+import { GREEN_API_BASE_URL, REQUEST_TIMEOUT_MS, isApiConfigured } from './apiConfig';
 import { asRecord, asText } from './normalize';
 
 /**
@@ -87,7 +87,8 @@ async function authFetch(path: string, body: unknown): Promise<Response> {
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    return await fetch(`${API_BASE_URL}${path}`, {
+    // OTP must hit GREEN (docs/APP_TEAM_PULL_BRIEF.md) — never blue store host.
+    return await fetch(`${GREEN_API_BASE_URL}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(body),

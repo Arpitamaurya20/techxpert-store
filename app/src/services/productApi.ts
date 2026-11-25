@@ -25,7 +25,7 @@ import { asId, asNumber, asRecord, asText, normalizeList } from './normalize';
 /**
  * Store catalogue service.
  *
- * When `EXPO_PUBLIC_API_BASE_URL` is set, every function calls the real API
+ * When Store API bases are set, every function calls BLUE catalog routes
  * and API failures are shown as errors (never silently replaced by demo
  * data). When it is not set, the clearly labelled demo data in `src/data/`
  * is returned with `source: 'demo'` so screens can show a "Sample data" notice.

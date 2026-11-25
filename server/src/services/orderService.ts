@@ -583,7 +583,7 @@ export class OrderService {
         paymentStatus,
         order.paymentMethod,
         source,
-        order.createdBy ?? order.userId ?? 1,
+        order.createdBy ?? null,
       ]
     );
     const orderId = Number(orderRes.insertId);
@@ -638,7 +638,7 @@ export class OrderService {
       `INSERT INTO order_status_history
        (OrderID, OrderStatus, PaymentStatus, Notes, ChangedBy, CreatedDate, CreatedTime)
        VALUES (?, ?, ?, ?, ?, CURDATE(), CURTIME())`,
-      [orderId, orderStatus, paymentStatus, order.historyNote ?? order.notes, order.userId || 1]
+      [orderId, orderStatus, paymentStatus, order.historyNote ?? order.notes, order.createdBy ?? null]
     );
     return orderId;
   }

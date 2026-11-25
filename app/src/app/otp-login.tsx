@@ -20,6 +20,7 @@ import { TextLink } from '@/components/ui/TextLink';
 import { MAX_CONTENT_WIDTH, cardShadow, colors, fonts, radius, spacing, typography } from '@/constants/theme';
 import { AuthError, getAuthErrorMessage, sendOtp, verifyOtp } from '@/services/authService';
 import { setDeliveryLocation } from '@/state/locationStore';
+import { mergeCartIntoAccount } from '@/state/cartStore';
 import { setSession } from '@/state/sessionStore';
 import { normalizeIndianMobile, validateMobile } from '@/utils/validation';
 
@@ -76,8 +77,14 @@ export default function OtpLoginScreen() {
         otp: otp.trim(),
         ...(name.trim() ? { name: name.trim() } : {}),
       });
-      setSession(response);
+      await setSession(response);
       if (response.user.deliveryLocation) setDeliveryLocation(response.user.deliveryLocation);
+      try {
+        // JWT is stored. The guest sessionId is left in place for merge.
+        await mergeCartIntoAccount();
+      } catch {
+        // The guest cart stays on screen. Cart shows the error and a retry.
+      }
       goToStore();
     } catch (error) {
       const notConfigured = error instanceof AuthError && error.code === 'NOT_CONFIGURED';

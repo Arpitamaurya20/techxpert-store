@@ -1,8 +1,11 @@
 import { getAuthToken } from '@/state/sessionStore';
+import { accountCartLinked } from '@/state/cartLink';
 import type { Order, OrderItem, OrderStatus } from '@/types/order';
 
 import { ApiError, apiGet, apiPost } from './apiClient';
 import { isApiConfigured } from './apiConfig';
+import { isPayUEnabled } from './apiConfig';
+import { checkoutTransport } from './cartAuthPolicy';
 import { cartHeaders } from './cartApi';
 import { asId, asList, asNumber, asRecord, asText, normalizeList } from './normalize';
 
@@ -110,41 +113,15 @@ export type PlacedOrder = {
   paymentStatus?: string;
 };
 
-/**
- * Places an order from the server cart (POST /cart/checkout).
- * COD or PayU (PayU requires signed-in — docs/APP_TEAM_PULL_BRIEF.md).
- * Signed-in: prefer `addressId`. Guests: shippingAddress + guest fields (COD only).
- */
-export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
-  const { line, city, pincode } = input.address;
-  const signedIn = Boolean(getAuthToken());
-  const body: Record<string, unknown> = {
-    ...(input.cartId ? { cartId: input.cartId } : {}),
-    expectedTotal: input.expectedTotal,
-    paymentMethod: input.paymentMethod,
-    pincode,
-  };
-
-  if (signedIn && input.addressId) {
-    body.addressId = input.addressId;
-  } else {
-    body.shippingAddress = `${line}, ${city} - ${pincode}`;
-    if (!signedIn) {
-      body.guestName = input.customerName;
-      body.guestPhone = input.mobile;
-    }
-  }
-
-  const headers: Record<string, string> = { ...(await cartHeaders()) };
-  if (input.idempotencyKey) headers['Idempotency-Key'] = input.idempotencyKey;
-
-  const raw = await apiPost('/cart/checkout', body, { headers });
-
+function parsePlacedOrder(raw: unknown): PlacedOrder {
   const envelope = asRecord(raw);
   const record = asRecord(envelope?.data) ?? envelope;
   const id = asId(record?.id);
   if (!record || !id) {
-    throw new ApiError('INVALID_RESPONSE', 'We could not confirm your order. Please check My Orders before trying again.');
+    throw new ApiError(
+      'INVALID_RESPONSE',
+      'We could not confirm your order. Please check My Orders before trying again.'
+    );
   }
   const totals = asRecord(record.totals);
   return {
@@ -156,6 +133,74 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
     paymentMethod: asText(record.paymentMethod),
     paymentStatus: asText(record.paymentStatus),
   };
+}
+
+function isGuestCartAuthConflict(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 403 || error.status === 401) &&
+    /not authorized to access this cart|sign in to pay online|foreign key|CARTS_USERID_FK/i.test(
+      error.message
+    )
+  );
+}
+
+/**
+ * Places an order from the server cart (POST /cart/checkout).
+ *
+ * Signed-in customers send the Store JWT and the account cart id, with no guest
+ * session. Guests send `x-session-id` and pay cash on delivery. PayU requires the JWT.
+ */
+export async function placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
+  const { line, city, pincode } = input.address;
+  const signedIn = Boolean(getAuthToken());
+  if (input.paymentMethod === 'PayU' && !isPayUEnabled) {
+    throw new ApiError(
+      'SERVER',
+      'Pay online is temporarily unavailable on the test API. Please use cash on delivery.',
+      403
+    );
+  }
+
+  const transport = checkoutTransport({
+    paymentMethod: input.paymentMethod,
+    signedIn,
+    accountLinked: accountCartLinked(),
+    cartId: input.cartId,
+  });
+  if ('error' in transport) {
+    throw new ApiError('UNAUTHORIZED', transport.error, 401);
+  }
+
+  const headers: Record<string, string> = transport.sendSession ? { ...(await cartHeaders()) } : {};
+  if (input.idempotencyKey) headers['Idempotency-Key'] = input.idempotencyKey;
+
+  const shippingAddress = `${line}, ${city} - ${pincode}`;
+  const body: Record<string, unknown> = {
+    ...(transport.cartId ? { cartId: Number(transport.cartId) || transport.cartId } : {}),
+    expectedTotal: input.expectedTotal,
+    paymentMethod: input.paymentMethod,
+    pincode,
+    shippingAddress,
+    ...(input.addressId ? { addressId: Number(input.addressId) || input.addressId } : {}),
+    guestName: input.customerName,
+    guestPhone: input.mobile,
+  };
+
+  try {
+    return parsePlacedOrder(
+      await apiPost('/cart/checkout', body, { headers, skipAuth: !transport.sendJwt })
+    );
+  } catch (error) {
+    if (input.paymentMethod === 'PayU' && isGuestCartAuthConflict(error)) {
+      throw new ApiError(
+        'SERVER',
+        'Pay online needs the account cart. Retry moving your cart to your account, then try again.',
+        403
+      );
+    }
+    throw error;
+  }
 }
 
 export async function getOrders(): Promise<OrdersResult> {

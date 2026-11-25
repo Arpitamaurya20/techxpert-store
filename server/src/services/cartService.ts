@@ -17,6 +17,15 @@ import {
   type CartTotals,
   type LineProblem,
 } from '../utils/cartRules.js';
+import {
+  checkoutMayUseCart,
+  chooseAccountCart,
+  customerId,
+  groupMergeLines,
+  variantsToTransfer,
+  type AccountCartCandidate,
+  type MergeSourceLine,
+} from '../utils/cartHandoff.js';
 import { ShopSettingsService } from './shopSettingsService.js';
 import { resolveCatalogImageUrl } from '../utils/catalogMedia.js';
 
@@ -70,7 +79,7 @@ const PRODUCT_FACTS = `
   ${VARIANT_SELLING_PRICE} as price`;
 
 export class CartService {
-  /** Ensure the caller owns the cart (user JWT or matching x-session-id). */
+  /** Ensure the caller owns the cart. A JWT user may only use their account cart. */
   static async assertCartAccess(cartId: number, userId?: number, sessionId?: string) {
     const [rows] = await storePool.query<any[]>(
       `SELECT ID as id, UserID as userId, SessionID as sessionId, Status as status
@@ -81,38 +90,96 @@ export class CartService {
       throw Object.assign(new Error('Cart not found'), { statusCode: 404 });
     }
     const cart = rows[0];
-    if (cart.userId != null) {
-      if (userId != null && Number(cart.userId) === Number(userId)) return cart;
+    const allowed = checkoutMayUseCart(
+      {
+        userId: cart.userId == null ? null : Number(cart.userId),
+        sessionId: cart.sessionId == null ? null : String(cart.sessionId),
+      },
+      { userId: customerId(userId), sessionId }
+    );
+    if (!allowed) {
       throw Object.assign(new Error('Not authorized to access this cart'), { statusCode: 403 });
     }
-    if (sessionId && cart.sessionId && String(cart.sessionId) === String(sessionId)) {
-      return cart;
-    }
-    throw Object.assign(new Error('Not authorized to access this cart'), { statusCode: 403 });
+    return cart;
+  }
+
+  /** Active account cart for this Homecare user id. Prefers a cart that already has lines. */
+  private static async findAccountCart(
+    userId: number,
+    conn: Pick<PoolConnection, 'query'>,
+    lock: boolean
+  ): Promise<CartRow | null> {
+    const [rows] = await conn.query<any[]>(
+      `SELECT c.ID as id, c.UserID as userId, c.SessionID as sessionId,
+              (SELECT COUNT(*) FROM cart_items ci WHERE ci.CartID = c.ID) AS itemCount
+       FROM carts c
+       WHERE c.UserID = ? AND c.Status = 'active'`,
+      [userId]
+    );
+    const chosen = chooseAccountCart(
+      rows.map(
+        (row): AccountCartCandidate => ({
+          id: Number(row.id),
+          userId: Number(row.userId),
+          itemCount: Number(row.itemCount) || 0,
+        })
+      )
+    );
+    if (!chosen) return null;
+    if (lock) await conn.query(`SELECT ID FROM carts WHERE ID = ? FOR UPDATE`, [chosen.id]);
+    const row = rows.find((entry) => Number(entry.id) === chosen.id);
+    return {
+      id: chosen.id,
+      userId: chosen.userId,
+      sessionId: row?.sessionId == null ? null : String(row.sessionId),
+    };
   }
 
   /**
-   * The caller's active cart. Signed in: by user. Guest: by a server-issued session id;
-   * an unknown or missing id gets a new cart with a new id.
+   * The caller's active cart. Signed in: the account cart for the JWT userId.
+   * Guest: the session cart. An unknown guest id gets a new cart. A JWT never
+   * creates or returns a guest cart.
    */
-  static async activeCart(access: CartAccess): Promise<CartRow> {
-    if (access.userId) {
-      const [rows] = await storePool.query<any[]>(
-        `SELECT ID as id, UserID as userId, SessionID as sessionId FROM carts
-         WHERE UserID = ? AND Status = 'active' ORDER BY ID DESC LIMIT 1`,
-        [access.userId]
-      );
-      if (rows.length) return rows[0];
-      const [res] = await storePool.query<any>(
-        `INSERT INTO carts (UserID, SessionID, CurrencyID, Status, CreatedDate, CreatedTime)
-         VALUES (?, NULL, 1, 'active', CURDATE(), CURTIME())`,
-        [access.userId]
-      );
-      return { id: Number(res.insertId), userId: access.userId, sessionId: null };
+  static async activeCart(
+    access: CartAccess,
+    conn: Pick<PoolConnection, 'query'> = storePool,
+    lock = false
+  ): Promise<CartRow> {
+    const userId = customerId(access.userId);
+    if (userId) {
+      const existing = await CartService.findAccountCart(userId, conn, lock);
+      if (existing) return existing;
+      try {
+        const [res] = await conn.query<any>(
+          `INSERT INTO carts (UserID, SessionID, CurrencyID, Status, CreatedDate, CreatedTime)
+           VALUES (?, NULL, 1, 'active', CURDATE(), CURTIME())`,
+          [userId]
+        );
+        const createdId = Number(res.insertId);
+        const canonical = await CartService.findAccountCart(userId, conn, lock);
+        if (canonical && canonical.id !== createdId) {
+          const [items] = await conn.query<any[]>(`SELECT ID FROM cart_items WHERE CartID = ? LIMIT 1`, [createdId]);
+          if (!items.length) await conn.query(`DELETE FROM carts WHERE ID = ?`, [createdId]);
+          return canonical;
+        }
+        return { id: createdId, userId, sessionId: null };
+      } catch (err) {
+        const code = (err as { code?: string } | undefined)?.code;
+        // Homecare user ids are logical refs — a real FK to store.users breaks every signed-in cart.
+        if (code === 'ER_NO_REFERENCED_ROW_2' || code === 'ER_NO_REFERENCED_ROW') {
+          throw Object.assign(
+            new Error(
+              'Signed-in cart is blocked by a carts.UserID foreign key. Run server/sql/carts_userid_logical_fk.sql on the Store DB (UserID is a logical ref to homecare.users).'
+            ),
+            { statusCode: 500, code: 'CARTS_USERID_FK' }
+          );
+        }
+        throw err;
+      }
     }
 
     if (isUsableSessionId(access.sessionId)) {
-      const [rows] = await storePool.query<any[]>(
+      const [rows] = await conn.query<any[]>(
         `SELECT ID as id, UserID as userId, SessionID as sessionId FROM carts
          WHERE SessionID = ? AND UserID IS NULL AND Status = 'active' ORDER BY ID DESC LIMIT 1`,
         [access.sessionId]
@@ -121,7 +188,7 @@ export class CartService {
     }
 
     const sessionId = newSessionId();
-    const [res] = await storePool.query<any>(
+    const [res] = await conn.query<any>(
       `INSERT INTO carts (UserID, SessionID, CurrencyID, Status, CreatedDate, CreatedTime)
        VALUES (NULL, ?, 1, 'active', CURDATE(), CURTIME())`,
       [sessionId]
@@ -313,60 +380,64 @@ export class CartService {
     return CartService.pricedCart(cart);
   }
 
-  /** Moves a guest cart into the signed-in customer's cart, keeping the larger quantity of each option. */
+  /**
+   * Moves a guest cart into the signed-in customer's cart, keeping the larger quantity of each option.
+   * The guest cart is marked merged only after the transfer commits. A second call finds no active
+   * guest cart and does not insert the lines again.
+   */
   static async mergeGuestCart(userId: number, sessionId: unknown): Promise<PricedCart> {
-    const account = await CartService.activeCart({ userId });
-    if (!isUsableSessionId(sessionId)) return CartService.pricedCart(account);
+    const id = customerId(userId);
+    if (!id) throw orderRefusal(403, 'Only customers have a cart');
 
     const conn = await storePool.getConnection();
+    let account: CartRow | null = null;
     try {
       await conn.beginTransaction();
-      const [guests] = await conn.query<any[]>(
-        `SELECT ID as id FROM carts
-         WHERE SessionID = ? AND UserID IS NULL AND Status = 'active'
-         FOR UPDATE`,
-        [sessionId]
-      );
-      if (!guests.length) {
-        await conn.rollback();
-        return CartService.pricedCart(account);
-      }
-      const guestIds = guests.map((g) => Number(g.id));
-
-      const [lines] = await conn.query<any[]>(
-        `SELECT ci.CartID as cartId, ci.VariantID as variantId, pv.ProductID as productId, ci.Quantity as quantity
-         FROM cart_items ci JOIN product_variants pv ON pv.ID = ci.VariantID
-         WHERE ci.CartID IN (?)`,
-        [[account.id, ...guestIds]]
-      );
-      const byVariant = new Map<number, { productId: number; account?: number; guest?: number }>();
-      for (const line of lines) {
-        const variantId = Number(line.variantId);
-        const entry = byVariant.get(variantId) ?? { productId: Number(line.productId) };
-        const qty = Number(line.quantity);
-        if (Number(line.cartId) === account.id) entry.account = Math.max(entry.account ?? 0, qty);
-        else entry.guest = Math.max(entry.guest ?? 0, qty);
-        byVariant.set(variantId, entry);
-      }
-
-      for (const [variantId, quantities] of byVariant) {
-        if (quantities.guest == null) continue;
-        const product = await CartService.productForCart(quantities.productId, conn, false, variantId);
-        if (!product || product.variantId == null || Number(product.variantActive) !== 1) continue;
-        const quantity = mergeQuantity(quantities.account, quantities.guest, lineLimits(product));
-        await conn.query(`DELETE FROM cart_items WHERE CartID = ? AND VariantID = ?`, [account.id, variantId]);
-        await conn.query(
-          `INSERT INTO cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
-           VALUES (?, ?, ?, CURDATE(), CURTIME())`,
-          [account.id, variantId, quantity]
+      account = await CartService.activeCart({ userId: id }, conn, true);
+      if (isUsableSessionId(sessionId)) {
+        const [guests] = await conn.query<any[]>(
+          `SELECT ID as id FROM carts
+           WHERE SessionID = ? AND UserID IS NULL AND Status = 'active'
+           FOR UPDATE`,
+          [sessionId]
         );
-      }
+        if (guests.length) {
+          const guestIds = guests.map((g) => Number(g.id));
+          const [lines] = await conn.query<any[]>(
+            `SELECT ci.CartID as cartId, ci.VariantID as variantId, pv.ProductID as productId, ci.Quantity as quantity
+             FROM cart_items ci JOIN product_variants pv ON pv.ID = ci.VariantID
+             WHERE ci.CartID IN (?)`,
+            [[account.id, ...guestIds]]
+          );
+          const grouped = groupMergeLines(
+            lines.map(
+              (line): MergeSourceLine => ({
+                side: Number(line.cartId) === account!.id ? 'account' : 'guest',
+                variantId: Number(line.variantId),
+                productId: Number(line.productId),
+                quantity: Number(line.quantity),
+              })
+            )
+          );
 
-      await conn.query(`DELETE FROM cart_items WHERE CartID IN (?)`, [guestIds]);
-      await conn.query(
-        `UPDATE carts SET Status = 'merged', UpdatedDate = CURDATE(), UpdatedTime = CURTIME() WHERE ID IN (?)`,
-        [guestIds]
-      );
+          for (const [variantId, quantities] of variantsToTransfer(grouped)) {
+            const product = await CartService.productForCart(quantities.productId, conn, false, variantId);
+            if (!product || product.variantId == null || Number(product.variantActive) !== 1) continue;
+            const quantity = mergeQuantity(quantities.account, quantities.guest, lineLimits(product));
+            await conn.query(`DELETE FROM cart_items WHERE CartID = ? AND VariantID = ?`, [account.id, variantId]);
+            await conn.query(
+              `INSERT INTO cart_items (CartID, VariantID, Quantity, CreatedDate, CreatedTime)
+               VALUES (?, ?, ?, CURDATE(), CURTIME())`,
+              [account.id, variantId, quantity]
+            );
+          }
+
+          await conn.query(`DELETE FROM cart_items WHERE CartID IN (?)`, [guestIds]);
+          // Do not set UpdatedDate here — older Store dumps omit those columns on `carts`
+          // (see server/sql/carts_userid_logical_fk.sql). Status is enough for merge.
+          await conn.query(`UPDATE carts SET Status = 'merged' WHERE ID IN (?)`, [guestIds]);
+        }
+      }
       await conn.commit();
     } catch (err) {
       await conn.rollback();
@@ -374,7 +445,7 @@ export class CartService {
     } finally {
       conn.release();
     }
-    return CartService.pricedCart(account);
+    return CartService.pricedCart(account!);
   }
 
   /**

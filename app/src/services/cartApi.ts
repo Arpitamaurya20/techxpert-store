@@ -1,11 +1,14 @@
 import { loadCartSessionId, saveCartSessionId } from '@/state/cartSession';
+import { accountCartLinked, setAccountCartLinked } from '@/state/cartLink';
 import { getAuthToken } from '@/state/sessionStore';
 
 import { ApiError, apiGet, apiPost, apiPut } from './apiClient';
+import { guestSessionHeader, preferCartAfterMerge, shouldPersistGuestSession } from './cartAuthPolicy';
 import { asId, asList, asNumber, asRecord, asText } from './normalize';
 
 /**
- * Server cart (JSON; Bearer token when signed in, `x-session-id` for guests):
+ * Server cart (JSON). Guests send `x-session-id`. After merge, cart calls send the
+ * Store JWT and no guest session. `apiClient` attaches `Authorization`.
  *
  *   GET    /cart                       → priced cart
  *   PUT    /cart/items/:productId      { quantity }  (0 removes) → priced cart
@@ -104,7 +107,8 @@ function normalizeCart(raw: unknown): ServerCart {
     throw new ApiError('INVALID_RESPONSE', 'We could not load your cart. Please try again.');
   }
   const sessionId = asText(record.sessionId);
-  if (sessionId && !getAuthToken()) saveCartSessionId(sessionId);
+  // Account replies must not replace the guest key. Merge retries still need it.
+  if (sessionId && shouldPersistGuestSession(Boolean(getAuthToken()))) saveCartSessionId(sessionId);
 
   const totals = asRecord(record.totals);
   return {
@@ -123,11 +127,16 @@ function normalizeCart(raw: unknown): ServerCart {
   };
 }
 
-/** The guest cart key header, sent on every cart request (and checkout) when not signed in. */
+/**
+ * Guest session header only. Empty once the account cart is linked — the JWT is
+ * added by `apiClient`, and the guest session must not be sent as the owner.
+ */
 export async function cartHeaders(): Promise<Record<string, string>> {
-  if (getAuthToken()) return {};
-  const id = await loadCartSessionId();
-  return id ? { 'x-session-id': id } : {};
+  return guestSessionHeader({
+    token: getAuthToken(),
+    sessionId: await loadCartSessionId(),
+    accountLinked: accountCartLinked(),
+  });
 }
 
 async function requestCart(): Promise<ServerCart> {
@@ -136,9 +145,9 @@ async function requestCart(): Promise<ServerCart> {
 
 let guestStart: Promise<ServerCart> | null = null;
 
-/** A guest's first request creates the cart and its key, so only one may run. */
+/** Loads the device guest cart (creates one on first call). */
 export async function fetchCart(): Promise<ServerCart> {
-  if (getAuthToken() || (await loadCartSessionId())) return requestCart();
+  if (await loadCartSessionId()) return requestCart();
   guestStart ??= requestCart().finally(() => {
     guestStart = null;
   });
@@ -146,7 +155,7 @@ export async function fetchCart(): Promise<ServerCart> {
 }
 
 async function ensureGuestSession() {
-  if (!getAuthToken() && !(await loadCartSessionId())) await fetchCart();
+  if (!(await loadCartSessionId())) await fetchCart();
 }
 
 export async function putCartLine(productId: string, quantity: number, variantId?: string): Promise<ServerCart> {
@@ -160,9 +169,33 @@ export async function putCartLine(productId: string, quantity: number, variantId
   );
 }
 
-/** After sign-in: moves this device's guest cart into the account cart. */
-export async function mergeGuestCart(): Promise<ServerCart> {
+/** Server-issued guest keys only — reject junk so merge does not 500 on bad input. */
+function isUsableSessionId(value: string | undefined): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{32,128}$/.test(value);
+}
+
+/**
+ * After sign-in: merge the original guest session into the account cart, then
+ * GET /cart with the Store JWT. The guest session stays saved for a retry.
+ */
+export async function adoptAccountCart(): Promise<ServerCart> {
   const sessionId = await loadCartSessionId();
-  if (!sessionId) return fetchCart();
-  return normalizeCart(await apiPost('/cart/merge', { sessionId }));
+  let merged: ServerCart | null = null;
+  if (isUsableSessionId(sessionId)) {
+    merged = normalizeCart(await apiPost('/cart/merge', { sessionId }));
+  }
+  setAccountCartLinked(true);
+  try {
+    const account = await requestCart();
+    return preferCartAfterMerge(
+      merged ? { id: merged.id, lineCount: merged.lines.length } : null,
+      { id: account.id, lineCount: account.lines.length }
+    ) === 'merged' && merged
+      ? merged
+      : account;
+  } catch (error) {
+    if (merged) return merged;
+    setAccountCartLinked(false);
+    throw error;
+  }
 }
