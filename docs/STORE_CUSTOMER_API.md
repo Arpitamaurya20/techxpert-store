@@ -13,7 +13,8 @@
 
 **Everything else (browse/CMS/search/wishlist/help/…)** → keep **BLUE** until promote.  
 
-Full table: [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) host map. JWT and cart are **host-scoped** — do not send a GREEN token to BLUE.
+Full table: [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) host map. JWT and cart are **host-scoped** — do not send a GREEN token to BLUE.  
+How to persist JWT vs guest `SessionID`: [`APP_AUTH_AND_CART_SESSION.md`](./APP_AUTH_AND_CART_SESSION.md).
 
 **Identity:** Shared `homecare.users` — one phone login is one `user_id` for Homecare bookings **and** Store materials.
 
