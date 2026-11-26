@@ -95,9 +95,9 @@ curl -sS -D - -o /dev/null -X OPTIONS \
 | Schema | Status |
 |---|---|
 | Local `techxpertstore` (blue) | **Clean** — 0 UserID→`users` FKs (verified 2026-11-25) |
-| Local `techxpertstore_green` | **Clean** — 0 UserID→`users` FKs (verified 2026-11-25) |
-| VPS blue `techxpertstore` | Re-run the SELECT in the plan / apply `drop_cart_user_fk.sql` if any rows remain before treating merge as production-safe |
-| VPS green `techxpertstore_green` | Same check after each green schema refresh |
+| Local `techxpertstore_green` | N/A on laptop (schema not present locally) |
+| VPS green `techxpertstore_green` | **Fixed 2026-11-26** — dropped `orders.fk_order_user` (was causing PayU/COD checkout 503). Script kept at `/var/www/green-node/store/server/sql/drop_cart_user_fk.sql` |
+| VPS blue `techxpertstore` | Re-check before blue promote; apply same script if any UserID→`users` FKs remain |
 
 Full dual-sided handover: [`APP_TEAM_GREEN_HANDOVER.md`](./APP_TEAM_GREEN_HANDOVER.md).
 
