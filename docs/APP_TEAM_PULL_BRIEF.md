@@ -199,7 +199,33 @@ curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 | OTP never arrives | SMS config on server; local/dev may use documented test OTP |
 | PayU 503 not configured | Store green `.env` `PAYU_*` — backend/ops |
 | PayU hash / paid never sticks | Backend settlement / PayU surl-furl — not Expo |
+| **PayU dashboard shows success, but app stays pending** | **Backend / green — not Expo.** See note below. |
 | 401 after resume | App must clear session and re-login; token expired or bad storage |
+
+### Known green gap (2026-11-26) — PayU verify does not settle
+
+**Owner: backend / ops on `apitest` (green). App team: do not “fix” this in Expo.**
+
+Observed while the Expo app correctly called `POST /payments/payu/verify` then `GET /orders/:id` (UC-10b):
+
+- PayU merchant / test dashboard showed the transaction as **successful**.
+- Green verify still returned HTTP 200 with a body like:
+
+```json
+{
+  "success": true,
+  "data": {
+    "reconciled": false,
+    "orderId": 30,
+    "payuStatus": "pending"
+  }
+}
+```
+
+- `success: true` here only means the verify **route** succeeded. It does **not** mean the order is paid.
+- `reconciled: false` + `payuStatus: "pending"` means green has **not** marked the Store order paid, so the app must keep showing pending (polling alone cannot invent `paymentStatus: "paid"`).
+
+**Backend should check:** PayU `surl`/`furl` settlement on green, verify API command/hash/`txnid` mapping vs the dashboard txn, and that verify updates `orders.PaymentStatus` to `paid` when PayU reports success. Until that lands, Expo will correctly stay on “payment pending” after check status.
 
 ---
 

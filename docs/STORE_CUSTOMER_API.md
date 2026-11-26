@@ -130,6 +130,10 @@ PayU place → order `paymentStatus=pending`, `status=pending` (awaiting payment
 
 Green `surl`/`furl` point at apitest `/payments/payu/success` and `/failure` (also under `/api/...`). App team opens PayU with `payuPayload` or loads `checkout_html` in a WebView; after return call verify then `GET /orders/:id`.
 
+**Verify contract for the app:** treat the order as paid only when `GET /orders/:id` has `paymentStatus: "paid"` (or verify’s payload clearly reports a paid/captured status that the server has applied). Do **not** treat top-level `"success": true` on verify as payment success.
+
+**Known green gap (flag for backend — 2026-11-26):** PayU dashboard can show the txn successful while `POST /payments/payu/verify` still returns `{ reconciled: false, payuStatus: "pending" }` and the order stays unpaid. That is a green settle/verify mapping issue (`surl` / PayU verify), not an Expo bug. See [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) §5.
+
 **Abandoned PayU:** unpaid orders stay pending/failed; staff cancel restores stock. No auto-cancel job yet.
 
 ### Orders (`/orders`)
