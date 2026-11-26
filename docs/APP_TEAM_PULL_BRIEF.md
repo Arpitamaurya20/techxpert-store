@@ -202,14 +202,18 @@ curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 | **PayU dashboard shows success, but app stays pending** | **Backend / green — not Expo.** See note below. |
 | 401 after resume | App must clear session and re-login; token expired or bad storage |
 
-### Known green gap (2026-11-26) — PayU verify does not settle
+### Known green gap (2026-11-26) — PayU callbacks / verify do not settle Store orders
 
 **Owner: backend / ops on `apitest` (green). App team: do not “fix” this in Expo.**
 
-Observed while the Expo app correctly called `POST /payments/payu/verify` then `GET /orders/:id` (UC-10b):
+**Cause (ops):** Store `PAYU_SUCCESS_URL` / `PAYU_FAILURE_URL` were not reliably hitting Store `apitest.jiotechxpert.com` (callbacks could go to Homecare `techxpertindia`). Ops is correcting that env.
 
-- PayU merchant / test dashboard showed the transaction as **successful**.
-- Green verify still returned HTTP 200 with a body like:
+**App contract:** after verify, mark paid **only** when `GET /orders/:id` → `paymentStatus: "paid"`. Never treat verify’s top-level `"success": true` as paid.
+
+Observed while Expo correctly called verify then GET order (UC-10b):
+
+- PayU dashboard showed the txn **successful**.
+- Green verify still returned HTTP 200 like:
 
 ```json
 {
@@ -222,11 +226,9 @@ Observed while the Expo app correctly called `POST /payments/payu/verify` then `
 }
 ```
 
-- `success: true` here only means the verify **route** succeeded. It does **not** mean the order is paid.
-- `reconciled: false` + `payuStatus: "pending"` means green has **not** marked the Store order paid, so the app must keep showing pending (polling alone cannot invent `paymentStatus: "paid"`).
+- `success: true` = verify **route** ok, not order paid. `reconciled: false` + `payuStatus: "pending"` = Store order not settled.
 
-**Backend should check:** PayU `surl`/`furl` settlement on green, verify API command/hash/`txnid` mapping vs the dashboard txn, and that verify updates `orders.PaymentStatus` to `paid` when PayU reports success. Until that lands, Expo will correctly stay on “payment pending” after check status.
-
+**Hold fresh PayU tests** until ops confirms the callback URLs. Old pending orders (e.g. 27–30) may stay unpaid — use a **new** checkout after go-ahead.
 ---
 
 ## 6. Done for app team (this slice)

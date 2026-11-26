@@ -130,9 +130,9 @@ PayU place → order `paymentStatus=pending`, `status=pending` (awaiting payment
 
 Green `surl`/`furl` point at apitest `/payments/payu/success` and `/failure` (also under `/api/...`). App team opens PayU with `payuPayload` or loads `checkout_html` in a WebView; after return call verify then `GET /orders/:id`.
 
-**Verify contract for the app:** treat the order as paid only when `GET /orders/:id` has `paymentStatus: "paid"` (or verify’s payload clearly reports a paid/captured status that the server has applied). Do **not** treat top-level `"success": true` on verify as payment success.
+**Verify contract for the app:** after `POST /payments/payu/verify`, treat the order as **paid only** when `GET /orders/:id` has `paymentStatus: "paid"`. Do **not** treat verify’s top-level `"success": true` (or `payuStatus` alone) as payment success.
 
-**Known green gap (flag for backend — 2026-11-26):** PayU dashboard can show the txn successful while `POST /payments/payu/verify` still returns `{ reconciled: false, payuStatus: "pending" }` and the order stays unpaid. That is a green settle/verify mapping issue (`surl` / PayU verify), not an Expo bug. See [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) §5.
+**Known green gap (flag for backend — 2026-11-26):** PayU dashboard can show the txn successful while verify returns `{ reconciled: false, payuStatus: "pending" }` and the order stays unpaid. Ops is correcting Store `PAYU_SUCCESS_URL` / `PAYU_FAILURE_URL` so callbacks hit Store `apitest.jiotechxpert.com` (not Homecare `techxpertindia`). Until that env is confirmed, hold fresh PayU app tests; old pending orders may stay unpaid — use a **new** checkout after go-ahead. See [`APP_TEAM_PULL_BRIEF.md`](./APP_TEAM_PULL_BRIEF.md) §5.
 
 **Abandoned PayU:** unpaid orders stay pending/failed; staff cancel restores stock. No auto-cancel job yet.
 
