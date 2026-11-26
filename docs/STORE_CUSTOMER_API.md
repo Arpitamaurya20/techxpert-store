@@ -112,7 +112,7 @@ Every path also exists under `/api/...`.
 | DELETE | `/cart/items/:id` | Guest+ (legacy) | `cart` |
 | DELETE | `/cart` | Guest+ | `cart` |
 | POST | `/cart/reorder` | Guest+ (needs user for reorder) | `cart` |
-| POST | `/cart/merge` | **Customer** | `cart` |
+| POST | `/cart/merge` | **Customer** | `cart` — body `{ sessionId }`; **await after OTP before any cart read**. See [`APP_AUTH_AND_CART_SESSION.md`](./APP_AUTH_AND_CART_SESSION.md) mandatory sequence. Response may include `guestCartFound` / `alreadyMerged`. |
 | POST | `/cart/checkout` | Guest+ / Customer | `cart` + `checkout` |
 
 Checkout body: `expectedTotal` required; `paymentMethod` = `"COD"` (default) or `"PayU"`. Signed-in prefer `addressId`; guests send `shippingAddress` + `guestName` + `guestPhone` (**PayU requires signed-in**). Optional `Idempotency-Key`. Exchange forces `order_channel=homecare_app`.

@@ -53,14 +53,31 @@ POST /auth/send-otp   { phone }           → 200 (SMS) or 503 if Store SMS env 
 POST /auth/verify-otp { phone, otp, … }   → { token, user }   ← top-level, not under data
 ```
 
-Then app must:
-
-1. `setSession({ token, user })` — memory **and** SecureStore (native).  
-2. Attach `Authorization: Bearer <token>` on all subsequent API calls to **that same host**.  
-3. Call `POST /cart/merge` with `{ sessionId: <guest id from AsyncStorage> }` once after sign-in so guest lines move into the user cart.  
-4. Keep the guest SessionID until merge succeeds; then you may clear it (optional; merge is idempotent enough for retries).
-
 Do **not** call `POST /auth/login` on green/prod (403).
+
+## Mandatory sequence after OTP (app)
+
+1. Persist guest SessionID before login (from prior cart responses). **Do not rotate it.**
+2. `POST /auth/verify-otp` → `{ token, user }`
+3. Persist JWT (`setSession`)
+4. **Await** `POST /cart/merge` `{ "sessionId": "<same guest id>" }` + `Authorization: Bearer <token>`
+5. Only then: `GET /cart`, home badge, checkout navigation
+
+Never: `verify-otp` → navigate → fire merge and `GET /cart` in parallel.
+
+Optional after **successful** merge: clear guest SessionID from device storage. Keep it on merge **401/5xx** so retry can still find the guest bag.
+
+## Chaos triage (login / cart)
+
+| Mode | Symptom | Likely cause | Client action |
+|---|---|---|---|
+| A | Signed in, empty cart; guest lines still under old SessionID | Merge never called | Await merge before cart UI |
+| B | Merge 200 but lines gone | SessionID rotated at login | Never regenerate SessionID on OTP |
+| C | Flaky empty then full | Race: GET /cart before merge done | Block UI on merge |
+| D | Double merge / toast twice | Remount / retry | Idempotent server + debounce UI |
+| E | 401 on merge | Dead/missing Bearer | Clear JWT only; **keep** SessionID; re-auth |
+| F | Merge 5xx / FK | `fk_cart_user` still present | Ops: `drop_cart_user_fk.sql`; app shows retry |
+| G | “Why send sessionId if we have JWT?” | Mental model | Doc: JWT ≠ guest bag |
 
 ### C. App launch (hydrate)
 
